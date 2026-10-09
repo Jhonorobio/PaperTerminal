@@ -5,21 +5,12 @@ import { AppProvider } from '@/state/app';
 import { DarkTheme, Stack, ThemeProvider, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import * as Notifications from 'expo-notifications';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AlertOverlay } from '@/components/alert-toast';
+import { initPushHandlers } from '@/lib/notifications';
 
 SplashScreen.preventAutoHideAsync();
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-  }),
-});
 
 /** The extension is dark-only, so the navigation theme is pinned to the same palette. */
 const PaperTheme = {
@@ -38,15 +29,16 @@ const PaperTheme = {
 export default function RootLayout() {
   const router = useRouter();
 
-  // A system push (app closed or backgrounded) opens Trade with its token.
+  // System push (dev builds only — Expo Go dropped remote push in SDK 53): a tapped push
+  // opens Trade with its token. In Expo Go this is a safe no-op.
   useEffect(() => {
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = (response.notification.request.content.data ?? {}) as { address?: string; symbol?: string | null };
-      if (data.address) {
-        router.push(`/trade?address=${encodeURIComponent(data.address)}${data.symbol ? `&symbol=${encodeURIComponent(data.symbol)}` : ''}` as never);
-      }
+    let cleanup: (() => void) | undefined;
+    void initPushHandlers((data) => {
+      router.push(`/trade?address=${encodeURIComponent(data.address ?? '')}${data.symbol ? `&symbol=${encodeURIComponent(data.symbol)}` : ''}` as never);
+    }).then((fn) => {
+      cleanup = fn;
     });
-    return () => sub.remove();
+    return () => cleanup?.();
   }, [router]);
 
   return (

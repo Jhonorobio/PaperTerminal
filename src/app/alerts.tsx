@@ -18,6 +18,7 @@ import {
   alertDeepLink,
   fetchHistory,
   loadConfig,
+  pushAvailable,
   saveCategories,
   sendTestAlert,
   type AlertCategory,
@@ -62,6 +63,7 @@ export default function AlertsScreen() {
   const [editing, setEditing] = useState<AlertCategory>('fomo_graduated');
   const [history, setHistory] = useState<AlertHistoryEntry[]>([]);
   const [registered, setRegistered] = useState(false);
+  const [pushOk, setPushOk] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
 
   // Load config + history whenever the server URL changes. State updates live inside the async
@@ -69,6 +71,9 @@ export default function AlertsScreen() {
   useEffect(() => {
     let live = true;
     void (async () => {
+      void pushAvailable().then((ok) => {
+        if (live) setPushOk(ok);
+      });
       const config = await loadConfig(settings.serverBase);
       if (!live) return;
       if (config.registered) {
@@ -137,6 +142,7 @@ export default function AlertsScreen() {
 
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         {problem ? <Banner kind="err">{problem}</Banner> : null}
+        {!pushOk ? <Banner kind="ok">Push del sistema no disponible en Expo Go — las alertas te llegan con el panel flotante en la app. Con una development build se suma la push.</Banner> : null}
 
         <Card style={{ padding: 14, gap: 12 }}>
           <Text style={styles.groupTitle}>Categorías</Text>

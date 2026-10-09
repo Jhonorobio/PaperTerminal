@@ -133,7 +133,10 @@ router.put('/notifications/config', (req, res) => {
   try {
     const id = deviceId(req);
     const { push_token, categories, filters } = req.body ?? {};
-    if (!isValidPushToken(push_token)) throw Object.assign(new Error('Invalid Expo push token'), { status: 400 });
+    // A device without a push token is panel-only: it still receives alerts over its private
+    // WS topic (Expo Go can't do remote push since SDK 53, but the in-app panel works).
+    const hasPush = isValidPushToken(push_token);
+    if (push_token && !hasPush) throw Object.assign(new Error('Invalid Expo push token'), { status: 400 });
 
     const cats = {};
     for (const key of CATEGORIES) cats[key] = Boolean(categories?.[key]);
@@ -145,7 +148,7 @@ router.put('/notifications/config', (req, res) => {
 
     const entry = {
       device_id: id,
-      push_token,
+      push_token: hasPush ? push_token : null,
       categories: cats,
       filters: { ...(existing?.filters ?? {}), ...cleanFilters },
       updated_at: new Date().toISOString(),

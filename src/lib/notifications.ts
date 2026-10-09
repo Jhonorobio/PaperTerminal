@@ -11,10 +11,32 @@
  */
 
 import Constants from 'expo-constants';
-import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
 import { getDeviceId } from './device-id';
+
+/**
+ * expo-notifications is loaded lazily and defensively: since SDK 53, importing it inside
+ * Expo Go on Android throws at module load ("remote notifications removed from Expo Go"),
+ * which would take the whole app down. The in-app alert panel does not need it — it rides
+ * the server's WebSocket — so only the *system push* path pays for this import, and it
+ * fails with a readable message instead of a crash.
+ */
+let notificationsModule: typeof import('expo-notifications') | null = null;
+let notificationsChecked = false;
+
+async function notifications() {
+  if (notificationsChecked) return notificationsModule;
+  notificationsChecked = true;
+  try {
+    notificationsModule = await import('expo-notifications');
+  } catch {
+    notificationsModule = null;
+  }
+  return notificationsModule;
+}
+
+const inExpoGo = Constants.executionEnvironment === 'storeClient';
 
 export const ALERT_CATEGORIES = ['fomo_graduated', 'fomo_trending', 'photon_new', 'photon_graduated'] as const;
 export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
@@ -64,6 +86,15 @@ async function call<T>(base: string, path: string, init?: RequestInit): Promise<
  * projectId comes from app.json's extra.eas.projectId; a dev build reads its own.
  */
 export async function registerForPush(): Promise<string> {
+  const Notifications = await notifications();
+  if (!Notifications || inExpoGo) {
+    throw new Error(
+      inExpoGo
+        ? 'Las notificaciones push requieren una development build (Expo Go ya no las soporta desde SDK 53). El panel de alertas en la app sigue funcionando.'
+        : 'No se pudo cargar el módulo de notificaciones.',
+    );
+  }
+
   const settings = await Notifications.getPermissionsAsync();
   let granted = settings.granted;
   if (!granted) {
@@ -83,6 +114,34 @@ export async function registerForPush(): Promise<string> {
   const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
   const token = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
   return token.data;
+}
+
+/** True when system push is available here (dev build, not Expo Go). */
+export async function pushAvailable(): Promise<boolean> {
+  return (await notifications()) != null && !inExpoGo;
+}
+
+/**
+ * Sets the foreground presentation and wires the "push tapped" deep link. No-op where the
+ * module is unavailable (Expo Go), so importing this is always safe.
+ */
+export async function initPushHandlers(onOpen: (data: { address?: string; symbol?: string | null }) => void): Promise<() => void> {
+  const Notifications = await notifications();
+  if (!Notifications || inExpoGo) return () => {};
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+    }),
+  });
+  const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+    const data = (response.notification.request.content.data ?? {}) as { address?: string; symbol?: string | null };
+    if (data.address) onOpen(data);
+  });
+  return () => sub.remove();
 }
 
 export interface NotificationConfig {
@@ -108,9 +167,18 @@ function toServerFilters(filters: AlertFilters): AlertFilters {
   return out;
 }
 
-/** Registers (or refreshes) this device: push token + which categories alert. */
+/**
+ * Registers (or refreshes) this device: push token + which categories alert.
+ * When system push is unavailable (Expo Go), the device is registered panel-only:
+ * categories and filters still apply, alerts arrive over the private WS topic.
+ */
 export async function saveCategories(base: string, categories: Record<AlertCategory, boolean>, filters?: AlertFilters): Promise<void> {
-  const pushToken = await registerForPush();
+  let pushToken: string | null = null;
+  try {
+    pushToken = await registerForPush();
+  } catch {
+    pushToken = null;
+  }
   await call(base, '/api/notifications/config', {
     method: 'PUT',
     body: JSON.stringify({ push_token: pushToken, categories, filters: filters ? toServerFilters(filters) : undefined }),
