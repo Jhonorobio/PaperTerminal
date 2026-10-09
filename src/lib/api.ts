@@ -1,193 +1,159 @@
 /**
- * API client. Ported from `1.0.1_0/src/services/api.js` + the `api`/`auth` handlers of
- * `1.0.1_0/src/background/service-worker.js`.
- * The background worker is gone, so this module does its job directly:
- *   - it attaches `Authorization: Bearer <sessionToken>` (the worker's `request()` did that);
- *   - it keeps the session in `storage.ts` (was `chrome.storage.local`);
- *   - it bumps the portfolio version after a mutation (was `bumpPortfolioVersion`);
- *   - Google sign-in runs the OAuth flow in a system browser (was `chrome.identity`), but the
- *     server contract is unchanged: it receives `{ accessToken }` and answers `{ sessionToken, user }`.
+ * API client — local implementation. The app used to talk to a hosted paper server over HTTP with
+ * a bearer token; it now keeps the user, the paper account and every fill on the device. The
+ * exported surface is byte-for-byte the same contract the screens were built against, so no screen
+ * changed: `api.*` methods, `ApiError` codes, `TradeResult`, the auth flows and
+ * `newClientRequestId` all behave as before.
+ *
+ * Where each piece lives now:
+ *   prices ....... `./market` (Azura WSS; a fallback provider can be registered later)
+ *   economics ... `./engine` (pure: fills, portfolio, trading style)
+ *   persistence . `./store`  (AsyncStorage record: user, account, positions, trades, closed trades)
  */
+
 import { AuthRequest, exchangeCodeAsync, makeRedirectUri, ResponseType } from 'expo-auth-session';
 import { Platform } from 'react-native';
 
-import { DEFAULT_SERVER_URL } from './config';
-import { bumpPortfolioVersion, clearSession, getSession, setSession } from './storage';
-import type {
-  Account,
-  Asset,
-  ClosedTrade,
-  ExportedFile,
-  Me,
-  Portfolio,
-  Position,
-  Quote,
-  ServerConfig,
-  SessionUser,
-  Trade,
-} from './types';
+import { ApiError } from './errors';
+import { bumpPortfolioVersion, clearSession } from './storage';
+import { store } from './store';
+import { fetchQuote } from './market';
+import type { Asset, ExportedFile, Position, ServerConfig, SessionUser, Trade } from './types';
 
-export class ApiError extends Error {
-  status: number;
-  code: string;
-  details?: unknown;
-
-  constructor(status: number, code: string, message: string, details?: unknown) {
-    super(message);
-    this.status = status;
-    this.code = code;
-    this.details = details;
-  }
-}
-
-export interface ErrorBody {
-  error?: { code?: string; message?: string; details?: unknown };
-}
-
-const SERVER_URL = DEFAULT_SERVER_URL.replace(/\/+$/, '');
-
-/**
- * The worker had no timeout at all; 15s was stricter than reality, because Railway sleeps when
- * idle and the first request against a cold instance takes 20-30s. That turned the very first
- * call into a guaranteed failure, so this now covers a full cold start.
- */
-const REQUEST_TIMEOUT_MS = 30_000;
-
-/** Idempotency key for trades, so a retried tap cannot double-fill. */
-export function newClientRequestId(): string {
-  return `pt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-type Method = 'GET' | 'POST';
-
-async function request<T>(
-  method: Method,
-  path: string,
-  body?: unknown,
-  opts: { raw?: boolean; token?: string } = {},
-): Promise<T> {
-  const session = await getSession();
-  // `opts.token` checks a candidate token against the server without touching the stored session.
-  const token = opts.token ?? session?.token;
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (body !== undefined && body !== null) headers['Content-Type'] = 'application/json';
-
-  let response: Response;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    try {
-      response = await fetch(SERVER_URL + path, {
-        method,
-        headers,
-        body: body === undefined || body === null ? undefined : JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch (err) {
-    const detail = err instanceof Error ? ` (${err.message})` : '';
-    throw new ApiError(0, 'SERVER_UNREACHABLE', `Paper server is unreachable${detail}.`, err);
-  }
-
-  if (opts.raw) {
-    if (!response.ok) throw new ApiError(response.status, 'HTTP_ERROR', `Request failed (${response.status}).`);
-    return (await response.text()) as T;
-  }
-
-  const data = (await response.json().catch(() => null)) as (ErrorBody & Record<string, unknown>) | null;
-  if (!response.ok) {
-    // Only drop the session this request actually used; a newer sign-in survives a stale 401.
-    if (response.status === 401 && session) {
-      const current = await getSession();
-      if (current?.token === session.token) await clearSession();
-    }
-    const err = data?.error ?? {};
-    throw new ApiError(
-      response.status,
-      err.code || 'HTTP_ERROR',
-      err.message || `Request failed (${response.status}).`,
-      err.details,
-    );
-  }
-  return data as T;
-}
-
-const qs = (params: Record<string, string | number | undefined | null>) => {
-  const s = new URLSearchParams(
-    Object.entries(params)
-      .filter(([, v]) => v !== undefined && v !== null && v !== '')
-      .map(([k, v]) => [k, String(v)]),
-  ).toString();
-  return s ? `?${s}` : '';
-};
-
-// Paths the extension's ALLOWED list let through the bridge. Same set here, for the same reason.
-const MUTATIONS = /^\/api\/(trades|positions\/close|account\/start|account\/reset|account\/delete)$/;
-
-export const api = {
-  config: () => request<ServerConfig>('GET', '/api/config'),
-  health: () => request<{ ok?: boolean }>('GET', '/api/health'),
-  me: () => request<Me>('GET', '/api/me'),
-  /** Checks a pasted bearer token against the server; leaves whatever session is stored alone. */
-  verifyToken: (token: string) => request<Me>('GET', '/api/me', undefined, { token }),
-  quote: (asset: Asset) => request<{ quote: Quote }>('GET', `/api/quote${qs({ chain: asset.chain, address: asset.address })}`),
-  tokenLogo: (chain: string, address: string) => request<{ dataUrl?: string }>('GET', `/api/token-logo${qs({ chain, address })}`),
-  priceHistory: (chain: string, address: string, from?: number, to?: number) =>
-    request<{ points: unknown[] }>('GET', `/api/price-history${qs({ chain, address, from, to })}`),
-  assetState: (asset: Asset) =>
-    request<{ quote: Quote; position: Position | null }>('GET', `/api/asset-state${qs({ chain: asset.chain, address: asset.address })}`),
-  portfolio: () => request<Portfolio>('GET', `/api/portfolio${qs({ tzOffset: new Date().getTimezoneOffset() })}`),
-  trades: (filters: Record<string, string | number | undefined> = {}) => request<{ trades: Trade[] }>('GET', `/api/trades${qs(filters)}`),
-  closedTrades: (filters: Record<string, string | number | undefined> = {}) => request<{ closedTrades: ClosedTrade[] }>('GET', `/api/closed-trades${qs(filters)}`),
-  trade: (body: Record<string, unknown>) => call('POST', '/api/trades', body) as Promise<TradeResult>,
-  closePosition: (body: Record<string, unknown>) => call('POST', '/api/positions/close', body) as Promise<TradeResult>,
-  consent: (body: Record<string, unknown>) => call('POST', '/api/consent', body),
-  deleteAccount: async () => {
-    const data = await call('POST', '/api/account/delete');
-    // Deleting the account kills the session with it; drop it so the UI signs out cleanly.
-    await clearSession();
-    return data;
-  },
-  updateProfile: async (body: { displayName?: string; photoUrl?: string | null }) => {
-    const data = await call('POST', '/api/profile', body) as { user?: SessionUser };
-    // Keep the stored session in step, so every surface shows the new username or picture.
-    if (data?.user) {
-      const session = await getSession();
-      if (session) await setSession({ ...session, user: data.user });
-    }
-    return data;
-  },
-  startAccount: (startingBalance: number) => call('POST', '/api/account/start', { startingBalance }) as Promise<{ account: Account }>,
-  resetAccount: (startingBalance: number) => call('POST', '/api/account/reset', { startingBalance }) as Promise<{ account: Account }>,
-  export: (format: 'json' | 'csv') => request<ExportedFile>('GET', `/api/export?format=${format === 'csv' ? 'csv' : 'json'}`),
-};
-
-/** POSTs a mutation and tells every screen the portfolio changed — the worker's bump. */
-async function call<T = unknown>(method: Method, path: string, body?: unknown): Promise<T> {
-  const data = await request<T>(method, path, body);
-  if (MUTATIONS.test(path)) await bumpPortfolioVersion();
-  return data;
-}
+export { ApiError } from './errors';
+export type { ErrorBody } from './errors';
 
 export interface TradeResult {
   position: Position | null;
   trade: Trade;
 }
 
+/** Idempotency key for trades, so a retried tap cannot double-fill. */
+export function newClientRequestId(): string {
+  return `pt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export const api = {
+  config: (): Promise<ServerConfig> => Promise.resolve(store.config()),
+  health: () => Promise.resolve({ ok: true }),
+  me: () => store.me(),
+  /** Nothing to verify against — a local build has no server-side token check. */
+  verifyToken: (_token: string) => store.me(),
+  quote: async (asset: Asset) => ({ quote: await fetchQuote(asset) }),
+  tokenLogo: async (chain: string, address: string) => ({
+    dataUrl: (await store.logo({ chain, address, symbol: null })) ?? undefined,
+  }),
+  /**
+   * Historical price series. Azura's feed is live-only (no OHLC), so this returns an empty series.
+   * The chart screen is not wired to it in this build; register a fallback market provider that
+   * serves history and this is where it plugs in.
+   */
+  priceHistory: async (chain: string, address: string, from?: number, to?: number) => ({ points: [] as unknown[] }),
+  assetState: (asset: Asset) => store.assetState(asset),
+  portfolio: () => store.portfolio(new Date().getTimezoneOffset()),
+  trades: async (filters: Record<string, string | number | undefined> = {}) => ({
+    trades: await store.trades((filters.side as 'BUY' | 'SELL' | '' | undefined) ?? ''),
+  }),
+  closedTrades: async () => ({ closedTrades: await store.closedTrades() }),
+  trade: (body: Record<string, unknown>) =>
+    store.executeOrder({
+      chain: String(body.chain),
+      address: String(body.address),
+      side: body.side === 'SELL' ? 'SELL' : 'BUY',
+      clientRequestId: String(body.clientRequestId ?? newClientRequestId()),
+      amountUsd: body.amountUsd != null ? Number(body.amountUsd) : undefined,
+      percent: body.percent != null ? Number(body.percent) : undefined,
+    }) as Promise<TradeResult>,
+  closePosition: (body: Record<string, unknown>) =>
+    store.closePosition(String(body.chain), String(body.address), String(body.clientRequestId ?? newClientRequestId())) as Promise<TradeResult>,
+  consent: (body: Record<string, unknown>) =>
+    store.consent({
+      acceptedTerms: Boolean(body.acceptedTerms),
+      confirmedAge: Boolean(body.confirmedAge),
+    }),
+  deleteAccount: async () => {
+    await store.deleteAccount();
+    // Deleting the account kills the session with it; the store already cleared it.
+  },
+  updateProfile: async (body: { displayName?: string; photoUrl?: string | null }) => ({
+    user: await store.updateProfile(body),
+  }),
+  startAccount: async (startingBalance: number) => ({ account: await store.startAccount(startingBalance) }),
+  resetAccount: async (startingBalance: number) => ({ account: await store.resetAccount(startingBalance) }),
+  export: (format: 'json' | 'csv') => exportFile(format),
+};
+
+// ---------- export ----------
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const fileStamp = (d = new Date()) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+
+const csvCell = (v: unknown): string => {
+  const s = v == null ? '' : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+const TRADE_CSV_COLUMNS = [
+  'id',
+  'timestamp',
+  'side',
+  'symbol',
+  'chainId',
+  'address',
+  'quantity',
+  'executionPrice',
+  'marketPrice',
+  'requestedValue',
+  'fee',
+  'realizedPnl',
+  'cashAfter',
+] as const;
+
+async function exportFile(format: 'json' | 'csv'): Promise<ExportedFile> {
+  const { account, trades, closed } = await store.exportData();
+
+  if (format === 'csv') {
+    const rows = [
+      TRADE_CSV_COLUMNS.join(','),
+      ...trades.map((t) =>
+        TRADE_CSV_COLUMNS.map((c) =>
+          csvCell({
+            id: t.id,
+            timestamp: t.timestamp,
+            side: t.side,
+            symbol: t.symbol ?? '',
+            chainId: t.chainId ?? '',
+            address: t.address ?? '',
+            quantity: t.quantity,
+            executionPrice: t.executionPrice,
+            marketPrice: t.marketPrice ?? '',
+            requestedValue: t.requestedValue ?? '',
+            fee: t.fee ?? 0,
+            realizedPnl: t.realizedPnl ?? '',
+            cashAfter: t.cashAfter ?? '',
+          }[c]),
+        ).join(','),
+      ),
+    ];
+    return {
+      text: rows.join('\n'),
+      contentType: 'text/csv',
+      filename: `paper-terminal-trades-${fileStamp()}.csv`,
+    };
+  }
+
+  return {
+    text: JSON.stringify({ account, trades, closedTrades: closed, exportedAt: new Date().toISOString() }, null, 2),
+    contentType: 'application/json',
+    filename: `paper-terminal-export-${fileStamp()}.json`,
+  };
+}
+
 // ---------- auth ----------
 
 /**
- * True when this build carries a Google client id. The extension hardcodes its Chrome-extension
- * id; here it comes from `EXPO_PUBLIC_GOOGLE_*_CLIENT_ID` in `.env`, so an unconfigured build
- * disables sign-in with an explanatory message instead of failing mid-flow.
- *
- * This deliberately ignores `/api/config`'s `googleClientId`: that one belongs to the extension's
- * Google project and only authorises `https://<ext-id>.chromiumapp.org/` as a redirect, so Google
- * would reject any other origin with `redirect_uri_mismatch`. A standalone app must use an id from
- * its own project.
+ * True when this build carries a Google client id (from `EXPO_PUBLIC_GOOGLE_*_CLIENT_ID`). Without
+ * one, the developer sign-in card is offered instead.
  */
 export const authInfo = {
   googleConfigured: () => Boolean(googleClientId()),
@@ -195,7 +161,7 @@ export const authInfo = {
 
 /**
  * Client id for this platform. Google matches redirect URIs per client, so iOS and Android each
- * need their own; `web` is what Expo Go uses (its redirect is an `exp://` URL).
+ * need their own; `web` is what Expo Go uses.
  */
 function googleClientId(): string {
   if (Platform.OS === 'ios' && process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID) {
@@ -214,13 +180,11 @@ const GOOGLE_DISCOVERY = {
 };
 
 /**
- * Sign in with Google. Same shape as the worker's `runGoogleSignIn`: open the consent screen,
- * take the resulting access token and hand it to the server, which answers with the session.
- *
- * The extension used the implicit flow because a Chrome-extension redirect URI cannot receive a
- * code exchange; here the flow runs in a system browser, so it uses the authorization code flow
- * with PKCE (what Google recommends on native) and sends the *access token* it returns — which is
- * exactly what `/api/auth/google` expects, so the server is untouched.
+ * Sign in with Google. The flow is unchanged from the hosted build (system browser → authorization
+ * code + PKCE); the difference is the last step: instead of handing the access token to a server,
+ * the app reads the profile straight from Google's userinfo endpoint. Identity never leaves the
+ * device, and if userinfo is unreachable the flow fails with a clear message instead of silently
+ * creating a blank account.
  */
 export async function signInWithGoogle(): Promise<{ user: SessionUser }> {
   const clientId = googleClientId();
@@ -261,25 +225,36 @@ export async function signInWithGoogle(): Promise<{ user: SessionUser }> {
   }
   if (!tokens.accessToken) throw new ApiError(0, 'AUTH_FAILED', 'Google did not return an access token.');
 
-  const data = await request<{ sessionToken: string; user: SessionUser }>('POST', '/api/auth/google', { accessToken: tokens.accessToken });
-  await setSession({ token: data.sessionToken, user: data.user });
+  const user = await fetchGoogleProfile(tokens.accessToken);
+  const signedIn = await store.googleSignIn(user);
   await bumpPortfolioVersion();
-  return { user: data.user };
+  return { user: signedIn };
 }
 
-/** Local developer sign-in, only offered when the server answers `devAuth: true`. */
+/** Reads the signed-in profile from Google's userinfo endpoint (no backend in the middle). */
+async function fetchGoogleProfile(accessToken: string): Promise<SessionUser> {
+  try {
+    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+    });
+    if (!res.ok) throw new Error(`userinfo HTTP ${res.status}`);
+    const j = (await res.json()) as { email?: string; name?: string; picture?: string };
+    if (!j.email) throw new Error('userinfo returned no email');
+    return { email: j.email, displayName: j.name ?? undefined, photoUrl: j.picture ?? null };
+  } catch (err) {
+    throw new ApiError(0, 'AUTH_FAILED', `Could not read your Google profile: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** Local developer sign-in. Always offered (`config.devAuth`) since there is no server to guard. */
 export async function signInDev(email: string, name?: string): Promise<{ user: SessionUser }> {
-  const data = await request<{ sessionToken: string; user: SessionUser }>('POST', '/api/auth/dev', { email, name });
-  await setSession({ token: data.sessionToken, user: data.user });
+  if (!email.trim()) throw new ApiError(400, 'INVALID_EMAIL', 'Enter an email to sign in.');
+  const user = await store.devSignIn(email, name);
   await bumpPortfolioVersion();
-  return { user: data.user };
+  return { user };
 }
 
 export async function signOut(): Promise<void> {
-  try {
-    await request('POST', '/api/auth/logout');
-  } catch {
-    // signing out locally is enough
-  }
   await clearSession();
 }
+

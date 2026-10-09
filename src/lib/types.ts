@@ -32,6 +32,10 @@ export interface Quote {
   liquidityUsd?: number | null;
   marketCapUsd?: number | null;
   change24hPct?: number | null;
+  /** Venue the price comes from ('raydium', 'pumpfun', …). Drives the simulated DEX fee. */
+  dex?: string | null;
+  /** Effective trading fee for this token (platform + venue), as a fraction. */
+  feeRate?: number | null;
   source?: string;
   assetId?: string;
   fetchedAt?: string;
@@ -101,6 +105,8 @@ export interface Trade {
   status?: 'open' | 'closed';
   timestamp: string;
   realizedPnl: number | null;
+  /** How far the fill landed from mid, as a percentage (positive = worse price than mid). */
+  impactPct?: number | null;
   total?: number;
   closesPosition?: boolean;
 }
@@ -165,9 +171,20 @@ export interface ServerConfig {
   maxStartingBalance?: number;
   startingBalancePresets?: number[];
   feeRate?: number;
+  /** Slippage tolerance as a fraction (0.005 = 0.5%), capped by the engine. Buy side. */
   slippageRate?: number;
+  /** Buy-side slippage tolerance in percent. Orders past it revert without filling. */
+  slippageBuyPct?: number;
+  /** Sell-side slippage tolerance in percent. */
+  slippageSellPct?: number;
   minTradeUsd?: number;
   maxTradeUsd?: number;
+  /** Hard ceiling for slippage tolerance, in percent. */
+  slippageCapPct?: number;
+  /** Slippage applied when pool liquidity is unknown, in percent. */
+  fallbackSlippagePct?: number;
+  /** Fixed network fee per trade, in USD, charged on top of the order. */
+  networkFeeUsd?: number;
   minimumAge?: number;
   policyVersion?: string;
   marketDataProvider?: string;
@@ -184,4 +201,105 @@ export interface ExportedFile {
   text: string;
   contentType: string;
   filename: string;
+}
+
+// ---------- Photon memescope (via the local APIS server) ----------
+
+export type PhotonColumn = 'col1' | 'col3';
+
+/** One token in a Photon memescope column. */
+export interface PhotonToken {
+  address: string;
+  symbol: string | null;
+  name: string | null;
+  image: string | null;
+  mcap: number | null;
+  liquidity: number | null;
+  volume24h: number | null;
+  buysCount: number | null;
+  holdersCount: number | null;
+  tpHoldersCount: number | null;
+  freshPct: number | null;
+  bundleHolders: number | null;
+  bundlePct: number | null;
+  topHoldersPct: number | null;
+}
+
+export interface PhotonRange {
+  min?: string;
+  max?: string;
+}
+
+/** Per-column filter set — mirrors the server's FILTER_FIELDS. */
+export interface PhotonFilters {
+  age?: PhotonRange;
+  holders?: PhotonRange;
+  tpHolders?: PhotonRange;
+  mktCap?: PhotonRange;
+  buys?: PhotonRange;
+  freshPct?: PhotonRange;
+  bundleHolders?: PhotonRange;
+  bundlePct?: PhotonRange;
+}
+
+export interface PhotonSnapshot {
+  tokens: PhotonToken[];
+  titles: Record<string, string>;
+  ageMs: number | null;
+  error: string | null;
+}
+
+// ---------- FOMO feed (fomo.family) ----------
+
+export type FomoFeedId = 'graduated' | 'trending';
+
+/** One token in a FOMO feed, normalized from the WSS payload. */
+export interface FomoToken {
+  address: string;
+  symbol: string | null;
+  name: string | null;
+  image: string | null;
+  /** Launchpad the token graduated from ('pumpfun', 'believe', …). */
+  launchpad: string | null;
+  /** Creation time, unix seconds. Trending items resolve it via Pulse on demand. */
+  createdAt: number | null;
+  mcap: number | null;
+  price: number | null;
+  vol24: number | null;
+  change24: number | null;
+  holders: number | null;
+  /** Trending rank (position in the feed); undefined on graduated. */
+  rank?: number;
+  /** KOL count, enriched via Pulse only when a KOL filter asks for it. */
+  kolCount?: number | null;
+  /** Local arrival time of the last update. */
+  updatedAt: number;
+}
+
+/** Feed filters, mirroring the server's: every bound is optional. */
+export interface FomoFilters {
+  /** Age window in minutes. */
+  ageMinMin?: number;
+  ageMaxMin?: number;
+  /** Market cap window in USD. */
+  mcapMin?: number;
+  mcapMax?: number;
+  /** KOL count window. */
+  kolMin?: number;
+  kolMax?: number;
+  /** Cap on results (default 200, hard max 1000). */
+  limit?: number;
+}
+
+export interface FomoStatus {
+  connected: boolean;
+  authenticated: boolean;
+  /** Per-feed liveness: subscribed and receiving. */
+  live: boolean;
+  /** Data messages per second arriving from FOMO, over a 5s window. */
+  updatesPerSec: number;
+  graduatedCount: number;
+  trendingCount: number;
+  lastError: string | null;
+  hasRefreshToken: boolean;
 }

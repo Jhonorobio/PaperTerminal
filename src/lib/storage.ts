@@ -4,11 +4,14 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { PAPER_CONFIG } from './engine/rules';
 import { DEFAULT_BUY_PRESETS, DEFAULT_SELL_PRESETS, DEFAULT_SERVER_URL } from './config';
 import type { Asset, Session, SessionUser } from './types';
 
 export interface Settings {
   serverUrl: string;
+  /** Base URL of the feed server (PC: http://192.168.x.x:8787 · prod: Railway URL). */
+  serverBase: string;
   buyPresets: number[];
   sellPresets: number[];
   hideDust: boolean;
@@ -16,17 +19,27 @@ export interface Settings {
   supportCollapsed: boolean;
   /** Set once the user chooses to browse without signing in, so the welcome screen stays gone. */
   guestOk: boolean;
+  /** Slippage tolerance for buys, in percent. Orders that would fill past it revert. */
+  slippageBuyPct: number;
+  /** Slippage tolerance for sells, in percent. */
+  slippageSellPct: number;
+  /** Fixed network fee per trade, in USD (priority + tip + base). */
+  networkFeeUsd: number;
   [key: string]: unknown;
 }
 
 export const DEFAULTS: Settings = {
   serverUrl: DEFAULT_SERVER_URL,
+  serverBase: 'http://localhost:8787',
   buyPresets: DEFAULT_BUY_PRESETS,
   sellPresets: DEFAULT_SELL_PRESETS,
   hideDust: true,
   priceDisplay: 'price',
   supportCollapsed: false,
   guestOk: false,
+  slippageBuyPct: PAPER_CONFIG.slippageBuyPct,
+  slippageSellPct: PAPER_CONFIG.slippageSellPct,
+  networkFeeUsd: PAPER_CONFIG.networkFeeUsd,
 };
 
 const KEYS = { settings: 'settings', session: 'session', recents: 'recentAssets', portfolioVersion: 'portfolioVersion' };

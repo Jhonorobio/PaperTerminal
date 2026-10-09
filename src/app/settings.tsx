@@ -13,6 +13,8 @@ import { CapitalPicker, capitalAmount, capitalError, createCapitalChoice, type C
 import { Banner, Btn, Card, Field, Input, SegTabs } from '@/components/ui';
 import { Palette } from '@/constants/paper';
 import { ApiError, api } from '@/lib/api';
+import { PAPER_CONFIG } from '@/lib/engine/rules';
+import { fetchServerStatus, proxyHint, setFomoProxy, type FomoProxyStatus, type ServerStatus } from '@/lib/server-base';
 import { formatUsd } from '@/lib/format';
 import { NAME_MAX, nameError, suggestedName } from '@/lib/profile';
 import { setSession } from '@/lib/storage';
@@ -65,6 +67,20 @@ export default function SettingsScreen() {
   const [choice, setChoice] = useState<CapitalChoice>(() => createCapitalChoice(config, account?.startingBalance ?? null));
   const [resetProblem, setResetProblem] = useState<string | null>(null);
   const [armedDelete, setArmedDelete] = useState(false);
+  const [rules, setRules] = useState(() => ({
+    buy: String(settings.slippageBuyPct),
+    sell: String(settings.slippageSellPct),
+    net: String(settings.networkFeeUsd),
+  }));
+  const [rulesProblem, setRulesProblem] = useState<string | null>(null);
+  const [rulesSaved, setRulesSaved] = useState<string | null>(null);
+  // Feed-server connection + FOMO proxy (both managed by the server).
+  const [serverBase, setServerBase] = useState(String(settings.serverBase));
+  const [serverChecking, setServerChecking] = useState(false);
+  const [serverInfo, setServerInfo] = useState<ServerStatus | null>(null);
+  const [feedError, setFeedError] = useState<string | null>(null);
+  const [proxyUrl, setProxyUrl] = useState('');
+  const [proxyStatus, setProxyStatus] = useState<FomoProxyStatus>({ url: '', enabled: false, transport: 'direct' });
 
   const saveProfile = async (patch: { displayName?: string; photoUrl?: string | null }, done: string) => {
     if (patch.displayName !== undefined) {
@@ -103,6 +119,59 @@ export default function SettingsScreen() {
       { photoUrl: `data:image/jpeg;base64,${asset.base64}` },
       'Picture saved.',
     );
+  };
+
+  const SLIPPAGE_CAP = PAPER_CONFIG.slippageCapPct;
+  const NETWORK_FEE_CAP = 5;
+
+  // â”€â”€ feed server: probe + FOMO proxy â”€â”€
+  const checkServer = async () => {
+    setServerChecking(true);
+    setFeedError(null);
+    try {
+      const base = serverBase.trim();
+      await updateSettings({ serverBase: base });
+      const info = await fetchServerStatus(base);
+      setServerInfo(info);
+      setProxyStatus(info.fomo?.proxy ?? { url: '', enabled: false, transport: 'direct' });
+      setProxyUrl(info.fomo?.proxy?.url ?? '');
+    } catch (err) {
+      setServerInfo(null);
+      setFeedError(err instanceof Error ? err.message : 'No se pudo conectar al servidor.');
+    } finally {
+      setServerChecking(false);
+    }
+  };
+
+  const saveProxy = async (url: string) => {
+    setFeedError(null);
+    try {
+      const status = await setFomoProxy(settings.serverBase, url);
+      setProxyStatus(status);
+      setProxyUrl(status.url);
+      flash('ok', status.enabled ? 'Proxy guardado â€” el servidor reconectÃ³ FOMO.' : 'Proxy removido â€” FOMO va directo.');
+    } catch (err) {
+      setFeedError(err instanceof Error ? err.message : 'No se pudo guardar el proxy.');
+    }
+  };
+
+  const saveRules = async () => {
+    const buy = Number(rules.buy);
+    const sell = Number(rules.sell);
+    const net = Number(rules.net);
+    if (!Number.isFinite(buy) || buy < 0 || buy > SLIPPAGE_CAP) {
+      return setRulesProblem(`Buy slippage must be between 0 and ${SLIPPAGE_CAP}%.`);
+    }
+    if (!Number.isFinite(sell) || sell < 0 || sell > SLIPPAGE_CAP) {
+      return setRulesProblem(`Sell slippage must be between 0 and ${SLIPPAGE_CAP}%.`);
+    }
+    if (!Number.isFinite(net) || net < 0 || net > NETWORK_FEE_CAP) {
+      return setRulesProblem(`Network fee must be between $0 and $${NETWORK_FEE_CAP}.`);
+    }
+    setRulesProblem(null);
+    await updateSettings({ slippageBuyPct: buy, slippageSellPct: sell, networkFeeUsd: net });
+    setRulesSaved('Trading rules saved.');
+    flash('ok', 'Trading rules saved.');
   };
 
   const doReset = async () => {
@@ -261,6 +330,81 @@ export default function SettingsScreen() {
           />
         </Card>
 
+        <Card style={{ padding: 14, gap: 12 }}>
+          <Text style={styles.groupTitle}>Trading rules</Text>
+          <Text style={styles.fine}>
+            Slippage is a hard limit: an order that would fill past it reverts instead of filling, the way an on-chain
+            min_amount_out check behaves. The network fee (priority + tip) is charged on top of every order.
+          </Text>
+
+          <Field label="Buy slippage (%)">
+            <Input
+              value={rules.buy}
+              onChangeText={(v) => setRules((r) => ({ ...r, buy: v.replace(/[^0-9.]/g, '') }))}
+              keyboardType="decimal-pad"
+              placeholder="0.5"
+              maxLength={5}
+            />
+          </Field>
+          <Field label="Sell slippage (%)">
+            <Input
+              value={rules.sell}
+              onChangeText={(v) => setRules((r) => ({ ...r, sell: v.replace(/[^0-9.]/g, '') }))}
+              keyboardType="decimal-pad"
+              placeholder="0.5"
+              maxLength={5}
+            />
+          </Field>
+          <Field label="Network fee per trade ($)">
+            <Input
+              value={rules.net}
+              onChangeText={(v) => setRules((r) => ({ ...r, net: v.replace(/[^0-9.]/g, '') }))}
+              keyboardType="decimal-pad"
+              placeholder="0.35"
+              maxLength={5}
+            />
+          </Field>
+
+          <Btn label="Save rules" variant="sm" onPress={() => void saveRules()} />
+          {rulesProblem ? <Text style={styles.problem}>{rulesProblem}</Text> : null}
+          {rulesSaved ? <Text style={styles.saved}>{rulesSaved}</Text> : null}
+        </Card>
+
+        <Card style={{ padding: 14, gap: 12 }}>
+          <Text style={styles.groupTitle}>Servidor de feeds</Text>
+          <Text style={styles.fine}>
+            FOMO y Photon los maneja tu server. Ponele la IP de tu PC mientras desarrollÃ¡s (http://192.168.x.x:8787) o la
+            URL de Railway en producciÃ³n. Los precios y el trading siguen en la app.
+          </Text>
+          <Field label="URL del servidor">
+            <Input value={serverBase} onChangeText={setServerBase} placeholder="http://192.168.0.10:8787" autoCapitalize="none" autoCorrect={false} />
+          </Field>
+          <View style={styles.serverActions}>
+            <Btn label="Guardar y probar" variant="sm" onPress={() => void checkServer()} busy={serverChecking} />
+            {serverInfo ? (
+              <Text style={[styles.serverState, { color: serverInfo.fomo?.live ? Palette.green : Palette.warning }]}>
+                {serverInfo.fomo?.live
+                  ? `FOMO live Â· ${serverInfo.fomo.graduated} graduados Â· ${serverInfo.fomo.trending} trending`
+                  : 'Conectado, feed FOMO arrancandoâ€¦'}
+                {serverInfo.photon && serverInfo.photon.errorCount > 0 ? ' Â· Photon con errores' : ''}
+              </Text>
+            ) : null}
+          </View>
+          {feedError ? <Text style={styles.problem}>{feedError}</Text> : null}
+
+          <Field label="Proxy FOMO (opcional)">
+            <Input value={proxyUrl} onChangeText={setProxyUrl} placeholder={proxyStatus.url || 'vacÃ­o = directo'} autoCapitalize="none" autoCorrect={false} />
+          </Field>
+          <View style={styles.serverActions}>
+            <Btn label="Guardar proxy" variant="sm" onPress={() => void saveProxy(proxyUrl)} />
+            <Btn label="Directo" variant="sm" onPress={() => void saveProxy('')} />
+          </View>
+          <Text style={styles.fine}>
+            {proxyHint} Estado: {proxyStatus.enabled ? `proxy ${proxyStatus.transport}` : 'directo'}
+            {proxyStatus.url ? ` (${proxyStatus.url})` : ''}
+          </Text>
+        </Card>
+
         <Card style={{ padding: 14, gap: 10 }}>
           <Text style={styles.groupTitle}>Paper server</Text>
           <View style={styles.status}>
@@ -309,8 +453,8 @@ export default function SettingsScreen() {
 /**
  * Sign-in escape hatch. Google sign-in is blocked for this app (the paper server validates the
  * token's `aud` against the extension's own client id), so the session is instead lifted from the
- * extension's `chrome.storage.local` and pasted here. The token is a bearer token — the server
- * only checks that it is valid, not which client produced it — so an extension session works
+ * extension's `chrome.storage.local` and pasted here. The token is a bearer token â€” the server
+ * only checks that it is valid, not which client produced it â€” so an extension session works
  * identically in the app. It carries no refresh token, so when it expires this has to be redone.
  */
 function ExtensionSessionCard() {
@@ -323,7 +467,7 @@ function ExtensionSessionCard() {
 
   const restore = async () => {
     // DevTools echoes a string containing `"` wrapped in single quotes, so a copy straight out of
-    // the console arrives as `'{"session":…}'`. Those quotes are display, not data: without
+    // the console arrives as `'{"session":â€¦}'`. Those quotes are display, not data: without
     // stripping them JSON.parse throws and the paste is sent verbatim as a bearer token.
     const unquote = (s: string) => {
       const m = /^(['"])([\s\S]*)\1$/.exec(s);
@@ -350,11 +494,11 @@ function ExtensionSessionCard() {
         token = inner.token;
         user = inner.user;
       } else {
-        setProblem('That JSON has no session.token in it — copy it again from the extension.');
+        setProblem('That JSON has no session.token in it â€” copy it again from the extension.');
         return;
       }
     } catch {
-      // not JSON — treat the whole paste as the token
+      // not JSON â€” treat the whole paste as the token
     }
 
     setBusy(true);
@@ -380,13 +524,13 @@ function ExtensionSessionCard() {
       <Text style={styles.groupTitle}>Extension session</Text>
       <Text style={styles.rowSub}>
         Paste the session the Chrome extension already holds. Google sign-in is blocked for this app, so this is the way
-        in for now. The token is not refreshed — when it expires, paste a new one.
+        in for now. The token is not refreshed â€” when it expires, paste a new one.
       </Text>
       <Field label="Session JSON">
         <Input
           value={raw}
           onChangeText={setRaw}
-          placeholder='{"session":{"token":"…","user":{…}}}'
+          placeholder='{"session":{"token":"â€¦","user":{â€¦}}}'
           autoCapitalize="none"
           autoCorrect={false}
           multiline
@@ -410,6 +554,9 @@ const styles = StyleSheet.create({
   groupTitle: { fontSize: 12, fontWeight: '800', color: Palette.textTertiary, textTransform: 'uppercase', letterSpacing: 1 },
   signedIn: { fontSize: 13, color: Palette.textSecondary },
   saved: { fontSize: 12, color: Palette.green },
+  problem: { fontSize: 12, color: Palette.red },
+  serverActions: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  serverState: { flex: 1, fontSize: 12, color: Palette.textSecondary },
 
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatar: {
@@ -437,3 +584,4 @@ const styles = StyleSheet.create({
   serverUrl: { fontSize: 12, color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
   fine: { fontSize: 11, color: Palette.textTertiary, lineHeight: 16 },
 });
+

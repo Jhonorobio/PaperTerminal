@@ -3,7 +3,8 @@
 // which is where every trading rule in the extension lives.
 
 import { ApiError, api, newClientRequestId } from '@/lib/api';
-import { PRICE_STALE_MS, QUOTE_REFRESH_MS } from '@/lib/config';
+import { LIVE_PAINT_MS, PRICE_STALE_MS, QUOTE_REFRESH_MS } from '@/lib/config';
+import { subscribeQuote } from '@/lib/market';
 import { formatPrice, formatQty, formatUsd } from '@/lib/format';
 import type { Asset, Position, Quote, Side } from '@/lib/types';
 import { useApp } from '@/state/app';
@@ -28,6 +29,23 @@ export function sanitizeAmount(raw: string) {
   const firstDot = v.indexOf('.');
   if (firstDot !== -1) v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, '').slice(0, 2);
   return v.slice(0, 12);
+}
+
+/**
+ * Re-prices an open position with a fresher quote — what the live feed paints between poll ticks,
+ * so the position row, the sell CTA and the unrealized P&L move with the tape.
+ */
+function withLivePrice(position: Position, quote: Quote): Position {
+  const marketValue = position.quantity * quote.priceUsd;
+  const unrealizedPnl = marketValue - position.costBasis;
+  return {
+    ...position,
+    currentPrice: quote.priceUsd,
+    marketCapUsd: quote.marketCapUsd ?? position.marketCapUsd ?? null,
+    marketValue,
+    unrealizedPnl,
+    unrealizedPnlPct: position.costBasis > 0 ? (unrealizedPnl / position.costBasis) * 100 : position.unrealizedPnlPct ?? null,
+  };
 }
 
 export function useTrade(asset: Asset | null) {
@@ -67,9 +85,13 @@ export function useTrade(asset: Asset | null) {
   // Mirrors the selected token so an in-flight quote for the previous one can be dropped instead
   // of painting its price over the token the user just picked.
   const assetKeyRef = useRef('');
+  // Same reason, for the whole asset object: the live subscription effect re-binds by key, not by
+  // object identity.
+  const assetRef = useRef<Asset | null>(null);
 
   useEffect(() => {
     assetKeyRef.current = asset ? `${asset.chain}:${asset.address}` : '';
+    assetRef.current = asset;
   }, [asset]);
 
   useEffect(() => {
@@ -100,6 +122,8 @@ export function useTrade(asset: Asset | null) {
   // ---------- polling ----------
   // Self-scheduling rather than setInterval: a slow round trip delays the next tick instead of
   // stacking a second request on top of it, which is what made prices lag behind the chart.
+  // This loop is now the supervisor: the live feed (below) does the painting, and the loop keeps
+  // watching for a socket that died quietly (snapshot gone stale → the quote error surfaces).
   const refreshAsset = useCallback(async () => {
     if (!asset || !alive.current) return;
     const key = assetKeyRef.current;
@@ -109,7 +133,9 @@ export function useTrade(asset: Asset | null) {
         try {
           const res = await api.assetState(asset);
           if (!stillCurrent()) return;
-          setQuote(res.quote);
+          // `fetchedAt` identifies the WSS snapshot; if the live feed already painted it, skip the
+          // identical state update instead of re-rendering the same price.
+          setQuote((prev) => (prev?.fetchedAt === res.quote.fetchedAt ? prev : res.quote));
           setPosition(res.position);
           setQuoteError(null);
         } catch (err) {
@@ -118,14 +144,14 @@ export function useTrade(asset: Asset | null) {
           void loadAccount();
           const res = await api.quote(asset);
           if (!stillCurrent()) return;
-          setQuote(res.quote);
+          setQuote((prev) => (prev?.fetchedAt === res.quote.fetchedAt ? prev : res.quote));
           setPosition(null);
           setQuoteError(null);
         }
       } else {
         const res = await api.quote(asset);
         if (!stillCurrent()) return;
-        setQuote(res.quote);
+        setQuote((prev) => (prev?.fetchedAt === res.quote.fetchedAt ? prev : res.quote));
         setQuoteError(null);
       }
       if (!stillCurrent()) return;
@@ -156,6 +182,42 @@ export function useTrade(asset: Asset | null) {
     };
   }, [asset, refreshAsset]);
 
+  // ---------- live feed ----------
+  // The socket pushes on every fill of the selected token; the panel repaints on each push
+  // (batched inside LIVE_PAINT_MS) instead of waiting for the next poll tick. The open position is
+  // re-priced locally with the same quote, so the sell-side CTA and the unrealized P&L follow the
+  // tape too.
+  const assetKey = asset ? `${asset.chain}:${asset.address}` : '';
+
+  useEffect(() => {
+    if (!assetKey || !assetRef.current) return;
+    let pending: Quote | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const paint = () => {
+      timer = null;
+      const quote = pending;
+      if (!quote || !alive.current) return;
+      pending = null;
+      setQuote(quote);
+      setQuoteReceivedAt(Date.now());
+      setQuoteError(null);
+      setPosition((prev) => (prev ? withLivePrice(prev, quote) : null));
+    };
+
+    const unsubscribe = subscribeQuote(assetRef.current, (quote) => {
+      pending = quote;
+      if (!timer) timer = setTimeout(paint, LIVE_PAINT_MS);
+    });
+
+    return () => {
+      unsubscribe();
+      if (timer) clearTimeout(timer);
+    };
+    // `assetKey` re-binds when the token changes; the asset object is read through assetRef so a
+    // parent re-render with a new object identity never re-subscribes.
+  }, [assetKey]);
+
   // ---------- derived ----------
   const symbol = quote?.symbol || asset?.symbol || 'token';
   const norm = (s?: string | null) => String(s ?? '').replace(/^\$/, '').toUpperCase();
@@ -170,12 +232,13 @@ export function useTrade(asset: Asset | null) {
 
   const presets = settings[side === 'BUY' ? 'buyPresets' : 'sellPresets'];
 
-  /** The largest amount this side can actually submit: cash minus the fee when buying, the whole
-   *  position when selling, never more than the configured per-trade cap. */
+  /** The largest amount this side can actually submit. Buys: the percentage fee comes out of the
+   *  amount, but the fixed network fee sits on top, so cash minus that fee is the ceiling. Sells:
+   *  the whole position, never more than the configured per-trade cap. */
   const maxAmount = () => {
     if (side === 'SELL') return position ? positionValue() : 0;
     const cash = account?.cashBalance ?? portfolio?.account?.cashBalance ?? 0;
-    const spendable = cash / (1 + (config?.feeRate || 0));
+    const spendable = Math.max(0, cash - settings.networkFeeUsd);
     const cap = config?.maxTradeUsd ?? Infinity;
     return Math.min(spendable, cap);
   };
@@ -198,8 +261,8 @@ export function useTrade(asset: Asset | null) {
     if (!(value > 0) && !(side === 'SELL' && sellPercent)) return { label: base, ready: false };
 
     if (side === 'BUY') {
-      const fee = value * (config?.feeRate || 0);
-      if (account && value + fee > account.cashBalance + 1e-6) return { label: 'Not enough balance', ready: false };
+      const network = settings.networkFeeUsd;
+      if (account && value + network > account.cashBalance + 1e-6) return { label: 'Not enough balance', ready: false };
       if (config?.minTradeUsd && value < config.minTradeUsd) return { label: `Minimum ${formatUsd(config.minTradeUsd)}`, ready: false };
       if (config?.maxTradeUsd && value > config.maxTradeUsd) {
         return { label: `Maximum ${formatUsd(config.maxTradeUsd, { decimals: 0 })}`, ready: false };

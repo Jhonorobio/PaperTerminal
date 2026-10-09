@@ -1,6 +1,13 @@
-// Extension-side defaults. Paper account economics (starting balance, fees) live on the server.
-// The hosted paper server. Settings can point at http://localhost:8787 for local development.
-export const DEFAULT_SERVER_URL = 'https://paper-terminal-production.up.railway.app';
+// There is no remote server anymore: prices come from the Azura WebSocket feed (src/lib/market)
+// and every account lives on the device. `DEFAULT_SERVER_URL` is kept as the label Settings shows.
+export const DEFAULT_SERVER_URL = 'local';
+
+/**
+ * How old an Azura snapshot may be before it is treated as absent. The trade screen polls every
+ * QUOTE_REFRESH_MS, so this sits comfortably above one poll cycle and below PRICE_STALE_MS (30s,
+ * when the UI starts warning about stale prices).
+ */
+export const MARKET_QUOTE_TTL_MS = 12_000;
 
 // Accounts that see admin-only surfaces (the Real P&L card). UI gating only - see admin.ts.
 export const ADMIN_EMAILS = ['mateeur9944@gmail.com'];
@@ -11,6 +18,14 @@ export const DEFAULT_SELL_PRESETS = [25, 50, 75, 100];
 export const QUOTE_REFRESH_MS = 2000;
 export const PORTFOLIO_REFRESH_MS = 10000;
 export const PRICE_STALE_MS = 30000;
+
+/**
+ * Render throttle for the live WSS path. Azura pushes on every fill of the subscribed token —
+ * several per second on busy pairs — so pushed quotes are batched into this window before the UI
+ * repaints. 300ms reads as instant to the eye and keeps renders sane; the 2s poll stays as the
+ * supervisor that notices a dead socket.
+ */
+export const LIVE_PAINT_MS = 300;
 
 export const TARGET_TERMINAL = {
   name: 'FOMO',

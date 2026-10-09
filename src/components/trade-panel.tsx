@@ -10,6 +10,8 @@ import { TokenAvatar } from '@/components/token-avatar';
 import { AmountField, Banner, Btn, Card, DetailRow, SegTabs, StatusRow } from '@/components/ui';
 import { Palette, Radius } from '@/constants/paper';
 import { LOW_LIQUIDITY_USD } from '@/lib/config';
+import { marketInputFromQuote, previewOrder } from '@/lib/engine/trades';
+import { effectiveConfig } from '@/lib/engine/rules';
 import {
   arrow,
   formatCompactUsd,
@@ -51,13 +53,33 @@ export function TradePanel({ asset }: { asset: Asset | null }) {
     trade.setEditingPresets(true);
   };
 
-  const execPrice = quote ? quote.priceUsd * (1 + (side === 'BUY' ? 1 : -1) * (config?.slippageRate || 0)) : 0;
-  const hint =
-    amountNum > 0 && quote
-      ? `≈ ${formatQty(amountNum / execPrice)} ${sym}`
-      : side === 'SELL' && trade.sellPercent
-        ? `${trade.sellPercent}% of position`
-        : 'Enter amount';
+  // The "you receive" estimate runs the same constant-product math the engine applies on submit,
+  // so what the panel promises is what the fill delivers — using the user's own tolerances.
+  const tradeCfg = effectiveConfig({
+    slippageBuyPct: settings.slippageBuyPct,
+    slippageSellPct: settings.slippageSellPct,
+    networkFeeUsd: settings.networkFeeUsd,
+  });
+  const preview =
+    quote && (amountNum > 0 || (side === 'SELL' && trade.sellPercent))
+      ? previewOrder(
+          {
+            side,
+            amountUsd: amountNum > 0 ? amountNum : undefined,
+            percent: side === 'SELL' && trade.sellPercent ? trade.sellPercent : undefined,
+            positionQuantity: trade.position?.quantity,
+            market: marketInputFromQuote(quote),
+          },
+          tradeCfg,
+        )
+      : null;
+  const hint = preview
+    ? `≈ ${formatQty(preview.quantity)} ${sym}${preview.impactPct >= 1 ? ` · ${formatPct(preview.impactPct, { sign: false })} impact` : ''}${
+        preview.revertsAlways ? ' · always reverts' : preview.revertRiskPct >= 25 ? ` · ${Math.round(preview.revertRiskPct)}% revert risk` : ''
+      }`
+    : side === 'SELL' && trade.sellPercent
+      ? `${trade.sellPercent}% of position`
+      : 'Enter amount';
 
   // Available balance: cash for buys, the whole position for sells.
   const available = (() => {
@@ -225,8 +247,26 @@ export function TradePanel({ asset }: { asset: Asset | null }) {
             ) : null}
             {quote ? (
               <>
-                <DetailRow label="Simulated execution price" value={formatPrice(execPrice)} />
+                <DetailRow label="Simulated execution price" value={preview ? formatPrice(preview.execPriceUsd) : formatPrice(quote.priceUsd)} />
                 <DetailRow label="Market price" value={formatPrice(quote.priceUsd)} />
+                {preview && preview.poolKnown && preview.impactPct >= 0.5 ? (
+                  <DetailRow
+                    label="Price impact"
+                    value={formatPct(preview.impactPct, { sign: false })}
+                    color={preview.impactPct >= 5 ? Palette.red : undefined}
+                  />
+                ) : null}
+                {preview?.revertsAlways ? (
+                  <Text style={styles.statusPara}>
+                    This order is bigger than your {formatPct(side === 'BUY' ? settings.slippageBuyPct : settings.slippageSellPct, { sign: false })}{' '}
+                    {side.toLowerCase()} slippage allows — it would revert instead of filling.
+                  </Text>
+                ) : null}
+                {preview && !preview.poolKnown ? (
+                  <Text style={styles.statusPara}>
+                    Pool liquidity unknown — a {formatPct(config?.fallbackSlippagePct ?? 1.5, { sign: false })} fallback slippage stands in.
+                  </Text>
+                ) : null}
                 <DetailRow
                   label="Liquidity"
                   value={formatCompactUsd(quote.liquidityUsd)}
@@ -238,9 +278,15 @@ export function TradePanel({ asset }: { asset: Asset | null }) {
                   value={formatPct(quote.change24hPct)}
                   color={quote.change24hPct && quote.change24hPct > 0 ? Palette.green : quote.change24hPct && quote.change24hPct < 0 ? Palette.red : undefined}
                 />
-                <DetailRow label="Simulated fee" value={formatPct((config?.feeRate || 0) * 100, { sign: false })} />
-                <DetailRow label="Simulated slippage" value={formatPct((config?.slippageRate || 0) * 100, { sign: false })} />
-                <DetailRow label="Price source" value={`${quote.source ?? 'market'} · ${timeAgo(new Date(trade.quoteReceivedAt).toISOString())}`} />
+                <DetailRow
+                  label="Simulated fee"
+                  value={`${formatPct((quote.feeRate ?? config?.feeRate ?? 0) * 100, { sign: false })} + ${formatUsd(settings.networkFeeUsd)}`}
+                />
+                <DetailRow
+                  label="Simulated slippage"
+                  value={formatPct(side === 'BUY' ? settings.slippageBuyPct : settings.slippageSellPct, { sign: false })}
+                />
+                <DetailRow label="Price source" value={`${quote.dex ?? quote.source ?? 'market'} · ${timeAgo(new Date(trade.quoteReceivedAt).toISOString())}`} />
               </>
             ) : null}
             {stale ? <Text style={styles.statusPara}>Market data is stale. Refresh before placing a paper trade.</Text> : null}

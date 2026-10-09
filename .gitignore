@@ -42,3 +42,6 @@ example
 # generated native folders
 /ios
 /android
+
+# Reference server from blanks-app (contains its own credentials) — not part of this project
+/server con APIS/

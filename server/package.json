@@ -1,0 +1,23 @@
+{
+  "name": "paper-fomo-photon-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Feed server for the Paper Terminal app: FOMO (fomo.family) + Photon memescope, with push notifications and a WebSocket that pushes everything to the app.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "cycletls": "^2.0.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "socks-proxy-agent": "^10.1.0",
+    "ws": "^8.21.3"
+  }
+}
