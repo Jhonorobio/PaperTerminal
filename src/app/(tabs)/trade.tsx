@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 
 import { Icon } from '@/components/icons';
 import { Banner, Card } from '@/components/ui';
@@ -63,6 +64,14 @@ export default function TradeScreen() {
   const [assetOverride, setAssetOverride] = useState<Asset | null | undefined>(undefined);
   const asset = assetOverride !== undefined ? assetOverride : (recents[0] ?? null);
 
+  // GMGN's token page per chain: gmgn.ai/{chain}/token/{address}.
+  const GMGN_CHAIN: Record<string, string> = { solana: 'sol', ethereum: 'eth', base: 'base', bsc: 'bsc', monad: 'monad' };
+  const openGmgn = async () => {
+    if (!asset) return;
+    const chain = GMGN_CHAIN[asset.chain] ?? asset.chain;
+    await WebBrowser.openBrowserAsync(`https://gmgn.ai/${chain}/token/${encodeURIComponent(asset.address)}`);
+  };
+
   if (!ready) return <View style={styles.screen} />;
 
   return (
@@ -73,6 +82,12 @@ export default function TradeScreen() {
           <Text style={styles.pillText}>PAPER MODE</Text>
         </View>
         <View style={{ flex: 1 }} />
+        {asset ? (
+          <Pressable accessibilityRole="link" accessibilityLabel="Ver el token en GMGN" onPress={() => void openGmgn()} hitSlop={10} style={styles.gmgn}>
+            <Text style={styles.gmgnText}>GMGN</Text>
+            <Icon name="external" size={13} color={Palette.paper} />
+          </Pressable>
+        ) : null}
         <Pressable accessibilityRole="button" accessibilityLabel="Settings" onPress={() => router.push('/settings')} hitSlop={10} style={styles.gear}>
           <Icon name="gear" size={18} color={Palette.textSecondary} />
         </Pressable>
@@ -121,6 +136,18 @@ const styles = StyleSheet.create({
   },
   pillText: { fontSize: 11, fontWeight: '800', color: Palette.paper, letterSpacing: 0.6 },
   gear: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: Palette.bgSecondary },
+  gmgn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    height: 28,
+    paddingHorizontal: 10,
+    borderRadius: Radius.pill,
+    backgroundColor: Palette.paperT,
+    borderWidth: 1,
+    borderColor: Palette.paperLine,
+  },
+  gmgnText: { fontSize: 11, fontWeight: '800', color: Palette.paper, letterSpacing: 0.6 },
 
   body: { padding: 14, gap: 10, paddingBottom: 32 },
 
