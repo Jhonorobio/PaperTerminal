@@ -226,8 +226,8 @@ export interface PhotonToken {
 }
 
 export interface PhotonRange {
-  min?: string;
-  max?: string;
+  min?: number;
+  max?: number;
 }
 
 /** Per-column filter set — mirrors the server's FILTER_FIELDS. */
@@ -242,11 +242,18 @@ export interface PhotonFilters {
   bundlePct?: PhotonRange;
 }
 
+/** One column of the server's memescope payload. */
+export interface PhotonColumnData {
+  data?: { attributes?: Record<string, unknown> }[];
+}
+
 export interface PhotonSnapshot {
-  tokens: PhotonToken[];
+  columns: Record<PhotonColumn, PhotonColumnData>;
   titles: Record<string, string>;
-  ageMs: number | null;
-  error: string | null;
+  cached?: boolean;
+  ageMs: number;
+  savedAt?: number;
+  error?: string | null;
 }
 
 // ---------- FOMO feed (fomo.family) ----------

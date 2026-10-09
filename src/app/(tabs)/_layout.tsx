@@ -6,6 +6,7 @@ import { Palette } from '@/constants/paper';
 const ICONS: Record<string, IconName> = {
   trade: 'lightning',
   fomo: 'trendUp',
+  photon: 'target',
   portfolio: 'wallet',
   history: 'history',
   style: 'chart',
@@ -45,6 +46,13 @@ export default function TabsLayout() {
         options={{
           title: 'Portfolio',
           tabBarIcon: ({ color, size }) => <Icon name={ICONS.portfolio} size={size ?? 20} color={String(color)} />,
+        }}
+      />
+      <Tabs.Screen
+        name="photon"
+        options={{
+          title: 'Photon',
+          tabBarIcon: ({ color, size }) => <Icon name={ICONS.photon} size={size ?? 20} color={String(color)} />,
         }}
       />
       <Tabs.Screen

@@ -310,7 +310,9 @@ function queueBroadcast(feed) {
   if (feed.pushTimer) return;
   feed.pushTimer = setTimeout(() => {
     feed.pushTimer = null;
-    broadcast(feed.topic, { event: feed.event, data: { tokens: ordered(feed.id).slice(0, 250), savedAt: Date.now(), snapshot: false } });
+    // Full list, snapshot semantics: the app replaces its map, so removals and
+    // reorderings land without needing a separate delta protocol.
+    broadcast(feed.topic, { event: feed.event, data: { tokens: ordered(feed.id).slice(0, 250), savedAt: Date.now(), snapshot: true } });
   }, PUSH_MS);
 }
 

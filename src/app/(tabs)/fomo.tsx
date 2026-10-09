@@ -13,10 +13,10 @@ import { Btn, Card, Empty, Field, Input, SegTabs } from '@/components/ui';
 import { Palette, Radius } from '@/constants/paper';
 import { formatCompactUsd, formatPct, pnlClass } from '@/lib/format';
 import { addRecentAsset } from '@/lib/storage';
-import { fomoFeed } from '@/lib/market/fomo';
+import { serverFeed, ServerFeed } from '@/lib/market/server-feed';
 import { pulseEnrich } from '@/lib/market/pulse';
 import { activeFilterCount, ageMinutes, normalizeFilters, selectFomoTokens, type RawFilters } from '@/lib/market/fomo-filters';
-import type { FomoFeedId, FomoStatus, FomoToken } from '@/lib/types';
+import type { FomoFeedId, FomoToken } from '@/lib/types';
 import { useApp } from '@/state/app';
 
 /** Age label shape: 17m, 3h, 2d. */
@@ -80,27 +80,29 @@ const FomoRow = memo(function FomoRow({ token, nowSec, onPress }: { token: FomoT
 });
 
 export default function FomoScreen() {
-  const { flash } = useApp();
+  const { flash, settings } = useApp();
   const [feed, setFeed] = useState<FomoFeedId>('graduated');
   // Each tab keeps its own filters: switching tabs must not mix age/mcap/KOL sets.
   const [rawByFeed, setRawByFeed] = useState<Record<FomoFeedId, RawFilters>>({ graduated: {}, trending: {} });
   const raw = rawByFeed[feed];
   const [open, setOpen] = useState(false);
-  // The feed client is a singleton outside React; this counter re-renders on its batched pushes.
+  // The server feed is a singleton outside React; this counter re-renders on its pushes.
   const [tick, setTick] = useState(0);
-  const [status, setStatus] = useState<FomoStatus>(() => fomoFeed.status());
+  const [status, setStatus] = useState(() => serverFeed.status());
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
 
-  const patchFeed = useCallback((id: FomoFeedId, patch: Partial<RawFilters>) => {
-    setRawByFeed((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
-  }, []);
+  // One WS to the feed server carries both feeds (and alerts). The phone never
+  // talks to FOMO directly anymore.
+  useEffect(() => {
+    void ServerFeed.ensureConnected(settings.serverBase);
+  }, [settings.serverBase]);
 
   useFocusEffect(
     useCallback(() => {
-      const unsubscribe = fomoFeed.subscribe(() => setTick((t) => t + 1));
-      setStatus(fomoFeed.status());
+      const unsubscribe = serverFeed.subscribe(() => setTick((t) => t + 1));
+      setStatus(serverFeed.status());
       const id = setInterval(() => {
-        setStatus(fomoFeed.status());
+        setStatus(serverFeed.status());
         setNowSec(Math.floor(Date.now() / 1000));
       }, 2000);
       return () => {
@@ -109,6 +111,10 @@ export default function FomoScreen() {
       };
     }, []),
   );
+
+  const patchFeed = useCallback((id: FomoFeedId, patch: Partial<RawFilters>) => {
+    setRawByFeed((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  }, []);
 
   // Market cap is typed in thousands ($K): "150" means $150,000.
   const filters = useMemo(() => {
@@ -120,9 +126,9 @@ export default function FomoScreen() {
   const activeCount = activeFilterCount(filters);
 
   const tokens = useMemo(() => {
-    // Re-read the singleton on every batched push; tick is the re-render trigger.
+    // Re-read the singleton on every server push; tick is the re-render trigger.
     void tick;
-    return selectFomoTokens(feed, fomoFeed.tokens(feed), filters, nowSec);
+    return selectFomoTokens(feed, serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo'), filters, nowSec);
   }, [feed, filters, nowSec, tick]);
 
   // Trending tokens carry no createdAt from FOMO — resolve their age (and the KOL count that comes
@@ -133,7 +139,7 @@ export default function FomoScreen() {
     const needsAge = filters.ageMinMin != null || filters.ageMaxMin != null;
     if (feed !== 'trending' && !needsKol && !needsAge) return;
     let live = true;
-    const wide = selectFomoTokens(feed, fomoFeed.tokens(feed), { ...filters, kolMin: undefined, kolMax: undefined }, nowSec).slice(0, 100);
+    const wide = selectFomoTokens(feed, serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo'), { ...filters, kolMin: undefined, kolMax: undefined }, nowSec).slice(0, 100);
     void pulseEnrich(wide, { kol: needsKol, age: true }).then((changed) => {
       if (live && changed > 0) setTick((t) => t + 1);
     });
@@ -151,16 +157,15 @@ export default function FomoScreen() {
     [flash],
   );
 
-  const dotColor = status.lastError ? Palette.red : status.live ? Palette.green : status.connected ? Palette.warning : Palette.textTertiary;
-  const statusText = !status.hasRefreshToken
-    ? 'Missing refresh token — set EXPO_PUBLIC_FOMO_REFRESH_TOKEN'
-    : status.lastError
-      ? status.lastError
-      : status.live
-        ? `live · ${fomoFeed.updatesPerSec()} msg/s · ${status.graduatedCount} grad, ${status.trendingCount} trend`
-        : status.connected
-          ? 'connecting…'
-          : 'reconnecting…';
+  const liveCount = serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo').length;
+  const dotColor = status.lastError ? Palette.red : status.connected ? Palette.green : Palette.textTertiary;
+  const statusText = !status.connected
+    ? status.everConnected
+      ? 'reconectando al servidor…'
+      : status.lastError
+        ? status.lastError
+        : 'conectando al servidor…'
+    : `live · ${liveCount} tokens`;
 
   // Stable renderItem + memoized rows: a push only repaints the tokens that actually changed. The
   // age label is the one cell that ages on its own, so it re-renders from the row's own state.
@@ -190,8 +195,8 @@ export default function FomoScreen() {
           value={feed}
           onChange={setFeed}
           options={[
-            { value: 'graduated' as FomoFeedId, label: `Graduados${status.graduatedCount ? ` · ${status.graduatedCount}` : ''}` },
-            { value: 'trending' as FomoFeedId, label: `Trending${status.trendingCount ? ` · ${status.trendingCount}` : ''}` },
+            { value: 'graduated' as FomoFeedId, label: `Graduados${serverFeed.tokens('fomo').length ? ` · ${serverFeed.tokens('fomo').length}` : ''}` },
+            { value: 'trending' as FomoFeedId, label: `Trending${serverFeed.tokens('fomo_trending').length ? ` · ${serverFeed.tokens('fomo_trending').length}` : ''}` },
           ]}
         />
         <Btn
@@ -241,12 +246,13 @@ export default function FomoScreen() {
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
-          status.lastError?.startsWith('FOMO no está disponible') ? (
-            <Empty title="Solo en la app nativa" body="Privy bloquea las peticiones desde el navegador. Abrilo con Expo Go en el teléfono o con una dev build y el feed funciona igual." />
-          ) : status.hasRefreshToken ? (
-            <Empty title={status.connected ? 'Cargando el feed…' : 'Conectando a FOMO…'} body="La lista completa llega al suscribirse; después se actualiza en vivo." />
+          status.connected ? (
+            <Empty title="Cargando el feed…" body="La lista completa llega al suscribirse; después se actualiza en vivo." />
           ) : (
-            <Empty title="Falta el refresh token" body="Pegá tu Privy refresh token de fomo.family en EXPO_PUBLIC_FOMO_REFRESH_TOKEN (.env) y reiniciá la app." />
+            <Empty
+              title={status.everConnected ? 'Reconectando…' : 'Sin servidor'}
+              body="Configurá la URL de tu servidor de feeds en Settings (PC: http://192.168.x.x:8787 · prod: Railway) y abrilo."
+            />
           )
         }
         renderItem={renderItem}

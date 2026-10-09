@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
 import { Icon } from '@/components/icons';
 import { Banner, Card } from '@/components/ui';
@@ -9,6 +9,7 @@ import { TokenPicker } from '@/components/token-picker';
 import { TradePanel } from '@/components/trade-panel';
 import { Palette, Radius } from '@/constants/paper';
 import { formatUsd, pnlClass } from '@/lib/format';
+import { addRecentAsset } from '@/lib/storage';
 import type { Asset } from '@/lib/types';
 import { useApp } from '@/state/app';
 
@@ -45,6 +46,18 @@ function AccountStrip() {
 
 export default function TradeScreen() {
   const { ready, recents, banner, flash } = useApp();
+  // A deep link (push or floating panel) can preselect a token: /trade?address=…&symbol=…
+  const params = useLocalSearchParams<{ address?: string; symbol?: string; chain?: string }>();
+  // One-shot: the linked token seeds the recents, afterwards the user navigates freely.
+  const deepLinkRef = useRef<Asset | null>(
+    params.address ? { chain: params.chain ?? 'solana', address: params.address, symbol: params.symbol ?? null, source: 'url' } : null,
+  );
+  useEffect(() => {
+    const linked = deepLinkRef.current;
+    if (!linked) return;
+    deepLinkRef.current = null;
+    void addRecentAsset(linked);
+  }, []);
   // No token to read from a tab, so the most recent one is the default until the user picks
   // another — held as an override rather than copied into state by an effect.
   const [assetOverride, setAssetOverride] = useState<Asset | null | undefined>(undefined);

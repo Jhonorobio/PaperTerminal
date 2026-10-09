@@ -403,6 +403,7 @@ export default function SettingsScreen() {
             {proxyHint} Estado: {proxyStatus.enabled ? `proxy ${proxyStatus.transport}` : 'directo'}
             {proxyStatus.url ? ` (${proxyStatus.url})` : ''}
           </Text>
+          <Btn label="Notificaciones y alertas" variant="sm" icon="lightning" onPress={() => router.push('/alerts')} />
         </Card>
 
         <Card style={{ padding: 14, gap: 10 }}>
