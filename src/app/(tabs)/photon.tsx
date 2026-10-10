@@ -124,6 +124,7 @@ export default function PhotonScreen() {
   const [open, setOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const [status, setStatus] = useState(() => serverFeed.status());
+  const [syncState, setSyncState] = useState<'idle' | 'sending' | 'ok' | 'error'>('idle');
 
   useEffect(() => {
     void ServerFeed.ensureConnected(settings.serverBase);
@@ -156,10 +157,13 @@ export default function PhotonScreen() {
   // Photon and pushes only what passes. (The local filter above is the instant echo.)
   useEffect(() => {
     const id = setTimeout(() => {
-      void setPhotonServerFilters(settings.serverBase, rawByCol as never).catch(() => {});
+      setSyncState(activeCount ? 'sending' : 'ok');
+      setPhotonServerFilters(settings.serverBase, rawByCol as never)
+        .then(() => setSyncState('ok'))
+        .catch(() => setSyncState('error'));
     }, 400);
     return () => clearTimeout(id);
-  }, [rawByCol, settings.serverBase]);
+  }, [rawByCol, settings.serverBase, activeCount]);
 
   const patchCol = useCallback(
     (col: PhotonColumn, field: keyof PhotonFilters, side: 'min' | 'max', value: string) => {
@@ -173,13 +177,19 @@ export default function PhotonScreen() {
   );
 
   const dotColor = status.lastError ? Palette.red : status.connected ? Palette.green : Palette.textTertiary;
-  const statusText = !status.connected
-    ? status.everConnected
-      ? 'reconectando al servidor…'
-      : status.lastError
-        ? status.lastError
-        : 'conectando al servidor…'
-    : `live · ${tokensOfColumn(snapshot, column, settings.serverBase).length} tokens`;
+  const received = tokensOfColumn(snapshot, column, settings.serverBase).length;
+  const statusText = useMemo(() => {
+    if (!status.connected) {
+      if (status.everConnected) return 'reconectando al servidor…';
+      return status.lastError ?? 'conectando al servidor…';
+    }
+    const parts = [`${received} recibidos · ${tokens.length} visibles`];
+    if (activeCount) parts.push(`filtro local (${activeCount})`);
+    if (syncState === 'sending') parts.push('enviando filtros…');
+    else if (syncState === 'error') parts.push('filtros: error');
+    else if (syncState === 'ok' && activeCount) parts.push('filtros en el server ✓');
+    return parts.join(' · ');
+  }, [status, received, tokens.length, activeCount, syncState]);
 
   const openToken = useCallback(
     async (token: PhotonToken) => {
