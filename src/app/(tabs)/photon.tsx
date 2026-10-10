@@ -15,12 +15,13 @@ import { Palette, Radius } from '@/constants/paper';
 import { formatCompactUsd, formatPct, pnlClass } from '@/lib/format';
 import { addRecentAsset } from '@/lib/storage';
 import { serverFeed, ServerFeed } from '@/lib/market/server-feed';
+import { photonLogoUrl, setPhotonServerFilters } from '@/lib/server-base';
 import { activePhotonFilterCount, applyPhotonFilters, normalizePhotonFilters, type RawPhotonFilters } from '@/lib/market/photon-filters';
 import type { PhotonColumn, PhotonFilters, PhotonToken } from '@/lib/types';
 import { useApp } from '@/state/app';
 
-/** Photon's raw item → the app's token shape. Numeric fields arrive as strings. */
-function mapPhoton(item: { attributes?: Record<string, unknown> }): PhotonToken | null {
+/** Photon's raw item → the app's token shape. */
+function mapPhoton(item: { attributes?: Record<string, unknown> }, base: string): PhotonToken | null {
   const a = item?.attributes;
   const address = (a?.tokenAddress as string) || (a?.address as string);
   if (!address) return null;
@@ -32,11 +33,13 @@ function mapPhoton(item: { attributes?: Record<string, unknown> }): PhotonToken 
     return Number.isFinite(n) ? n : null;
   };
   const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const image = str(a?.imgUrl);
   return {
     address,
     symbol: str(a?.symbol),
     name: str(a?.name),
-    image: str(a?.imgUrl),
+    // Photon blocks hotlinking; the server proxies the bytes with its Referer.
+    image: image ? photonLogoUrl(base, image) : null,
     mcap: num(a?.fdv),
     liquidity: num(liq?.usd),
     volume24h: num(a?.volume),
@@ -50,12 +53,12 @@ function mapPhoton(item: { attributes?: Record<string, unknown> }): PhotonToken 
   };
 }
 
-function tokensOfColumn(snapshot: ReturnType<typeof serverFeed.memescopeSnapshot>, column: PhotonColumn): PhotonToken[] {
+function tokensOfColumn(snapshot: ReturnType<typeof serverFeed.memescopeSnapshot>, column: PhotonColumn, base: string): PhotonToken[] {
   const data = snapshot?.columns?.[column]?.data;
   if (!Array.isArray(data)) return [];
   const out: PhotonToken[] = [];
   for (const item of data) {
-    const mapped = mapPhoton(item as { attributes?: Record<string, unknown> });
+    const mapped = mapPhoton(item as { attributes?: Record<string, unknown> }, base);
     if (mapped) out.push(mapped);
   }
   return out;
@@ -145,9 +148,18 @@ export default function PhotonScreen() {
   const snapshot = serverFeed.memescopeSnapshot();
   const tokens = useMemo(() => {
     void tick;
-    const list = tokensOfColumn(snapshot, column);
+    const list = tokensOfColumn(snapshot, column, settings.serverBase);
     return applyPhotonFilters(list, filters);
-  }, [snapshot, column, filters, tick]);
+  }, [snapshot, column, filters, tick, settings.serverBase]);
+
+  // Photon is pulled, not streamed: the filters travel to the server, which re-queries
+  // Photon and pushes only what passes. (The local filter above is the instant echo.)
+  useEffect(() => {
+    const id = setTimeout(() => {
+      void setPhotonServerFilters(settings.serverBase, rawByCol as never).catch(() => {});
+    }, 400);
+    return () => clearTimeout(id);
+  }, [rawByCol, settings.serverBase]);
 
   const patchCol = useCallback(
     (col: PhotonColumn, field: keyof PhotonFilters, side: 'min' | 'max', value: string) => {
@@ -167,7 +179,7 @@ export default function PhotonScreen() {
       : status.lastError
         ? status.lastError
         : 'conectando al servidor…'
-    : `live · ${tokensOfColumn(snapshot, column).length} tokens`;
+    : `live · ${tokensOfColumn(snapshot, column, settings.serverBase).length} tokens`;
 
   const openToken = useCallback(
     async (token: PhotonToken) => {

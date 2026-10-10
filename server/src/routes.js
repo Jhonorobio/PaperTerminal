@@ -20,6 +20,7 @@ import { Router } from 'express';
 
 import { getFomoFilters, getFomoGraduated, getFomoProxyStatus, getFomoStatus, getFomoTrending, setFomoFilters, setFomoProxy } from './fomo.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters } from './photon.js';
+import { photonLogo } from './logo-proxy.js';
 import { notificationConfig, notificationHistory } from './stores.js';
 import { isValidPushToken, sendPush } from './push.js';
 import { sendToDevice } from './ws.js';
@@ -98,8 +99,10 @@ router.get('/fomo/trending', async (req, res) => {
 
 // ── Photon ───────────────────────────────────────────────────────────────────
 
-router.get('/market/memescope', async (_req, res) => {
-  try {
+// Photon token images (host blocks hotlinking; the server re-serves them).
+router.get('/photon/logo', photonLogo);
+
+router.get('/market/memescope', async (_req, res) => {  try {
     res.json(await getMemescope());
   } catch (err) {
     fail(res, err);

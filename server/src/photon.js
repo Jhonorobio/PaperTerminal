@@ -105,8 +105,8 @@ export function setPhotonFilters(raw) {
 function buildQuery(colKey) {
   const f = getPhotonFilters()[colKey] ?? {};
   const parts = [COMMON_FILTERS];
-  for (const [, param] of Object.entries(FILTER_FIELDS)) {
-    const v = f[param] ?? f[Object.keys(FILTER_FIELDS).find((k) => FILTER_FIELDS[k] === param)];
+  for (const [field, param] of Object.entries(FILTER_FIELDS)) {
+    const v = f[field];
     if (v?.min) parts.push(`${param}_from=${v.min}`);
     if (v?.max) parts.push(`${param}_to=${v.max}`);
   }
