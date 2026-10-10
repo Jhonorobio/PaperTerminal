@@ -47,16 +47,20 @@ export const PAPER_CONFIG: PaperConfig = {
   paperMode: true,
   devAuth: true,
   startingBalance: 10_000,
-  minStartingBalance: 100,
+  // From $1: practising with pocket change is the point, and the fixed network fee
+  // ($0.35) teaches its lesson loudest on tiny accounts.
+  minStartingBalance: 1,
   maxStartingBalance: 1_000_000,
-  startingBalancePresets: [1_000, 5_000, 10_000, 50_000, 100_000],
+  startingBalancePresets: [1, 10, 100, 1_000, 5_000, 10_000, 50_000, 100_000],
   feeRate: 0.005,
   slippageBuyPct: 0.5,
   slippageSellPct: 0.5,
   slippageCapPct: 50,
   fallbackSlippagePct: 1.5,
   networkFeeUsd: 0.35,
-  minTradeUsd: 1,
+  // Small enough that a $1 account can still trade (its network fee will dominate —
+  // that is the lesson), big enough to keep fat fingers out.
+  minTradeUsd: 0.25,
   maxTradeUsd: 100_000,
   minimumAge: 18,
   policyVersion: 'local-3',
