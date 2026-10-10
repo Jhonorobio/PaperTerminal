@@ -36,7 +36,11 @@ async function notifications() {
   return notificationsModule;
 }
 
-const inExpoGo = Constants.executionEnvironment === 'storeClient';
+/**
+ * Development builds ALSO report executionEnvironment 'storeClient' while Metro serves
+ * their JS, so that flag can't gate push: the lazy import above is the real test (Expo Go
+ * Android throws at import — "remote notifications removed from Expo Go").
+ */
 
 export const ALERT_CATEGORIES = ['fomo_graduated', 'fomo_trending', 'photon_new', 'photon_graduated'] as const;
 export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
@@ -72,17 +76,13 @@ async function call<T>(base: string, path: string, init?: RequestInit): Promise<
 }
 
 /**
- * Asks for permission and returns this device's Expo push token. In Expo Go the
- * projectId comes from app.json's extra.eas.projectId; a dev build reads its own.
+ * Asks for permission and returns this device's Expo push token. Needs expo-notifications
+ * (a development build) — Expo Go's module throws at import and lands in the readable error.
  */
 export async function registerForPush(): Promise<string> {
   const Notifications = await notifications();
-  if (!Notifications || inExpoGo) {
-    throw new Error(
-      inExpoGo
-        ? 'Las notificaciones push requieren una development build (Expo Go ya no las soporta desde SDK 53). El panel de alertas en la app sigue funcionando.'
-        : 'No se pudo cargar el módulo de notificaciones.',
-    );
+  if (!Notifications) {
+    throw new Error('No se pudo cargar el módulo de notificaciones (¿Expo Go?). Requiere una development build.');
   }
 
   const settings = await Notifications.getPermissionsAsync();
@@ -102,13 +102,19 @@ export async function registerForPush(): Promise<string> {
   }
 
   const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
-  const token = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
-  return token.data;
+  try {
+    const token = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+    return token.data;
+  } catch (err) {
+    throw new Error(
+      `No se pudo obtener el token de push (${err instanceof Error ? err.message : String(err)}). Requiere una development build instalada.`,
+    );
+  }
 }
 
-/** True when system push is available here (dev build, not Expo Go). */
+/** True when the push module is available (dev build). Expo Go's import throws → null. */
 export async function pushAvailable(): Promise<boolean> {
-  return (await notifications()) != null && !inExpoGo;
+  return (await notifications()) != null;
 }
 
 /**
@@ -117,7 +123,7 @@ export async function pushAvailable(): Promise<boolean> {
  */
 export async function initPushHandlers(onOpen: (data: { address?: string; symbol?: string | null }) => void): Promise<() => void> {
   const Notifications = await notifications();
-  if (!Notifications || inExpoGo) return () => {};
+  if (!Notifications) return () => {};
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowAlert: true,
@@ -166,6 +172,23 @@ export async function loadConfig(base: string): Promise<NotificationConfig> {
     };
   } catch {
     return { registered: false };
+  }
+}
+
+/**
+ * Re-registers this device's push token on app open, keeping the saved categories —
+ * tokens rotate, so the server's copy must be refreshed without anyone touching the
+ * alerts screen. Skips when the server doesn't answer (its state stays untouched) or
+ * when this device never saved categories (nothing to alert about yet).
+ */
+export async function registerDevice(base: string): Promise<void> {
+  if (!base) return;
+  try {
+    const cfg = await loadConfig(base);
+    if (!cfg.categories) return;
+    await saveCategories(base, cfg.categories);
+  } catch {
+    /* panel-only is fine; the next app open retries */
   }
 }
 

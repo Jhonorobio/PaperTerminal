@@ -12,7 +12,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { Icon } from '@/components/icons';
 import { Palette, Radius } from '@/constants/paper';
 import { formatCompactUsd } from '@/lib/format';
-import { alertDeepLink, type AlertHistoryEntry } from '@/lib/notifications';
+import { alertDeepLink, registerDevice, type AlertHistoryEntry } from '@/lib/notifications';
 import { serverFeed, ServerFeed } from '@/lib/market/server-feed';
 import { useApp } from '@/state/app';
 
@@ -29,6 +29,9 @@ export function AlertOverlay() {
 
   useEffect(() => {
     void ServerFeed.ensureConnected(settings.serverBase);
+    // Push token refresh on every app open (dev builds): the server's copy must track
+    // token rotation — in Expo Go the import fails and this stays panel-only.
+    void registerDevice(settings.serverBase);
   }, [settings.serverBase]);
 
   useEffect(() => {
