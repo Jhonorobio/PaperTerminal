@@ -106,7 +106,12 @@ export function TradePanel({ asset }: { asset: Asset | null }) {
     if (stale) return { danger: true, text: 'Market data is stale · refresh' };
     if (trade.symbolMismatch && asset.symbol && quote?.symbol)
       return { danger: true, text: `Check token: page shows ${asset.symbol}, market is ${quote.symbol}` };
-    if (quote) return { danger: false, text: `Paper trading: ${sym} · ${formatPrice(quote.priceUsd)}` };
+    if (quote) {
+      // The header reads symbol · market cap — the price lives in the levels below, where
+      // the user toggles price/MC display anyway. A missing MC falls back to the bare symbol.
+      const mc = quote.marketCapUsd;
+      return { danger: false, text: mc ? `${sym} · ${formatCompactUsd(mc)} MC` : sym };
+    }
     return { danger: false, text: `Loading ${sym} price…` };
   })();
 
