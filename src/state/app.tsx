@@ -3,7 +3,8 @@
 // a trade made on one screen refreshes every other screen — the job `bumpPortfolioVersion` did.
 
 import { ApiError, api, signInWithGoogle as googleFlow, signInDev as devFlow, signOut as signOutFlow } from '@/lib/api';
-import { DEFAULTS, getRecentAssets, getSessionUser, getSettings, onStateChange, updateSettings, type Settings } from '@/lib/storage';
+import { DEFAULTS, getRecentAssets, getSessionUser, getSettings, onStateChange, setRecentAssets, updateSettings, type Settings } from '@/lib/storage';
+import { hydrateRecents } from '@/lib/hydrate';
 import type { Account, Asset, Me, Portfolio, ServerConfig, SessionUser } from '@/lib/types';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
@@ -123,6 +124,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       setSettings(s);
       setRecents(r);
+      // Recents opened from a clipboard copy or a deep link carry only an address: ask the
+      // server for the symbol so the picker always shows a name (logos resolve by address).
+      if (r.some((a) => !a.symbol)) {
+        void hydrateRecents(r).then(async (hydrated) => {
+          if (!cancelled) setRecents(hydrated);
+          await setRecentAssets(hydrated);
+        });
+      }
       const session = await getSessionUser();
       if (cancelled) return;
       setUser(session);

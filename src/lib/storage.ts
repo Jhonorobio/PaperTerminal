@@ -189,6 +189,21 @@ export async function addRecentAsset(asset: Asset): Promise<Asset[]> {
   return next;
 }
 
+/**
+ * Replaces the recents list in place — same order, unlike addRecentAsset, which brings its
+ * asset to the front. Used by the symbol hydration, which must not reshuffle the user's list.
+ */
+export async function setRecentAssets(assets: Asset[]): Promise<Asset[]> {
+  const next = assets.slice(0, RECENTS_MAX);
+  try {
+    await AsyncStorage.setItem(KEYS.recents, JSON.stringify(next));
+  } catch (err) {
+    console.warn('[Paper Terminal] could not save recents', err);
+  }
+  emit({ recents: Date.now() });
+  return next;
+}
+
 export async function clearRecentAssets(): Promise<void> {
   try {
     await AsyncStorage.removeItem(KEYS.recents);

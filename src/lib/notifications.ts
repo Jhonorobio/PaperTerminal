@@ -204,6 +204,7 @@ export interface AlertHistoryEntry {
   id: number;
   category: string;
   address: string;
+  chain?: string;
   symbol: string | null;
   name: string | null;
   logo: string | null;

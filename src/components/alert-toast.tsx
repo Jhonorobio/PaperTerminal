@@ -10,6 +10,7 @@ import { router } from 'expo-router';
 import { Image as ExpoImage } from 'expo-image';
 
 import { Icon } from '@/components/icons';
+import { TokenAvatar } from '@/components/token-avatar';
 import { Palette, Radius } from '@/constants/paper';
 import { formatCompactUsd } from '@/lib/format';
 import { alertDeepLink, registerDevice, type AlertHistoryEntry } from '@/lib/notifications';
@@ -60,9 +61,9 @@ export function AlertOverlay() {
         {entry.logo ? (
           <ExpoImage source={{ uri: entry.logo }} style={styles.image} contentFit="cover" transition={120} />
         ) : (
-          <View style={[styles.image, styles.imageFallback]}>
-            <Icon name="lightning" size={16} color={Palette.paper} />
-          </View>
+          // The server entry may carry no logo: the avatar resolves it by address through the
+          // same endpoint the feeds use (letter initial is the last resort, never a bolt).
+          <TokenAvatar symbol={entry.symbol} chainId={entry.chain === 'sol' ? 'solana' : entry.chain} address={entry.address} size={38} />
         )}
         <View style={styles.lead}>
           <Text style={styles.kicker}>{LABELS[entry.category] ?? entry.category}</Text>
@@ -106,7 +107,6 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   image: { width: 38, height: 38, borderRadius: 19, backgroundColor: Palette.bgTertiarySolid },
-  imageFallback: { alignItems: 'center', justifyContent: 'center' },
   lead: { flex: 1, gap: 1, minWidth: 0 },
   kicker: { fontSize: 9, fontWeight: '800', color: Palette.paper, textTransform: 'uppercase', letterSpacing: 0.8 },
   title: { fontSize: 14, fontWeight: '800', color: Palette.textPrimary },

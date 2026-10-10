@@ -6,6 +6,7 @@ import { ApiError, api, newClientRequestId } from '@/lib/api';
 import { LIVE_PAINT_MS, PRICE_STALE_MS, QUOTE_REFRESH_MS } from '@/lib/config';
 import { subscribeQuote } from '@/lib/market';
 import { formatPrice, formatQty, formatUsd } from '@/lib/format';
+import { addRecentAsset } from '@/lib/storage';
 import type { Asset, Position, Quote, Side } from '@/lib/types';
 import { useApp } from '@/state/app';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -93,6 +94,15 @@ export function useTrade(asset: Asset | null) {
     assetKeyRef.current = asset ? `${asset.chain}:${asset.address}` : '';
     assetRef.current = asset;
   }, [asset]);
+
+  // Clipboard copies and deep links arrive address-only: the first quote carries the real
+  // symbol — backfill the recents so the picker shows a name right away (the logo resolves
+  // by address, so it only needs the symbol for the letter fallback and the label).
+  useEffect(() => {
+    const current = assetRef.current;
+    if (!current?.address || current.symbol || !quote?.symbol) return;
+    void addRecentAsset({ ...current, symbol: quote.symbol });
+  }, [quote?.symbol]);
 
   useEffect(() => {
     alive.current = true;
