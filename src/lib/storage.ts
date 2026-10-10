@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { PAPER_CONFIG } from './engine/rules';
 import { DEFAULT_BUY_PRESETS, DEFAULT_SELL_PRESETS, DEFAULT_SERVER_URL } from './config';
-import type { Asset, Session, SessionUser } from './types';
+import type { Asset, PhotonFilters, PhotonRange, Session, SessionUser } from './types';
 
 export interface Settings {
   serverUrl: string;
@@ -25,6 +25,13 @@ export interface Settings {
   slippageSellPct: number;
   /** Fixed network fee per trade, in USD (priority + tip + base). */
   networkFeeUsd: number;
+  /** FOMO feed filters per tab (raw text-field values), so they survive app restarts. */
+  fomoFilters?: { graduated: Record<string, string>; trending: Record<string, string> };
+  /** Photon filters per column — persisted in settings, so they survive app restarts. */
+  photonFilters?: {
+    col1: Partial<Record<keyof PhotonFilters, PhotonRange>>;
+    col3: Partial<Record<keyof PhotonFilters, PhotonRange>>;
+  };
   [key: string]: unknown;
 }
 
@@ -40,6 +47,8 @@ export const DEFAULTS: Settings = {
   slippageBuyPct: PAPER_CONFIG.slippageBuyPct,
   slippageSellPct: PAPER_CONFIG.slippageSellPct,
   networkFeeUsd: PAPER_CONFIG.networkFeeUsd,
+  fomoFilters: { graduated: {}, trending: {} },
+  photonFilters: { col1: {}, col3: {} },
 };
 
 const KEYS = { settings: 'settings', session: 'session', recents: 'recentAssets', portfolioVersion: 'portfolioVersion' };

@@ -80,10 +80,10 @@ const FomoRow = memo(function FomoRow({ token, nowSec, onPress }: { token: FomoT
 });
 
 export default function FomoScreen() {
-  const { flash, settings } = useApp();
+  const { flash, settings, updateSettings } = useApp();
   const [feed, setFeed] = useState<FomoFeedId>('graduated');
-  // Each tab keeps its own filters: switching tabs must not mix age/mcap/KOL sets.
-  const [rawByFeed, setRawByFeed] = useState<Record<FomoFeedId, RawFilters>>({ graduated: {}, trending: {} });
+  // Each tab keeps its own filters, persisted in settings so they survive app restarts.
+  const rawByFeed = useMemo(() => settings.fomoFilters ?? { graduated: {}, trending: {} }, [settings.fomoFilters]);
   const raw = rawByFeed[feed];
   const [open, setOpen] = useState(false);
   // The server feed is a singleton outside React; this counter re-renders on its pushes.
@@ -112,9 +112,13 @@ export default function FomoScreen() {
     }, []),
   );
 
-  const patchFeed = useCallback((id: FomoFeedId, patch: Partial<RawFilters>) => {
-    setRawByFeed((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
-  }, []);
+  const patchFeed = useCallback(
+    (id: FomoFeedId, patch: Partial<RawFilters>) => {
+      const next = { ...rawByFeed, [id]: { ...rawByFeed[id], ...patch } };
+      void updateSettings({ fomoFilters: next });
+    },
+    [rawByFeed, updateSettings],
+  );
 
   // Market cap is typed in thousands ($K): "150" means $150,000.
   const filters = useMemo(() => {

@@ -19,18 +19,24 @@ import { activePhotonFilterCount, applyPhotonFilters, normalizePhotonFilters, ty
 import type { PhotonColumn, PhotonFilters, PhotonToken } from '@/lib/types';
 import { useApp } from '@/state/app';
 
-/** Photon's raw item → the app's token shape. */
+/** Photon's raw item → the app's token shape. Numeric fields arrive as strings. */
 function mapPhoton(item: { attributes?: Record<string, unknown> }): PhotonToken | null {
   const a = item?.attributes;
   const address = (a?.tokenAddress as string) || (a?.address as string);
   if (!address) return null;
-  const liq = a?.cur_liq as { usd?: number } | undefined;
-  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const liq = a?.cur_liq as { usd?: unknown } | undefined;
+  // Photon sends numbers as strings ("3047.52", "0.0") and counts as numbers — Number() covers both.
+  const num = (v: unknown) => {
+    if (v == null || v === '') return null;
+    const n = typeof v === 'number' ? v : Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
   return {
     address,
-    symbol: (a?.symbol as string) ?? null,
-    name: (a?.name as string) ?? null,
-    image: (a?.imgUrl as string) ?? null,
+    symbol: str(a?.symbol),
+    name: str(a?.name),
+    image: str(a?.imgUrl),
     mcap: num(a?.fdv),
     liquidity: num(liq?.usd),
     volume24h: num(a?.volume),
@@ -40,7 +46,7 @@ function mapPhoton(item: { attributes?: Record<string, unknown> }): PhotonToken 
     freshPct: num(a?.fresh_holding_perc),
     bundleHolders: num(a?.bundle_holders_count),
     bundlePct: num(a?.bundle_holding_perc),
-    topHoldersPct: num((a?.audit as { top_holders_perc?: number } | undefined)?.top_holders_perc),
+    topHoldersPct: num((a?.audit as { top_holders_perc?: unknown } | undefined)?.top_holders_perc),
   };
 }
 
@@ -108,9 +114,10 @@ function PhotonRow({ token, onPress }: { token: PhotonToken; onPress: () => void
 }
 
 export default function PhotonScreen() {
-  const { flash, settings } = useApp();
+  const { flash, settings, updateSettings } = useApp();
   const [column, setColumn] = useState<PhotonColumn>('col1');
-  const [rawByCol, setRawByCol] = useState<Record<PhotonColumn, RawPhotonFilters>>({ col1: {}, col3: {} });
+  // Each column keeps its own filters, persisted in settings so they survive app restarts.
+  const rawByCol = useMemo(() => settings.photonFilters ?? { col1: {}, col3: {} }, [settings.photonFilters]);
   const [open, setOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const [status, setStatus] = useState(() => serverFeed.status());
@@ -142,12 +149,16 @@ export default function PhotonScreen() {
     return applyPhotonFilters(list, filters);
   }, [snapshot, column, filters, tick]);
 
-  const patchCol = useCallback((col: PhotonColumn, field: keyof PhotonFilters, side: 'min' | 'max', value: string) => {
-    setRawByCol((prev) => ({
-      ...prev,
-      [col]: { ...prev[col], [field]: { ...(prev[col]?.[field] ?? {}), [side]: value.replace(/[^0-9.]/g, '') } },
-    }));
-  }, []);
+  const patchCol = useCallback(
+    (col: PhotonColumn, field: keyof PhotonFilters, side: 'min' | 'max', value: string) => {
+      const next: Record<PhotonColumn, RawPhotonFilters> = {
+        ...rawByCol,
+        [col]: { ...rawByCol[col], [field]: { ...(rawByCol[col]?.[field] ?? {}), [side]: value.replace(/[^0-9.]/g, '') } },
+      };
+      void updateSettings({ photonFilters: next });
+    },
+    [rawByCol, updateSettings],
+  );
 
   const dotColor = status.lastError ? Palette.red : status.connected ? Palette.green : Palette.textTertiary;
   const statusText = !status.connected
@@ -220,7 +231,14 @@ export default function PhotonScreen() {
             ))}
           </View>
           <View style={styles.filterActions}>
-            <Btn label="Limpiar" variant="sm" onPress={() => setRawByCol((prev) => ({ ...prev, [column]: {} }))} />
+            <Btn
+              label="Limpiar"
+              variant="sm"
+              onPress={() => {
+                const next = { ...rawByCol, [column]: {} };
+                void updateSettings({ photonFilters: next });
+              }}
+            />
             <Text style={styles.filterHint}>Market cap en miles: 150 = $150.000. Cada columna guarda sus propios filtros.</Text>
           </View>
         </Card>
