@@ -56,8 +56,12 @@ export async function getPushReceipt(ticketId) {
   }
 }
 
+/**
+ * Expo pushes tokens in two shapes: the classic ExponentPushToken[...] and the
+ * newer ExponentPushToken(...) — accept both or the phone silently stays tokenless.
+ */
 export function isValidPushToken(token) {
-  return typeof token === 'string' && /^ExponentPushToken\[[A-Za-z0-9-]+\]$/.test(token);
+  return typeof token === 'string' && /^ExponentPushToken[\[(][A-Za-z0-9_-]+[\])]$/.test(token);
 }
 
 /**

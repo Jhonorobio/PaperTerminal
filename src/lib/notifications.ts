@@ -150,18 +150,22 @@ export interface NotificationConfig {
  * Registers (or refreshes) this device: push token + which categories alert.
  * When system push is unavailable (Expo Go), the device is registered panel-only:
  * categories still apply, alerts arrive over the private WS topic.
+ * @returns the push registration error, or null when the token was obtained.
  */
-export async function saveCategories(base: string, categories: Record<AlertCategory, boolean>): Promise<void> {
+export async function saveCategories(base: string, categories: Record<AlertCategory, boolean>): Promise<string | null> {
   let pushToken: string | null = null;
+  let pushError: string | null = null;
   try {
     pushToken = await registerForPush();
-  } catch {
+  } catch (err) {
     pushToken = null;
+    pushError = err instanceof Error ? err.message : String(err);
   }
   await call(base, '/api/notifications/config', {
     method: 'PUT',
     body: JSON.stringify({ push_token: pushToken, categories }),
   });
+  return pushError;
 }
 
 export async function loadConfig(base: string): Promise<NotificationConfig> {
@@ -180,17 +184,19 @@ export async function loadConfig(base: string): Promise<NotificationConfig> {
 /**
  * Re-registers this device's push token on app open, keeping the saved categories —
  * tokens rotate, so the server's copy must be refreshed without anyone touching the
- * alerts screen. Skips when the server doesn't answer (its state stays untouched) or
- * when this device never saved categories (nothing to alert about yet).
+ * alerts screen. Skips when this device never saved categories (nothing to alert
+ * about yet).
+ * @returns why registration left the server without a token, or null when ok.
  */
-export async function registerDevice(base: string): Promise<void> {
-  if (!base) return;
+export async function registerDevice(base: string): Promise<string | null> {
+  if (!base) return null;
   try {
     const cfg = await loadConfig(base);
-    if (!cfg.categories) return;
-    await saveCategories(base, cfg.categories);
-  } catch {
-    /* panel-only is fine; the next app open retries */
+    if (!cfg.categories) return null;
+    return await saveCategories(base, cfg.categories);
+  } catch (err) {
+    // Server unreachable or the PUT was rejected (e.g. token format) — report it.
+    return err instanceof Error ? err.message : String(err);
   }
 }
 

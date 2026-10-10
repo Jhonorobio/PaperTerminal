@@ -51,6 +51,9 @@ export default function AlertsScreen() {
   // Whether the server holds a push token for this device — null until known. Without
   // it the push path is dead (panel-only), so the screen makes that visible.
   const [pushRegistered, setPushRegistered] = useState<boolean | null>(null);
+  // Why registration left the server without a token (permission denied, getExpoPushTokenAsync
+  // failure, rejected PUT…) — shown verbatim so the cause doesn't stay hidden.
+  const [pushRegError, setPushRegError] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
   // Load config + history whenever the server URL changes. State updates live inside the async
@@ -69,9 +72,11 @@ export default function AlertsScreen() {
         // A freshly reinstalled build has no token on the server yet — register right
         // here so "Probar" always tests the real push path, not a stale state.
         if (config.hasPush === false) {
-          await registerDevice(settings.serverBase);
+          setPushRegError(await registerDevice(settings.serverBase));
           config = await loadConfig(settings.serverBase);
           if (!live) return;
+        } else {
+          setPushRegError(null);
         }
         setPushRegistered(config.hasPush ?? null);
         setProblem(null);
@@ -88,7 +93,7 @@ export default function AlertsScreen() {
   const persist = useCallback(
     async (nextCats: Record<AlertCategory, boolean>) => {
       try {
-        await saveCategories(settings.serverBase, nextCats);
+        setPushRegError(await saveCategories(settings.serverBase, nextCats));
         setRegistered(true);
         setProblem(null);
         // The PUT registers the push token too — refresh so the banner reflects reality.
@@ -147,6 +152,9 @@ export default function AlertsScreen() {
           <Banner kind="ok">
             Sin token push en el server — mientras tanto las alertas llegan solo por el panel flotante. Si acabás de instalar una build nueva, abrí la app de nuevo y volvé a esta pantalla.
           </Banner>
+        ) : null}
+        {pushOk && pushRegistered === false && pushRegError ? (
+          <Banner kind="err">No se pudo registrar el token de push: {pushRegError}</Banner>
         ) : null}
         {pushOk && pushRegistered === true ? <Banner kind="ok">Push del sistema activa — token registrado ✓</Banner> : null}
 
