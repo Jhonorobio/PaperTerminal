@@ -47,10 +47,10 @@ export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
 
 const TIMEOUT_MS = 8_000;
 
-async function call<T>(base: string, path: string, init?: RequestInit): Promise<T> {
+async function call<T>(base: string, path: string, init?: RequestInit, timeoutMs = TIMEOUT_MS): Promise<T> {
   const deviceId = await getDeviceId();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${base.replace(/\/+$/, '')}${path}`, {
       ...init,
@@ -142,6 +142,7 @@ export async function initPushHandlers(onOpen: (data: { address?: string; symbol
 
 export interface NotificationConfig {
   registered: boolean;
+  hasPush?: boolean;
   categories?: Record<AlertCategory, boolean>;
 }
 
@@ -165,9 +166,10 @@ export async function saveCategories(base: string, categories: Record<AlertCateg
 
 export async function loadConfig(base: string): Promise<NotificationConfig> {
   try {
-    const data = await call<{ registered?: boolean; categories?: Record<string, boolean> }>(base, '/api/notifications/config');
+    const data = await call<{ registered?: boolean; has_push?: boolean; categories?: Record<string, boolean> }>(base, '/api/notifications/config');
     return {
       registered: Boolean(data.registered),
+      hasPush: Boolean(data.has_push),
       categories: data.categories as Record<AlertCategory, boolean> | undefined,
     };
   } catch {
@@ -217,9 +219,24 @@ export async function fetchHistory(base: string, limit = 100): Promise<AlertHist
   }
 }
 
-/** Fires a synthetic alert through the real path (panel + push). */
-export async function sendTestAlert(base: string, category: AlertCategory): Promise<void> {
-  await call(base, '/api/notifications/test', { method: 'POST', body: JSON.stringify({ category }) });
+export interface TestPushResult {
+  sent: boolean;
+  reason?: string;
+  ticket?: { status?: string; details?: { error?: string; message?: string } } | null;
+  receipt?: { status?: string; details?: { error?: string; message?: string } } | null;
+}
+
+/**
+ * Fires a synthetic alert through the real path (panel + push) and reports what Expo
+ * answered — ticket + FCM delivery receipt — so "no me llegó" is diagnosable from the
+ * app instead of guessed at. Server wait (receipt poll) needs a longer timeout.
+ */
+export async function sendTestAlert(base: string, category: AlertCategory): Promise<TestPushResult | null> {
+  const data = await call<{ push?: TestPushResult }>(base, '/api/notifications/test', {
+    method: 'POST',
+    body: JSON.stringify({ category }),
+  }, 20_000);
+  return data.push ?? null;
 }
 
 /** A token tapped from a push (or the floating panel) opens Trade with it selected. */

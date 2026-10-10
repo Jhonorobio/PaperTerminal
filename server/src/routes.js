@@ -23,7 +23,7 @@ import { getFomoFilters, setFomoFilters } from './fomo-filter-store.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters } from './photon.js';
 import { photonLogo } from './logo-proxy.js';
 import { notificationConfig, notificationHistory } from './stores.js';
-import { isValidPushToken, sendPush } from './push.js';
+import { getPushReceipt, isValidPushToken, sendPush } from './push.js';
 import { sendToDevice } from './ws.js';
 import { clientCount, getSubscriptions } from './ws.js';
 
@@ -127,8 +127,15 @@ router.get('/notifications/config', (req, res) => {
   try {
     const id = deviceId(req);
     const entry = notificationConfig.get(id);
-    if (!entry) return res.json({ device_id: id, registered: false });
-    res.json({ ...entry, registered: true });
+    if (!entry) return res.json({ device_id: id, registered: false, has_push: false });
+    // has_push is the app's diagnostic: without a stored token pushes can't reach the
+    // device no matter what (the floating panel still works over its private WS topic).
+    res.json({
+      device_id: id,
+      registered: true,
+      has_push: isValidPushToken(entry.push_token),
+      categories: entry.categories,
+    });
   } catch (err) {
     fail(res, err);
   }
@@ -210,10 +217,33 @@ router.post('/notifications/test', async (req, res) => {
       notified_at: new Date().toISOString(),
     });
     sendToDevice(id, { event: 'alert', data: entry });
-    if (isValidPushToken(device.push_token)) {
-      void sendPush(device.push_token, { title: 'TEST — Paper Terminal', body: 'Así se ve una alerta.', data: { test: true } }).catch(() => {});
+    if (!isValidPushToken(device.push_token)) {
+      // The most common "push never arrives": this device never stored a token.
+      return res.json({ ok: true, entry, push: { sent: false, reason: 'no_token' } });
     }
-    res.json({ ok: true, entry });
+    let push;
+    try {
+      const { ticketId, result } = await sendPush(device.push_token, {
+        title: 'TEST — Paper Terminal',
+        body: 'Así se ve una alerta.',
+        data: { test: true },
+      });
+      const ticket = result?.data ?? null;
+      // A ticket only means Expo accepted the message; the receipt is the real delivery
+      // verdict from FCM (credential / registration failures surface there). Poll
+      // briefly — receipts usually land within a second or two.
+      let receipt = null;
+      if (ticket?.status === 'ok' && ticketId) {
+        for (let i = 0; i < 3 && !receipt; i += 1) {
+          await new Promise((r) => setTimeout(r, 1300));
+          receipt = await getPushReceipt(ticketId).catch(() => null);
+        }
+      }
+      push = { sent: true, ticket, receipt };
+    } catch (err) {
+      push = { sent: false, reason: `expo_unreachable: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    res.json({ ok: true, entry, push });
   } catch (err) {
     fail(res, err);
   }

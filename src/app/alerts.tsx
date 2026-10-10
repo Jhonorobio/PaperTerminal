@@ -19,6 +19,7 @@ import {
   fetchHistory,
   loadConfig,
   pushAvailable,
+  registerDevice,
   saveCategories,
   sendTestAlert,
   type AlertCategory,
@@ -47,6 +48,9 @@ export default function AlertsScreen() {
   const [history, setHistory] = useState<AlertHistoryEntry[]>([]);
   const [registered, setRegistered] = useState(false);
   const [pushOk, setPushOk] = useState(true);
+  // Whether the server holds a push token for this device — null until known. Without
+  // it the push path is dead (panel-only), so the screen makes that visible.
+  const [pushRegistered, setPushRegistered] = useState<boolean | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
   // Load config + history whenever the server URL changes. State updates live inside the async
@@ -57,11 +61,19 @@ export default function AlertsScreen() {
       void pushAvailable().then((ok) => {
         if (live) setPushOk(ok);
       });
-      const config = await loadConfig(settings.serverBase);
+      let config = await loadConfig(settings.serverBase);
       if (!live) return;
       if (config.registered) {
         setRegistered(true);
         if (config.categories) setCategories((prev) => ({ ...prev, ...config.categories }));
+        // A freshly reinstalled build has no token on the server yet — register right
+        // here so "Probar" always tests the real push path, not a stale state.
+        if (config.hasPush === false) {
+          await registerDevice(settings.serverBase);
+          config = await loadConfig(settings.serverBase);
+          if (!live) return;
+        }
+        setPushRegistered(config.hasPush ?? null);
         setProblem(null);
       } else {
         setProblem(settings.serverBase ? 'El servidor no responde — ¿está corriendo?' : 'Configurá la URL del servidor en Settings.');
@@ -79,6 +91,8 @@ export default function AlertsScreen() {
         await saveCategories(settings.serverBase, nextCats);
         setRegistered(true);
         setProblem(null);
+        // The PUT registers the push token too — refresh so the banner reflects reality.
+        setPushRegistered((await loadConfig(settings.serverBase)).hasPush ?? null);
       } catch (err) {
         setProblem(err instanceof Error ? err.message : 'No se pudo guardar.');
       }
@@ -94,9 +108,24 @@ export default function AlertsScreen() {
 
   const test = async () => {
     try {
-      await sendTestAlert(settings.serverBase, testing);
-      flash('ok', 'Alerta de prueba enviada — la vas a ver flotar arriba.');
+      const push = await sendTestAlert(settings.serverBase, testing);
+      const details =
+        push?.ticket?.status === 'error' ? push.ticket.details
+        : push?.receipt?.status === 'error' ? push.receipt.details
+        : null;
+      if (!push?.sent) {
+        flash('err', push?.reason === 'no_token'
+          ? 'El server no tiene el token push de este dispositivo — el push no puede llegar.'
+          : `El server no pudo enviar a Expo: ${push?.reason ?? 'sin detalle'}.`);
+      } else if (details) {
+        flash('err', `Expo rechazó la entrega: ${details.error ?? 'error'}${details.message ? ` — ${details.message}` : ''}`);
+      } else if (push.receipt) {
+        flash('ok', 'Push entregada al celu ✓');
+      } else {
+        flash('ok', 'Push enviada a Expo — si no la ves en ~1 min, la entrega FCM está fallando.');
+      }
       setHistory(await fetchHistory(settings.serverBase));
+      setPushRegistered((await loadConfig(settings.serverBase)).hasPush ?? null);
     } catch (err) {
       flash('err', err instanceof Error ? err.message : 'No se pudo enviar la prueba.');
     }
@@ -114,6 +143,12 @@ export default function AlertsScreen() {
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         {problem ? <Banner kind="err">{problem}</Banner> : null}
         {!pushOk ? <Banner kind="ok">Push del sistema no disponible en Expo Go — las alertas te llegan con el panel flotante en la app. Con una development build se suma la push.</Banner> : null}
+        {pushOk && pushRegistered === false ? (
+          <Banner kind="ok">
+            Sin token push en el server — mientras tanto las alertas llegan solo por el panel flotante. Si acabás de instalar una build nueva, abrí la app de nuevo y volvé a esta pantalla.
+          </Banner>
+        ) : null}
+        {pushOk && pushRegistered === true ? <Banner kind="ok">Push del sistema activa — token registrado ✓</Banner> : null}
 
         <Card style={{ padding: 14, gap: 12 }}>
           <Text style={styles.groupTitle}>Categorías</Text>

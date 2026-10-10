@@ -34,6 +34,28 @@ export async function sendPush(token, { title, body, data = {} }) {
   }
 }
 
+/**
+ * Fetches the receipt for one ticket — a ticket only means Expo *accepted* the
+ * message; the receipt is the real delivery verdict from FCM (where credential
+ * and registration failures actually show up). Null while still generating.
+ */
+export async function getPushReceipt(ticketId) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const res = await fetch(RECEIPTS_ENDPOINT, {
+      method: 'POST',
+      headers: pushHeaders(),
+      body: JSON.stringify({ ids: [ticketId] }),
+      signal: controller.signal,
+    });
+    const json = await res.json();
+    return json?.data?.[ticketId] ?? null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function isValidPushToken(token) {
   return typeof token === 'string' && /^ExponentPushToken\[[A-Za-z0-9-]+\]$/.test(token);
 }
