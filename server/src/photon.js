@@ -47,9 +47,11 @@ const FILTER_FIELDS = {
   bundlePct: 'bundle_holding_perc',
 };
 
+// No default filters: the app filters the pushed snapshot locally (per column), so the
+// server asks for the full column and nothing gets hidden upstream.
 const DEFAULT_FILTERS = {
   col1: {},
-  col3: { age: { max: '30' }, tpHolders: { min: '100' } },
+  col3: {},
 };
 
 const COLS = [
