@@ -12,6 +12,7 @@
     },
     "android": {
       "package": "com.paperterminal.app",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#030313",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

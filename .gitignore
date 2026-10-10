@@ -43,8 +43,11 @@ example
 /ios
 /android
 
-# Reference server from blanks-app (contains its own credentials) — not part of this project
+# Reference server from blanks-app (contains its own credentials) ï¿½ not part of this project
 /server con APIS/
 
 # Nested copy of the Tradingsimulator app kept for reference - not part of this project
 /app/
+
+# FCM service account private key - google-services.json IS committed (public ids only)
+/service-account.json
