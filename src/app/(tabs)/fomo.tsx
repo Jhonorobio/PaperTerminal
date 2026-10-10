@@ -16,7 +16,8 @@ import { addRecentAsset } from '@/lib/storage';
 import { serverFeed, ServerFeed } from '@/lib/market/server-feed';
 import { pulseEnrich } from '@/lib/market/pulse';
 import { activeFilterCount, ageMinutes, normalizeFilters, selectFomoTokens, type RawFilters } from '@/lib/market/fomo-filters';
-import type { FomoFeedId, FomoToken } from '@/lib/types';
+import { setFomoServerFilters } from '@/lib/server-base';
+import type { FomoFeedId, FomoFilters, FomoToken } from '@/lib/types';
 import { useApp } from '@/state/app';
 
 /** Age label shape: 17m, 3h, 2d. */
@@ -25,6 +26,19 @@ function ageLabel(minutes: number | null): string | null {
   if (minutes < 60) return `${minutes}m`;
   if (minutes < 1440) return `${Math.round(minutes / 60)}h`;
   return `${Math.round(minutes / 1440)}d`;
+}
+
+/**
+ * Raw text fields → the normalized filter set, in the units everything downstream
+ * shares: market cap typed in thousands ("150" = $150,000 → 150000), ages in
+ * minutes. The local list applies it here and the server applies the very same
+ * object to the feed read and to the alert gate.
+ */
+function buildFilters(raw: RawFilters): FomoFilters {
+  const base = normalizeFilters(raw);
+  if (raw.mcapMin) base.mcapMin = Number(raw.mcapMin) * 1000;
+  if (raw.mcapMax) base.mcapMax = Number(raw.mcapMax) * 1000;
+  return base;
 }
 
 /**
@@ -121,13 +135,22 @@ export default function FomoScreen() {
   );
 
   // Market cap is typed in thousands ($K): "150" means $150,000.
-  const filters = useMemo(() => {
-    const base = normalizeFilters(raw);
-    if (raw.mcapMin) base.mcapMin = Number(raw.mcapMin) * 1000;
-    if (raw.mcapMax) base.mcapMax = Number(raw.mcapMax) * 1000;
-    return base;
-  }, [raw]);
+  const filters = useMemo(() => buildFilters(raw), [raw]);
   const activeCount = activeFilterCount(filters);
+
+  // Both tabs' filters also travel to the server: FOMO's feed read and its alert gate
+  // live there, so notifications fire on exactly what this screen shows. Debounced like
+  // Photon's, and it runs once on mount — a restarted server gets them back on the next
+  // app open, without anyone touching Settings.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      void setFomoServerFilters(settings.serverBase, {
+        graduated: buildFilters(rawByFeed.graduated ?? {}),
+        trending: buildFilters(rawByFeed.trending ?? {}),
+      }).catch(() => {});
+    }, 400);
+    return () => clearTimeout(id);
+  }, [rawByFeed, settings.serverBase]);
 
   const tokens = useMemo(() => {
     // Re-read the singleton on every server push; tick is the re-render trigger.

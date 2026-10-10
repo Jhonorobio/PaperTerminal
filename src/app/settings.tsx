@@ -2,7 +2,7 @@
 // and account removal. The overlay-only switches (paper panel on FOMO, discreet mode) don't apply
 // to a standalone app and are gone with them.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -74,13 +74,19 @@ export default function SettingsScreen() {
   }));
   const [rulesProblem, setRulesProblem] = useState<string | null>(null);
   const [rulesSaved, setRulesSaved] = useState<string | null>(null);
-  // Feed-server connection + FOMO proxy (both managed by the server).
+  // Feed-server connection + the shared FOMO/Photon egress proxy (both owned by the server).
+  // The proxy field/switch initialize from the local mirror so they're populated the instant
+  // the screen opens — the probe below then corrects them with the server's real state.
   const [serverBase, setServerBase] = useState(String(settings.serverBase));
   const [serverChecking, setServerChecking] = useState(false);
   const [serverInfo, setServerInfo] = useState<ServerStatus | null>(null);
   const [feedError, setFeedError] = useState<string | null>(null);
-  const [proxyUrl, setProxyUrl] = useState('');
-  const [proxyStatus, setProxyStatus] = useState<FeedProxyStatus>({ url: '', enabled: false, transport: 'direct' });
+  const [proxyUrl, setProxyUrl] = useState(() => String(settings.feedProxyUrl ?? ''));
+  const [proxyStatus, setProxyStatus] = useState<FeedProxyStatus>(() => ({
+    url: String(settings.feedProxyUrl ?? ''),
+    enabled: Boolean(settings.feedProxyOn),
+    transport: 'direct',
+  }));
 
   const saveProfile = async (patch: { displayName?: string; photoUrl?: string | null }, done: string) => {
     if (patch.displayName !== undefined) {
@@ -125,12 +131,40 @@ export default function SettingsScreen() {
   const NETWORK_FEE_CAP = 5;
 
   // ── feed server: probe + the shared FOMO/Photon egress proxy ──
+  // The server is the authority (its copy survives app restarts on its own). Its URL
+  // overwrites the field when it has one; when it has none, whatever is typed stays
+  // typed — an unsaved URL must not be wiped by a status refresh.
   const refreshStatus = async (base: string) => {
     const info = await fetchServerStatus(base);
     setServerInfo(info);
-    setProxyStatus(info.fomo?.proxy ?? { url: '', enabled: false, transport: 'direct' });
-    setProxyUrl(info.fomo?.proxy?.url ?? '');
+    const saved = info.fomo?.proxy ?? { url: '', enabled: false, transport: 'direct' as const };
+    setProxyStatus(saved);
+    if (saved.url) setProxyUrl(saved.url);
   };
+
+  // On open, ask the server what the proxy actually is, so a restart shows the saved
+  // state instead of an empty box. Unreachable server → the mirror from settings stays.
+  useEffect(() => {
+    let live = true;
+    fetchServerStatus(settings.serverBase)
+      .then((info) => {
+        if (!live) return;
+        const saved = info.fomo?.proxy ?? { url: '', enabled: false, transport: 'direct' as const };
+        setServerInfo(info);
+        setProxyStatus(saved);
+        if (saved.url) setProxyUrl(saved.url);
+        // Keep the mirror in step with the server so the next open is instant.
+        void updateSettings({ feedProxyUrl: saved.url, feedProxyOn: saved.enabled });
+      })
+      .catch(() => {
+        // offline: the mirrored values already on screen are the best guess available
+      });
+    return () => {
+      live = false;
+    };
+    // `updateSettings` is the storage module's own function (stable) — only the base
+    // URL decides when to probe, so switching servers re-checks and nothing else does.
+  }, [settings.serverBase, updateSettings]);
 
   const checkServer = async () => {
     setServerChecking(true);
@@ -155,6 +189,8 @@ export default function SettingsScreen() {
       const status = await setFeedProxy(settings.serverBase, url, Boolean(url));
       setProxyStatus(status);
       setProxyUrl(status.url);
+      // Mirror into settings: the field and switch come back populated on the next start.
+      void updateSettings({ feedProxyUrl: status.url, feedProxyOn: status.enabled });
       flash('ok', status.enabled ? 'Proxy guardado — FOMO y Photon salen por él.' : 'Proxy removido — ambos van directo.');
       void refreshStatus(settings.serverBase).catch(() => {}); // pick Photon's transport up
     } catch (err) {
@@ -173,6 +209,7 @@ export default function SettingsScreen() {
       const status = await setFeedProxy(settings.serverBase, url, on);
       setProxyStatus(status);
       setProxyUrl(status.url);
+      void updateSettings({ feedProxyUrl: status.url, feedProxyOn: status.enabled });
       flash('ok', on ? 'Proxy prendido — FOMO y Photon salen por él.' : 'Proxy apagado — van directo (URL guardada).');
       void refreshStatus(settings.serverBase).catch(() => {});
     } catch (err) {
@@ -433,7 +470,7 @@ export default function SettingsScreen() {
             />
           </View>
           <Text style={styles.fine}>
-            {proxyHint} Estado: {!proxyStatus.url ? 'directo (sin proxy)' : proxyStatus.enabled ? `activo · FOMO ${proxyStatus.transport}` : 'apagado (URL guardada)'}
+            {proxyHint} Estado: {!proxyStatus.url ? (proxyUrl.trim() ? 'URL lista — Guardar para aplicarla en el server' : 'directo (sin proxy)') : proxyStatus.enabled ? `activo · FOMO ${proxyStatus.transport}` : 'apagado (URL guardada)'}
             {serverInfo?.photon?.proxy ? ` · Photon ${serverInfo.photon.proxy.transport}` : ''}
           </Text>
           <Btn label="Notificaciones y alertas" variant="sm" icon="lightning" onPress={() => router.push('/alerts')} />

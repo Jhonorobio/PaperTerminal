@@ -20,7 +20,7 @@ import WebSocket from 'ws';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 
-import { fomoFilters } from './stores.js';
+import { getFomoFilters, sanitizeFeedFilters } from './fomo-filter-store.js';
 import { broadcast, registerTopicProvider } from './ws.js';
 import { emitToken, seedSeen } from './notify.js';
 import { pulseEnrich } from './pulse.js';
@@ -179,39 +179,6 @@ function ordered(feedId) {
     : list.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 }
 
-const numOrNull = (v) => {
-  if (v == null || v === '') return null;
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-
-function sanitizeFeedFilters(raw) {
-  const out = {};
-  if (!raw || typeof raw !== 'object') return out;
-  for (const field of ['ageMinMin', 'ageMaxMin', 'mcapMin', 'mcapMax', 'kolMin', 'kolMax']) {
-    const v = numOrNull(raw[field]);
-    if (v != null) out[field] = v;
-  }
-  const limit = numOrNull(raw.limit);
-  if (limit != null) out.limit = Math.min(Math.max(Math.floor(limit), 1), 1000);
-  return out;
-}
-
-export function getFomoFilters() {
-  const entry = fomoFilters.get('global');
-  const stored = sanitizeFeedFilters(entry?.filters ?? entry ?? {});
-  return { graduated: stored.graduated ?? {}, trending: stored.trending ?? {} };
-}
-
-export function setFomoFilters(raw) {
-  const clean = {};
-  for (const feed of ['graduated', 'trending']) {
-    if (raw?.[feed]) clean[feed] = sanitizeFeedFilters(raw[feed]);
-  }
-  fomoFilters.set('global', { filters: clean, updated_at: new Date().toISOString() });
-  return getFomoFilters();
-}
-
 const AGE_ENRICH_CAP = 100;
 const KOL_ENRICH_CAP = 100;
 
@@ -286,6 +253,28 @@ function feedOf(topicType) {
   return FEEDS.find((f) => f.topicType === topicType) ?? FEEDS[0];
 }
 
+/**
+ * New tokens alert through the feed's own filters (the app's FOMO screen pushes them),
+ * so a bound on age or KOLs needs the enriched record first: FOMO's raw frames often
+ * lack createdAt/kolCount (trending always lacks createdAt) and Pulse fills them —
+ * the same enrichment readFeed does before filtering. Without a bound on those fields
+ * the alert fires on arrival; with one, it waits for Pulse (and excludes on failure,
+ * exactly like a token that never got the data).
+ */
+function emitFresh(feed, recs) {
+  const list = recs.filter(Boolean).slice(0, 100);
+  if (!list.length) return;
+  const f = getFomoFilters()[feed.id];
+  const age = Boolean(f) && (f.ageMinMin != null || f.ageMaxMin != null);
+  const kol = Boolean(f) && (f.kolMin != null || f.kolMax != null);
+  const emit = () => {
+    const nowMs = Date.now();
+    for (const rec of list) emitToken(feed.category, alertToken(rec, nowMs));
+  };
+  if (!age && !kol) return emit();
+  void pulseEnrich(list, { age, kol }).then(emit, emit);
+}
+
 function applyData(feed, payload) {
   const p = payload && typeof payload === 'object' ? payload : {};
   const nowMs = Date.now();
@@ -310,10 +299,10 @@ function applyData(feed, payload) {
     if (snapshotCount[feed.id] <= 1) {
       seedSeen(feed.category, [...map.keys()]);
     } else {
-      for (const address of fresh) {
-        const rec = map.get(address);
-        if (rec) emitToken(feed.category, alertToken(rec, nowMs));
-      }
+      emitFresh(
+        feed,
+        fresh.map((a) => map.get(a)),
+      );
     }
     broadcast(feed.topic, { event: feed.event, data: { tokens: ordered(feed.id).slice(0, 250), savedAt: nowMs, snapshot: true } });
   } else if (p.kind === 'update' && p.update) {
@@ -326,7 +315,7 @@ function applyData(feed, payload) {
       if (prev?.kolCount != null && rec.kolCount == null) rec.kolCount = prev.kolCount;
       if (prev?.createdAt != null && rec.createdAt == null) rec.createdAt = prev.createdAt;
       map.set(rec.address, rec);
-      if (!prev) emitToken(feed.category, alertToken(rec, nowMs));
+      if (!prev) emitFresh(feed, [rec]);
       queueBroadcast(feed);
     }
   } else if (p.kind === 'remove' && typeof p.tokenKey === 'string') {

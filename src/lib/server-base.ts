@@ -8,6 +8,7 @@
  */
 
 import type { Settings } from './storage';
+import type { FomoFilters } from './types';
 
 const TIMEOUT_MS = 8_000;
 
@@ -143,5 +144,21 @@ export async function setPhotonServerFilters(base: string, filters: PhotonServer
   await call(base, '/api/market/memescope-filters', {
     method: 'PUT',
     body: JSON.stringify(toPhotonServerFilters(filters)),
+  });
+}
+
+// ── FOMO: the screen's filters travel to the server ──────────────────────────
+
+/**
+ * Sends both FOMO tabs' filters to the server, which uses them for the feed read
+ * AND for the alert gate — notifications fire on exactly what the screen shows.
+ * Values are the normalized ones the local filter already uses (market cap in
+ * dollars: "150" → 150000). Pushed on every change and once per app start, so a
+ * restarted server gets them back without anyone touching Settings.
+ */
+export async function setFomoServerFilters(base: string, filters: { graduated: FomoFilters; trending: FomoFilters }): Promise<void> {
+  await call(base, '/api/fomo/filters', {
+    method: 'PUT',
+    body: JSON.stringify(filters),
   });
 }

@@ -1,13 +1,13 @@
 /**
- * Notifications client — registers this device with the feed server and keeps
- * the per-category toggles + alert filters in sync.
+ * Notifications client — registers this device with the feed server and keeps the
+ * per-category toggles in sync.
  *
  * Categories (the server's alert taxonomy):
  *   fomo_graduated · fomo_trending · photon_new · photon_graduated
  *
- * Filters per category accept {min,max} pairs over: usd_market_cap, liquidity,
- * volume_24h, holders_count, kol_count, age_minutes — a token that misses ANY
- * bound is excluded (the server's semantics).
+ * There is no filter configuration here anymore: the feed screens own the filters
+ * (FOMO pushes both tabs, Photon pushes its columns) and the server gates the
+ * alerts with those — what fires is exactly what the phone shows.
  */
 
 import Constants from 'expo-constants';
@@ -40,16 +40,6 @@ const inExpoGo = Constants.executionEnvironment === 'storeClient';
 
 export const ALERT_CATEGORIES = ['fomo_graduated', 'fomo_trending', 'photon_new', 'photon_graduated'] as const;
 export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
-
-/** Fields a category filter can bound. */
-export const ALERT_FILTER_FIELDS = ['usd_market_cap', 'liquidity', 'volume_24h', 'holders_count', 'kol_count', 'age_minutes'] as const;
-export type AlertFilterField = (typeof ALERT_FILTER_FIELDS)[number];
-
-export interface AlertRange {
-  min: number | null;
-  max: number | null;
-}
-export type AlertFilters = Partial<Record<AlertCategory, Partial<Record<AlertFilterField, AlertRange>>>>;
 
 const TIMEOUT_MS = 8_000;
 
@@ -147,32 +137,14 @@ export async function initPushHandlers(onOpen: (data: { address?: string; symbol
 export interface NotificationConfig {
   registered: boolean;
   categories?: Record<AlertCategory, boolean>;
-  filters?: AlertFilters;
-}
-
-/**
- * mcap is typed in thousands on every screen ($K); the server expects USD.
- * Applies the conversion to the filter copy that is sent.
- */
-function toServerFilters(filters: AlertFilters): AlertFilters {
-  const out: AlertFilters = {};
-  for (const [category, fields] of Object.entries(filters ?? {})) {
-    const converted: AlertFilters[AlertCategory] = {};
-    for (const [field, range] of Object.entries(fields ?? {})) {
-      converted[field as AlertFilterField] =
-        field === 'usd_market_cap' ? { min: range?.min != null ? range.min * 1000 : null, max: range?.max != null ? range.max * 1000 : null } : { ...range };
-    }
-    out[category as AlertCategory] = converted;
-  }
-  return out;
 }
 
 /**
  * Registers (or refreshes) this device: push token + which categories alert.
  * When system push is unavailable (Expo Go), the device is registered panel-only:
- * categories and filters still apply, alerts arrive over the private WS topic.
+ * categories still apply, alerts arrive over the private WS topic.
  */
-export async function saveCategories(base: string, categories: Record<AlertCategory, boolean>, filters?: AlertFilters): Promise<void> {
+export async function saveCategories(base: string, categories: Record<AlertCategory, boolean>): Promise<void> {
   let pushToken: string | null = null;
   try {
     pushToken = await registerForPush();
@@ -181,17 +153,16 @@ export async function saveCategories(base: string, categories: Record<AlertCateg
   }
   await call(base, '/api/notifications/config', {
     method: 'PUT',
-    body: JSON.stringify({ push_token: pushToken, categories, filters: filters ? toServerFilters(filters) : undefined }),
+    body: JSON.stringify({ push_token: pushToken, categories }),
   });
 }
 
 export async function loadConfig(base: string): Promise<NotificationConfig> {
   try {
-    const data = await call<{ registered?: boolean; categories?: Record<string, boolean>; filters?: AlertFilters }>(base, '/api/notifications/config');
+    const data = await call<{ registered?: boolean; categories?: Record<string, boolean> }>(base, '/api/notifications/config');
     return {
       registered: Boolean(data.registered),
       categories: data.categories as Record<AlertCategory, boolean> | undefined,
-      filters: data.filters,
     };
   } catch {
     return { registered: false };

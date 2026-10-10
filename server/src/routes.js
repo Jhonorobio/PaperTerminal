@@ -10,7 +10,7 @@
  *   GET  /api/market/memescope-filters
  *   PUT  /api/market/memescope-filters      { col1: {...}, col3: {...} }
  *   GET  /api/notifications/config          this device's config
- *   PUT  /api/notifications/config          register device + categories + filters
+ *   PUT  /api/notifications/config          register device + categories
  *   DELETE /api/notifications/config        unregister
  *   GET  /api/notifications/history         alert history for this device
  *   POST /api/notifications/test            fire a test alert (panel + push)
@@ -18,14 +18,14 @@
 
 import { Router } from 'express';
 
-import { getFomoFilters, getFomoGraduated, getFomoProxyStatus, getFomoStatus, getFomoTrending, setFomoFilters, setFomoProxy } from './fomo.js';
+import { getFomoGraduated, getFomoProxyStatus, getFomoStatus, getFomoTrending, setFomoProxy } from './fomo.js';
+import { getFomoFilters, setFomoFilters } from './fomo-filter-store.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters } from './photon.js';
 import { photonLogo } from './logo-proxy.js';
 import { notificationConfig, notificationHistory } from './stores.js';
 import { isValidPushToken, sendPush } from './push.js';
 import { sendToDevice } from './ws.js';
 import { clientCount, getSubscriptions } from './ws.js';
-import { sanitizeAlertFilters } from './notify.js';
 
 const router = Router();
 
@@ -137,7 +137,7 @@ router.get('/notifications/config', (req, res) => {
 router.put('/notifications/config', (req, res) => {
   try {
     const id = deviceId(req);
-    const { push_token, categories, filters } = req.body ?? {};
+    const { push_token, categories } = req.body ?? {};
     // A device without a push token is panel-only: it still receives alerts over its private
     // WS topic (Expo Go can't do remote push since SDK 53, but the in-app panel works).
     const hasPush = isValidPushToken(push_token);
@@ -146,19 +146,16 @@ router.put('/notifications/config', (req, res) => {
     const cats = {};
     for (const key of CATEGORIES) cats[key] = Boolean(categories?.[key]);
 
-    const existing = notificationConfig.get(id);
-    const cleanFilters = sanitizeAlertFilters(filters);
-    // Categories turned off drop their filters (same rule as the original server).
-    for (const key of CATEGORIES) if (!cats[key]) delete cleanFilters[key];
-
+    // No filters here on purpose: the feed screens own them (FOMO pushes both tabs,
+    // Photon its columns) and notify.js gates the alerts with those — this config only
+    // says which categories the device wants. Any `filters` an older client still sends
+    // are dropped with the entry rewrite below.
     const entry = {
       device_id: id,
       push_token: hasPush ? push_token : null,
       categories: cats,
-      filters: { ...(existing?.filters ?? {}), ...cleanFilters },
       updated_at: new Date().toISOString(),
     };
-    for (const key of CATEGORIES) if (!cats[key]) delete entry.filters[key];
     notificationConfig.set(id, entry);
     res.json({ ok: true, config: entry });
   } catch (err) {

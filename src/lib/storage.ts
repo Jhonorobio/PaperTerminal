@@ -32,6 +32,13 @@ export interface Settings {
     col1: Partial<Record<keyof PhotonFilters, PhotonRange>>;
     col3: Partial<Record<keyof PhotonFilters, PhotonRange>>;
   };
+  /**
+   * Mirror of the shared feed proxy as last saved here. The server keeps the real copy
+   * (it survives app restarts on its own); this keeps the Settings field populated the
+   * moment the screen opens and while the server is unreachable.
+   */
+  feedProxyUrl?: string;
+  feedProxyOn?: boolean;
   [key: string]: unknown;
 }
 
@@ -49,6 +56,8 @@ export const DEFAULTS: Settings = {
   networkFeeUsd: PAPER_CONFIG.networkFeeUsd,
   fomoFilters: { graduated: {}, trending: {} },
   photonFilters: { col1: {}, col3: {} },
+  feedProxyUrl: '',
+  feedProxyOn: false,
 };
 
 const KEYS = { settings: 'settings', session: 'session', recents: 'recentAssets', portfolioVersion: 'portfolioVersion' };

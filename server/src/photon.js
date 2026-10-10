@@ -48,6 +48,11 @@ const FILTER_FIELDS = {
   bundlePct: 'bundle_holding_perc',
 };
 
+// The app types market cap in thousands ("150" = $150,000) while Photon's mkt_cap
+// counts whole dollars — without this, the query under-filtered by 1000x and only
+// the phone's local echo hid the sub-floor tokens (alerts would have seen them).
+const FIELD_MULT = { mktCap: 1000 };
+
 // No default filters: the app filters the pushed snapshot locally (per column), so the
 // server asks for the full column and nothing gets hidden upstream.
 const DEFAULT_FILTERS = {
@@ -108,8 +113,9 @@ function buildQuery(colKey) {
   const parts = [COMMON_FILTERS];
   for (const [field, param] of Object.entries(FILTER_FIELDS)) {
     const v = f[field];
-    if (v?.min) parts.push(`${param}_from=${v.min}`);
-    if (v?.max) parts.push(`${param}_to=${v.max}`);
+    const mult = FIELD_MULT[field] ?? 1;
+    if (v?.min) parts.push(`${param}_from=${Math.round(Number(v.min) * mult)}`);
+    if (v?.max) parts.push(`${param}_to=${Math.round(Number(v.max) * mult)}`);
   }
   parts.push(`col=${colKey}`);
   return parts.join('&');

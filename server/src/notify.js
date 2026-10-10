@@ -8,18 +8,21 @@
  *   2. an Expo push — for when the app is closed or backgrounded.
  * A history entry is written either way, so the app can show what fired.
  *
- * Filters are per device per category, with min/max pairs over:
- *   usd_market_cap, liquidity, volume_24h, holders_count, kol_count, age_minutes
+ * Filters come from the feed screens, one configuration for the list and the alert:
+ *   - FOMO: the stream carries everything, so the stored feed filters (pushed by the
+ *     app via PUT /api/fomo/filters) gate the token before any device sees it;
+ *   - Photon: no check needed here — photon.js queried the column with those same
+ *     filters, so only tokens that pass ever reach emitToken.
+ * Per-device filters (the old alerts-screen config) are no longer read.
  */
 
 import { notificationConfig, notificationHistory, fomoSeen, photonSeen } from './stores.js';
+import { getFomoFilters } from './fomo-filter-store.js';
 import { isValidPushToken, sendPush } from './push.js';
 import { sendToDevice } from './ws.js';
 
 const HISTORY_MAX = 500;
 const SEEN_MAX = 5000;
-
-const FILTER_FIELDS = ['usd_market_cap', 'liquidity', 'volume_24h', 'holders_count', 'kol_count', 'age_minutes'];
 
 const LABELS = {
   fomo_graduated: 'FOMO Graduados',
@@ -28,47 +31,23 @@ const LABELS = {
   photon_graduated: 'Photon Graduated',
 };
 
-/** Normalizes whatever the device sent into a clean filter map. */
-export function sanitizeAlertFilters(raw) {
-  if (!raw || typeof raw !== 'object') return {};
-  const out = {};
-  for (const [cat, f] of Object.entries(raw)) {
-    if (!LABELS[cat] || !f || typeof f !== 'object') continue;
-    const clean = {};
-    for (const field of FILTER_FIELDS) {
-      const v = f[field];
-      if (v && typeof v === 'object') {
-        const min = numOrNull(v.min);
-        const max = numOrNull(v.max);
-        if (min != null || max != null) clean[field] = { min, max };
-      }
-    }
-    if (Object.keys(clean).length) out[cat] = clean;
-  }
-  return out;
-}
-
-const numOrNull = (v) => {
-  if (v == null || v === '') return null;
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-
-function passesFilters(filters, token) {
-  if (!filters) return true;
-  const values = {
-    usd_market_cap: token.mcap,
-    liquidity: token.liquidity,
-    volume_24h: token.volume,
-    holders_count: token.holders,
-    kol_count: token.kolCount,
-    age_minutes: token.ageMinutes,
-  };
-  for (const [field, bound] of Object.entries(filters)) {
-    const value = values[field];
-    if (value == null) return false; // a bound on data we don't have excludes the token
-    if (bound.min != null && value < bound.min) return false;
-    if (bound.max != null && value > bound.max) return false;
+/**
+ * The FOMO screen's bounds over the alert token's fields. A bound on data the token
+ * doesn't carry excludes it — the same rule readFeed applies to the visible list.
+ */
+function passesFeedFilters(category, token) {
+  const feed = getFomoFilters()[category === 'fomo_graduated' ? 'graduated' : 'trending'];
+  if (!feed) return true;
+  const bounds = [
+    [feed.mcapMin, feed.mcapMax, token.mcap],
+    [feed.kolMin, feed.kolMax, token.kolCount],
+    [feed.ageMinMin, feed.ageMaxMin, token.ageMinutes],
+  ];
+  for (const [min, max, value] of bounds) {
+    if (min == null && max == null) continue;
+    if (value == null) return false;
+    if (min != null && value < min) return false;
+    if (max != null && value > max) return false;
   }
   return true;
 }
@@ -117,9 +96,13 @@ export function emitToken(category, token) {
   const keys = Object.keys(all);
   if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) store.delete(k);
 
+  // FOMO's stream is unfiltered, so the feed's own bounds gate it here (Photon's were
+  // applied by its column query). The token stays seen either way — loosening a filter
+  // later must not re-alert tokens that already passed through.
+  if (category.startsWith('fomo') && !passesFeedFilters(category, token)) return true;
+
   const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[category]);
   for (const device of devices) {
-    if (!passesFilters(device.filters?.[category], token)) continue;
     const entry = notificationHistory.add({
       device_id: device.device_id,
       category,
