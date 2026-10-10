@@ -60,6 +60,7 @@ function mapPhoton(item: { attributes?: Record<string, unknown> }, base: string)
     // Photon blocks hotlinking; the server proxies the bytes with its Referer.
     image: image ? photonLogoUrl(base, image) : null,
     mcap: num(a?.fdv),
+    ath: num(a?.ath),
     liquidity: num(liq?.usd),
     volume24h: num(a?.volume),
     buysCount: num(a?.buys_count),
@@ -98,7 +99,11 @@ const FILTER_FIELDS: { key: keyof PhotonFilters; label: string }[] = [
 type PhotonDelta = 'up' | 'down';
 
 function PhotonRow({ token, delta, onPress }: { token: PhotonToken; delta?: PhotonDelta | null; onPress: () => void }) {
-  const tone = pnlClass(null);
+  // Ganancia/pérdida vs el máximo histórico (fdv vs ath) — mismo lugar, color y formato
+  // que el % de FOMO. Cambia en cada frame porque fdv se mueve y ath casi no: es la línea
+  // viva que ocupaba el "fresh".
+  const athPct = token.ath != null && token.ath > 0 && token.mcap != null ? ((token.mcap - token.ath) / token.ath) * 100 : null;
+  const tone = pnlClass(athPct);
   const moveColor = delta ? (delta === 'up' ? Palette.green : Palette.red) : null;
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: Palette.bgTertiarySolid }]} accessibilityRole="button">
@@ -130,8 +135,8 @@ function PhotonRow({ token, delta, onPress }: { token: PhotonToken; delta?: Phot
             <Text style={[styles.rowDelta, { color: moveColor }]}>{delta === 'up' ? '▲' : '▼'}</Text>
           ) : null}
         </View>
-        <Text style={[styles.rowChange, { color: tone === 'up' ? Palette.green : Palette.red }]}>
-          {token.freshPct != null ? `fresh ${formatPct(token.freshPct, { sign: false })}` : ''}
+        <Text style={[styles.rowChange, { color: tone === 'up' ? Palette.green : tone === 'down' ? Palette.red : Palette.textSecondary }]}>
+          {athPct != null ? formatPct(athPct) : '—'}
         </Text>
         <Text style={styles.rowSub}>
           {token.liquidity != null ? `liq ${formatLiveUsd(token.liquidity)}` : ''}

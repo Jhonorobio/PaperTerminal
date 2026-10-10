@@ -214,6 +214,8 @@ export interface PhotonToken {
   name: string | null;
   image: string | null;
   mcap: number | null;
+  /** All-time high FDV from Photon — the anchor for the row's gain/loss %. */
+  ath: number | null;
   liquidity: number | null;
   volume24h: number | null;
   buysCount: number | null;
