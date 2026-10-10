@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "836819888885",
+    "project_id": "paperterminal-8b0c2",
+    "storage_bucket": "paperterminal-8b0c2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:836819888885:android:4b650d1accd73a5537b3bc",
+        "android_client_info": {
+          "package_name": "com.paperterminal.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyABKckkAYkTO7nFbTB0ViPvGs47gyWQr4Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
