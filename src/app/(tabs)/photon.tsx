@@ -21,6 +21,11 @@ import { activePhotonFilterCount, applyPhotonFilters, normalizePhotonFilters, ty
 import type { PhotonColumn, PhotonFilters, PhotonToken } from '@/lib/types';
 import { useApp } from '@/state/app';
 
+// A live Photon row moves by fractions of a percent per frame — the compact mcap rounds
+// those away, so a bare ▲/▼ next to an identical number reads as "frozen data". How long a
+// move stays visible after the token goes quiet.
+const MOVE_WINDOW_MS = 6_000;
+
 /** Photon's raw item → the app's token shape. */
 function mapPhoton(item: { attributes?: Record<string, unknown> }, base: string): PhotonToken | null {
   const a = item?.attributes;
@@ -76,8 +81,15 @@ const FILTER_FIELDS: { key: keyof PhotonFilters; label: string }[] = [
   { key: 'bundlePct', label: 'Bundle %' },
 ];
 
-function PhotonRow({ token, delta, onPress }: { token: PhotonToken; delta?: 'up' | 'down' | null; onPress: () => void }) {
+/** A row's live move: direction + accumulated % since the streak started. */
+type PhotonDelta = { dir: 'up' | 'down'; pct: number };
+
+function PhotonRow({ token, delta, onPress }: { token: PhotonToken; delta?: PhotonDelta | null; onPress: () => void }) {
   const tone = pnlClass(null);
+  const moveColor = delta ? (delta.dir === 'up' ? Palette.green : Palette.red) : null;
+  // Under 0.01% the exact number is noise; the arrow alone says which way, and "<0.01"
+  // still tells the eye the value really changed (the compact mcap rounds it away).
+  const movePct = delta ? (Math.abs(delta.pct) < 0.01 ? '<0.01' : Math.abs(delta.pct).toFixed(2)) : null;
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: Palette.bgTertiarySolid }]} accessibilityRole="button">
       {token.image ? (
@@ -103,10 +115,10 @@ function PhotonRow({ token, delta, onPress }: { token: PhotonToken; delta?: 'up'
 
       <View style={styles.rowRight}>
         <View style={styles.rowMcapLine}>
-          <Text style={styles.rowMcap}>{token.mcap != null ? formatCompactUsd(token.mcap) : '—'}</Text>
-          {delta ? (
-            <Text style={[styles.rowDelta, { color: delta === 'up' ? Palette.green : Palette.red }]}>
-              {delta === 'up' ? '▲' : '▼'}
+          <Text style={[styles.rowMcap, moveColor ? { color: moveColor } : null]}>{token.mcap != null ? formatCompactUsd(token.mcap) : '—'}</Text>
+          {delta && moveColor && movePct ? (
+            <Text style={[styles.rowDelta, { color: moveColor }]}>
+              {delta.dir === 'up' ? '▲' : '▼'} {movePct}%
             </Text>
           ) : null}
         </View>
@@ -137,13 +149,16 @@ export default function PhotonScreen() {
   // pure in render while still ticking.
   const [wallNow, setWallNow] = useState(0);
 
-  // "Is anything actually moving?" — Photon's numbers only change when a token trades, and in a
-  // quiet market that can be minutes. Each frame is compared against the previous one and a ▲/▼
-  // flashes for ~6s so a live feed never reads as a frozen screenshot (the frame age in the pill
-  // is the other half of that story). Refs + Date.now() live in the WS listener, never in render.
+  // "Is anything actually moving?" — measured live, ~1/3 of a column's tokens change mcap on
+  // every fetch, but by fractions of a percent: the compact format rounds those away, so the
+  // list looked frozen while the arrows fired. Each frame is compared with the previous one;
+  // a move keeps a rolling baseline (the value the streak started from) and flashes the
+  // direction + the accumulated % until the token goes quiet for MOVE_WINDOW_MS — an actively
+  // trading token keeps flashing, which is exactly the "it's alive" signal the bare ▲/▼ never
+  // gave. Refs + Date.now() live in the WS listener, never in render.
   const prevMcapRef = useRef(new Map<string, number | null>());
-  const movesRef = useRef(new Map<string, { dir: 'up' | 'down'; at: number }>());
-  const [deltas, setDeltas] = useState<Map<string, 'up' | 'down'>>(() => new Map());
+  const movesRef = useRef(new Map<string, { dir: 'up' | 'down'; at: number; base: number }>());
+  const [deltas, setDeltas] = useState<Map<string, PhotonDelta>>(() => new Map());
 
   const syncDeltas = useCallback(() => {
     const snap = serverFeed.memescopeSnapshot();
@@ -161,15 +176,22 @@ export default function PhotonScreen() {
         const value = mcap != null && Number.isFinite(mcap) ? mcap : null;
         const before = prev.get(address);
         if (value != null && before != null && value !== before) {
-          movesRef.current.set(address, { dir: value > before ? 'up' : 'down', at: now });
+          const streak = movesRef.current.get(address);
+          // Within an active streak the baseline stays put, so the % shows the whole move.
+          const base = streak != null && now - streak.at <= MOVE_WINDOW_MS ? streak.base : before;
+          movesRef.current.set(address, { dir: value > base ? 'up' : 'down', at: now, base });
         }
         prev.set(address, value);
       }
     }
-    const out = new Map<string, 'up' | 'down'>();
+    const out = new Map<string, PhotonDelta>();
     for (const [address, move] of movesRef.current) {
-      if (now - move.at <= 6_000) out.set(address, move.dir);
-      else movesRef.current.delete(address);
+      if (now - move.at > MOVE_WINDOW_MS) {
+        movesRef.current.delete(address);
+        continue;
+      }
+      const value = prev.get(address);
+      if (value != null && move.base > 0) out.set(address, { dir: move.dir, pct: ((value - move.base) / move.base) * 100 });
     }
     setDeltas(out);
   }, []);
