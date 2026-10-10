@@ -152,11 +152,9 @@ export default function FomoScreen() {
     return () => clearTimeout(id);
   }, [rawByFeed, settings.serverBase]);
 
-  const tokens = useMemo(() => {
-    // Re-read the singleton on every server push; tick is the re-render trigger.
-    void tick;
-    return selectFomoTokens(feed, serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo'), filters, nowSec);
-  }, [feed, filters, nowSec, tick]);
+  // Recomputed every render ON PURPOSE — no useMemo (React Compiler drops [tick] from memo
+  // deps and the list froze until remount, the same bug Photon had). ~40 tokens.
+  const tokens = selectFomoTokens(feed, serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo'), filters, nowSec);
 
   // Trending tokens carry no createdAt from FOMO — resolve their age (and the KOL count that comes
   // free in the same Pulse response) for the visible candidates. Graduated tokens already carry

@@ -150,7 +150,7 @@ export default function PhotonScreen() {
   // Each column keeps its own filters, persisted in settings so they survive app restarts.
   const rawByCol = useMemo(() => settings.photonFilters ?? { col1: {}, col3: {} }, [settings.photonFilters]);
   const [open, setOpen] = useState(false);
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0);
   const [status, setStatus] = useState(() => serverFeed.status());
   const [syncState, setSyncState] = useState<'idle' | 'sending' | 'ok' | 'error'>('idle');
   // Wall clock sampled outside render (WS listener + 2s interval) so "datos hace Ns" stays
@@ -225,11 +225,15 @@ export default function PhotonScreen() {
   const activeCount = activePhotonFilterCount(filters);
 
   const snapshot = serverFeed.memescopeSnapshot();
-  const tokens = useMemo(() => {
-    void tick;
-    const list = tokensOfColumn(snapshot, column, settings.serverBase);
-    return applyPhotonFilters(list, filters);
-  }, [snapshot, column, filters, tick, settings.serverBase]);
+  const columnTokens = tokensOfColumn(snapshot, column, settings.serverBase);
+  const received = columnTokens.length;
+  // Recomputed every render ON PURPOSE — no useMemo. React Compiler reshapes memo deps and
+  // was dropping [tick, snapshot] here (it can't see memescopeSnapshot() is mutable), which
+  // froze this list until the screen remounted: that was "los tokens no cambian nada" — the
+  // age pill and the ▲/▼ kept moving because syncDeltas reads the snapshot live outside the
+  // memo, so arrows flipped while the numbers stayed put and "recibidos" outran "visibles"
+  // (7 recibidos / 8 visibles). ~30 tokens: map + filter is ~µs, less than the re-render.
+  const tokens = applyPhotonFilters(columnTokens, filters);
 
   // Photon is pulled, not streamed: the filters travel to the server, which re-queries
   // Photon and pushes only what passes. (The local filter above is the instant echo.)
@@ -254,7 +258,6 @@ export default function PhotonScreen() {
     [rawByCol, updateSettings],
   );
 
-  const received = tokensOfColumn(snapshot, column, settings.serverBase).length;
   // Data age = how old the payload itself is: the server's ageMs (fetch → push) plus the time
   // since that frame reached this phone (local clock, so timezone can't skew it). It climbs
   // whenever the feed stalls — rate limit, dead poller, dropped WS — even if frames keep coming.
