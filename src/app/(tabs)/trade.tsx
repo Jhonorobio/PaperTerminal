@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -47,22 +47,37 @@ function AccountStrip() {
 
 export default function TradeScreen() {
   const { ready, recents, banner, flash } = useApp();
-  // A deep link (push or floating panel) can preselect a token: /trade?address=…&symbol=…
+  // A deep link (a tapped alert, or a clipboard copy) preselects its token. Tabs reuse the
+  // mounted screen, so a NEW copied address arrives as a params change — not a remount —
+  // and has to win over the previous selection. The linked asset wins until the user
+  // picks one manually (that pick "consumes" the link), and any new link wins back over
+  // that manual choice — pure state, no refs in render and no setState in effects.
+  const [consumedLink, setConsumedLink] = useState<string | null>(null);
   const params = useLocalSearchParams<{ address?: string; symbol?: string; chain?: string }>();
-  // One-shot: the linked token seeds the recents, afterwards the user navigates freely.
-  const deepLinkRef = useRef<Asset | null>(
-    params.address ? { chain: params.chain ?? 'solana', address: params.address, symbol: params.symbol ?? null, source: 'url' } : null,
-  );
-  useEffect(() => {
-    const linked = deepLinkRef.current;
-    if (!linked) return;
-    deepLinkRef.current = null;
-    void addRecentAsset(linked);
-  }, []);
+  const linkAddress = typeof params.address === 'string' ? params.address : null;
+  const linkChain = (typeof params.chain === 'string' ? params.chain : null) ?? 'solana';
+  const linkKey = linkAddress ? `${linkChain}:${linkAddress.toLowerCase()}` : null;
+  const linkedAsset: Asset | null =
+    linkAddress && linkKey !== consumedLink
+      ? { chain: linkChain, address: linkAddress, symbol: params.symbol ?? null, source: 'url' }
+      : null;
+
   // No token to read from a tab, so the most recent one is the default until the user picks
   // another — held as an override rather than copied into state by an effect.
   const [assetOverride, setAssetOverride] = useState<Asset | null | undefined>(undefined);
-  const asset = assetOverride !== undefined ? assetOverride : (recents[0] ?? null);
+  const pickAsset = (next: Asset | null) => {
+    setConsumedLink(linkKey); // the user's choice settles whatever link is showing
+    setAssetOverride(next);
+  };
+
+  // Keep the deep-linked token in the recents list — the picker and persistence treat it
+  // like any other asset.
+  useEffect(() => {
+    if (!linkKey || !linkAddress) return;
+    void addRecentAsset({ chain: linkChain, address: linkAddress, symbol: params.symbol ?? null, source: 'url' });
+  }, [linkKey, linkAddress, linkChain, params.symbol]);
+
+  const asset = linkedAsset ?? (assetOverride !== undefined ? assetOverride : recents[0]) ?? null;
 
   // GMGN's token page per chain: gmgn.ai/{chain}/token/{address}.
   const GMGN_CHAIN: Record<string, string> = { solana: 'sol', ethereum: 'eth', base: 'base', bsc: 'bsc', monad: 'monad' };
@@ -98,7 +113,7 @@ export default function TradeScreen() {
 
         {banner ? <Banner kind={banner.kind}>{banner.text}</Banner> : null}
 
-        <TokenPicker value={asset} onChange={setAssetOverride} />
+        <TokenPicker value={asset} onChange={pickAsset} />
 
         <TradePanel asset={asset} />
 

@@ -8,6 +8,7 @@ import { StatusBar } from 'expo-status-bar';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AlertOverlay } from '@/components/alert-toast';
+import { startClipboardWatch } from '@/lib/clipboard';
 import { initPushHandlers } from '@/lib/notifications';
 
 SplashScreen.preventAutoHideAsync();
@@ -40,6 +41,20 @@ export default function RootLayout() {
     });
     return () => cleanup?.();
   }, [router]);
+
+  // Copy a token address anywhere (Photon, browser, wallet) while this app is open and
+  // Trade jumps to it on its own — the same deep link a tapped alert uses.
+  useEffect(
+    () =>
+      startClipboardWatch((asset) => {
+        router.push(
+          `/trade?address=${encodeURIComponent(asset.address)}&chain=${asset.chain}${
+            asset.symbol ? `&symbol=${encodeURIComponent(asset.symbol)}` : ''
+          }` as never,
+        );
+      }),
+    [router],
+  );
 
   return (
     <ThemeProvider value={PaperTheme}>
