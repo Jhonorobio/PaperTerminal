@@ -10,7 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image as ExpoImage } from 'expo-image';
 
 import { Icon } from '@/components/icons';
-import { Banner, Btn, Card, Empty, SegTabs } from '@/components/ui';
+import { Banner, Card, Empty } from '@/components/ui';
 import { Palette, Radius } from '@/constants/paper';
 import { formatCompactUsd, timeAgo } from '@/lib/format';
 import {
@@ -21,7 +21,6 @@ import {
   pushAvailable,
   registerDevice,
   saveCategories,
-  sendTestAlert,
   type AlertCategory,
   type AlertHistoryEntry,
 } from '@/lib/notifications';
@@ -35,16 +34,13 @@ const CATEGORY_LABELS: Record<AlertCategory, string> = {
 };
 
 export default function AlertsScreen() {
-  const { settings, flash } = useApp();
+  const { settings } = useApp();
   const [categories, setCategories] = useState<Record<AlertCategory, boolean>>({
     fomo_graduated: false,
     fomo_trending: false,
     photon_new: false,
     photon_graduated: false,
   });
-  // Which category the "Probar alerta" button fires — the filters themselves live
-  // on the feed screens.
-  const [testing, setTesting] = useState<AlertCategory>('fomo_graduated');
   const [history, setHistory] = useState<AlertHistoryEntry[]>([]);
   const [registered, setRegistered] = useState(false);
   const [pushOk, setPushOk] = useState(true);
@@ -111,31 +107,6 @@ export default function AlertsScreen() {
     void persist(next);
   };
 
-  const test = async () => {
-    try {
-      const push = await sendTestAlert(settings.serverBase, testing);
-      const details =
-        push?.ticket?.status === 'error' ? push.ticket.details
-        : push?.receipt?.status === 'error' ? push.receipt.details
-        : null;
-      if (!push?.sent) {
-        flash('err', push?.reason === 'no_token'
-          ? 'El server no tiene el token push de este dispositivo — el push no puede llegar.'
-          : `El server no pudo enviar a Expo: ${push?.reason ?? 'sin detalle'}.`);
-      } else if (details) {
-        flash('err', `Expo rechazó la entrega: ${details.error ?? 'error'}${details.message ? ` — ${details.message}` : ''}`);
-      } else if (push.receipt) {
-        flash('ok', 'Push entregada al celu ✓');
-      } else {
-        flash('ok', 'Push enviada a Expo — si no la ves en ~1 min, la entrega FCM está fallando.');
-      }
-      setHistory(await fetchHistory(settings.serverBase));
-      setPushRegistered((await loadConfig(settings.serverBase)).hasPush ?? null);
-    } catch (err) {
-      flash('err', err instanceof Error ? err.message : 'No se pudo enviar la prueba.');
-    }
-  };
-
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.header}>
@@ -179,15 +150,6 @@ export default function AlertsScreen() {
             Los filtros no se configuran acá: son los de las pantallas FOMO y Photon. Se envían al server con cada cambio, y
             la alerta se dispara con exactamente los mismos — lo que ves en la lista es lo que te avisa.
           </Text>
-        </Card>
-
-        <Card style={{ padding: 14, gap: 10 }}>
-          <Text style={styles.groupTitle}>Probar</Text>
-          <SegTabs value={testing} onChange={setTesting} options={ALERT_CATEGORIES.map((id) => ({ value: id, label: CATEGORY_LABELS[id] }))} />
-          <View style={styles.actions}>
-            <Btn label="Probar alerta" variant="sm" icon="lightning" onPress={() => void test()} />
-          </View>
-          <Text style={styles.fine}>Dispara una alerta sintética por el camino real: panel flotante + push (development build).</Text>
         </Card>
 
         <Card style={{ padding: 14, gap: 8 }}>
@@ -239,8 +201,7 @@ const styles = StyleSheet.create({
   rowTitle: { fontSize: 14, fontWeight: '700', color: Palette.textPrimary },
   rowSub: { fontSize: 11, color: Palette.textTertiary },
 
-  actions: { flexDirection: 'row', gap: 8, marginTop: 2 },
-  fine: { fontSize: 11, color: Palette.textTertiary, lineHeight: 15 },
+  actions: { flexDirection: 'row', gap: 8, marginTop: 2 },  fine: { fontSize: 11, color: Palette.textTertiary, lineHeight: 15 },
 
   histRow: {
     flexDirection: 'row',
