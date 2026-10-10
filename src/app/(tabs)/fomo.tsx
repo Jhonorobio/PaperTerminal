@@ -162,14 +162,20 @@ export default function FomoScreen() {
   );
 
   const liveCount = serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo').length;
-  const dotColor = status.lastError ? Palette.red : status.connected ? Palette.green : Palette.textTertiary;
+  // Freshness: FOMO pushes are change-driven, so "datos hace Ns" climbs whenever the server's
+  // upstream connection goes quiet — a green dot alone can't tell a live feed from a dead one.
+  // 30s before red: quiet minutes happen; a dead feed looks exactly like a quiet one until then.
+  const feedAt = serverFeed.fomoReceivedAt();
+  const feedAgeSec = feedAt ? Math.max(0, nowSec - Math.floor(feedAt / 1000)) : null;
+  const feedStale = feedAgeSec != null && feedAgeSec > 30;
+  const dotColor = status.lastError || feedStale ? Palette.red : status.connected && feedAgeSec != null ? Palette.green : Palette.textTertiary;
   const statusText = !status.connected
     ? status.everConnected
       ? 'reconectando al servidor…'
       : status.lastError
         ? status.lastError
         : 'conectando al servidor…'
-    : `live · ${liveCount} tokens`;
+    : `live · ${liveCount} tokens${feedAgeSec == null ? '' : ` · datos hace ${feedAgeSec}s`}`;
 
   // Stable renderItem + memoized rows: a push only repaints the tokens that actually changed. The
   // age label is the one cell that ages on its own, so it re-renders from the row's own state.

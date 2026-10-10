@@ -57,6 +57,10 @@ class ServerFeed {
   /** address → token, per feed topic. */
   private readonly fomoMaps = { fomo: new Map<string, FomoToken>(), fomo_trending: new Map<string, FomoToken>() };
   private memescope: PhotonSnapshot | null = null;
+  /** Local clock of the last memescope frame — the app's freshness signal. */
+  private memescopeAt = 0;
+  /** Local clock of the last FOMO push (either feed). */
+  private fomoAt = 0;
   private readonly listeners = new Set<Listener>();
   private readonly alertListeners = new Set<AlertListener>();
 
@@ -200,8 +204,10 @@ class ServerFeed {
         map.clear();
         for (const token of data.tokens) map.set(token.address, token);
       }
+      this.fomoAt = Date.now();
     } else if (topic === TOPICS.memescope) {
       this.memescope = data as unknown as PhotonSnapshot;
+      this.memescopeAt = Date.now();
     } else if (topic.startsWith(`${TOPICS.alerts}:`)) {
       for (const listener of [...this.alertListeners]) listener(data);
       return; // alerts do not repaint the feed lists
@@ -218,6 +224,16 @@ class ServerFeed {
 
   memescopeSnapshot(): PhotonSnapshot | null {
     return this.memescope;
+  }
+
+  /** Epoch ms of the last memescope push (0 = never). */
+  memescopeReceivedAt(): number {
+    return this.memescopeAt;
+  }
+
+  /** Epoch ms of the last FOMO push, either feed (0 = never). */
+  fomoReceivedAt(): number {
+    return this.fomoAt;
   }
 
   subscribe(listener: Listener): () => void {

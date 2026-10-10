@@ -1,9 +1,10 @@
 // Photon memescope — New / Graduated, live from the feed server's WS topic `memescope`.
 // Photon's API challenges anything that isn't a real Chrome TLS fingerprint (CycleTLS),
 // so the server owns that connection and pushes the columns here; the phone just renders.
-// Filters apply to the pushed snapshot locally, so each column keeps its own set.
+// Filters travel to the server (which re-queries Photon with them) and echo locally for
+// instant feedback, so each column keeps its own set.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -75,7 +76,7 @@ const FILTER_FIELDS: { key: keyof PhotonFilters; label: string }[] = [
   { key: 'bundlePct', label: 'Bundle %' },
 ];
 
-function PhotonRow({ token, onPress }: { token: PhotonToken; onPress: () => void }) {
+function PhotonRow({ token, delta, onPress }: { token: PhotonToken; delta?: 'up' | 'down' | null; onPress: () => void }) {
   const tone = pnlClass(null);
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: Palette.bgTertiarySolid }]} accessibilityRole="button">
@@ -101,7 +102,14 @@ function PhotonRow({ token, onPress }: { token: PhotonToken; onPress: () => void
       </View>
 
       <View style={styles.rowRight}>
-        <Text style={styles.rowMcap}>{token.mcap != null ? formatCompactUsd(token.mcap) : '—'}</Text>
+        <View style={styles.rowMcapLine}>
+          <Text style={styles.rowMcap}>{token.mcap != null ? formatCompactUsd(token.mcap) : '—'}</Text>
+          {delta ? (
+            <Text style={[styles.rowDelta, { color: delta === 'up' ? Palette.green : Palette.red }]}>
+              {delta === 'up' ? '▲' : '▼'}
+            </Text>
+          ) : null}
+        </View>
         <Text style={[styles.rowChange, { color: tone === 'up' ? Palette.green : Palette.red }]}>
           {token.freshPct != null ? `fresh ${formatPct(token.freshPct, { sign: false })}` : ''}
         </Text>
@@ -125,6 +133,46 @@ export default function PhotonScreen() {
   const [tick, setTick] = useState(0);
   const [status, setStatus] = useState(() => serverFeed.status());
   const [syncState, setSyncState] = useState<'idle' | 'sending' | 'ok' | 'error'>('idle');
+  // Wall clock sampled outside render (WS listener + 2s interval) so "datos hace Ns" stays
+  // pure in render while still ticking.
+  const [wallNow, setWallNow] = useState(0);
+
+  // "Is anything actually moving?" — Photon's numbers only change when a token trades, and in a
+  // quiet market that can be minutes. Each frame is compared against the previous one and a ▲/▼
+  // flashes for ~6s so a live feed never reads as a frozen screenshot (the frame age in the pill
+  // is the other half of that story). Refs + Date.now() live in the WS listener, never in render.
+  const prevMcapRef = useRef(new Map<string, number | null>());
+  const movesRef = useRef(new Map<string, { dir: 'up' | 'down'; at: number }>());
+  const [deltas, setDeltas] = useState<Map<string, 'up' | 'down'>>(() => new Map());
+
+  const syncDeltas = useCallback(() => {
+    const snap = serverFeed.memescopeSnapshot();
+    const now = Date.now();
+    const prev = prevMcapRef.current;
+    for (const col of ['col1', 'col3'] as const) {
+      const data = snap?.columns?.[col]?.data;
+      if (!Array.isArray(data)) continue;
+      for (const item of data) {
+        const a = (item as { attributes?: Record<string, unknown> }).attributes;
+        const address = typeof a?.tokenAddress === 'string' ? a.tokenAddress : null;
+        if (!address) continue;
+        const raw = a?.fdv;
+        const mcap = raw == null || raw === '' ? null : Number(raw);
+        const value = mcap != null && Number.isFinite(mcap) ? mcap : null;
+        const before = prev.get(address);
+        if (value != null && before != null && value !== before) {
+          movesRef.current.set(address, { dir: value > before ? 'up' : 'down', at: now });
+        }
+        prev.set(address, value);
+      }
+    }
+    const out = new Map<string, 'up' | 'down'>();
+    for (const [address, move] of movesRef.current) {
+      if (now - move.at <= 6_000) out.set(address, move.dir);
+      else movesRef.current.delete(address);
+    }
+    setDeltas(out);
+  }, []);
 
   useEffect(() => {
     void ServerFeed.ensureConnected(settings.serverBase);
@@ -132,14 +180,23 @@ export default function PhotonScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      const unsubscribe = serverFeed.subscribe(() => setTick((t) => t + 1));
+      syncDeltas();
+      setWallNow(Date.now());
+      const unsubscribe = serverFeed.subscribe(() => {
+        syncDeltas();
+        setWallNow(Date.now());
+        setTick((t) => t + 1);
+      });
       setStatus(serverFeed.status());
-      const id = setInterval(() => setStatus(serverFeed.status()), 2000);
+      const id = setInterval(() => {
+        setStatus(serverFeed.status());
+        setWallNow(Date.now());
+      }, 2000);
       return () => {
         unsubscribe();
         clearInterval(id);
       };
-    }, []),
+    }, [syncDeltas]),
   );
 
   const raw = rawByCol[column];
@@ -176,20 +233,29 @@ export default function PhotonScreen() {
     [rawByCol, updateSettings],
   );
 
-  const dotColor = status.lastError ? Palette.red : status.connected ? Palette.green : Palette.textTertiary;
   const received = tokensOfColumn(snapshot, column, settings.serverBase).length;
+  // Data age = how old the payload itself is: the server's ageMs (fetch → push) plus the time
+  // since that frame reached this phone (local clock, so timezone can't skew it). It climbs
+  // whenever the feed stalls — rate limit, dead poller, dropped WS — even if frames keep coming.
+  const frameAt = serverFeed.memescopeReceivedAt();
+  const dataAgeSec =
+    snapshot?.ageMs != null && frameAt && wallNow ? Math.max(0, Math.round((snapshot.ageMs + (wallNow - frameAt)) / 1000)) : null;
+  const dataStale = dataAgeSec != null && (dataAgeSec > 15 || Boolean(snapshot?.error));
+  const dotColor = status.lastError || dataStale ? Palette.red : status.connected && dataAgeSec != null ? Palette.green : Palette.textTertiary;
   const statusText = useMemo(() => {
     if (!status.connected) {
       if (status.everConnected) return 'reconectando al servidor…';
       return status.lastError ?? 'conectando al servidor…';
     }
     const parts = [`${received} recibidos · ${tokens.length} visibles`];
+    parts.push(dataAgeSec == null ? 'sin datos' : `datos hace ${dataAgeSec}s`);
+    if (snapshot?.error) parts.push(`server: ${snapshot.error}`);
     if (activeCount) parts.push(`filtro local (${activeCount})`);
     if (syncState === 'sending') parts.push('enviando filtros…');
     else if (syncState === 'error') parts.push('filtros: error');
     else if (syncState === 'ok' && activeCount) parts.push('filtros en el server ✓');
     return parts.join(' · ');
-  }, [status, received, tokens.length, activeCount, syncState]);
+  }, [status, received, tokens.length, activeCount, syncState, dataAgeSec, snapshot]);
 
   const openToken = useCallback(
     async (token: PhotonToken) => {
@@ -201,8 +267,10 @@ export default function PhotonScreen() {
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: PhotonToken }) => <PhotonRow token={item} onPress={() => void openToken(item)} />,
-    [openToken],
+    ({ item }: { item: PhotonToken }) => (
+      <PhotonRow token={item} delta={deltas.get(item.address) ?? null} onPress={() => void openToken(item)} />
+    ),
+    [openToken, deltas],
   );
 
   return (
@@ -338,6 +406,8 @@ const styles = StyleSheet.create({
   rowSub: { fontSize: 10, color: Palette.textTertiary },
 
   rowRight: { alignItems: 'flex-end', gap: 1 },
+  rowMcapLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   rowMcap: { fontSize: 13, fontWeight: '800', color: Palette.textPrimary, fontVariant: ['tabular-nums'] },
+  rowDelta: { fontSize: 9, fontWeight: '900' },
   rowChange: { fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },
 });

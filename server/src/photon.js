@@ -248,6 +248,11 @@ function coalescedFetch(colKey) {
     .catch((err) => {
       errorCount += 1;
       lastError = { message: String(err?.message || err), at: Date.now() };
+      // A failed refresh re-pushes the payload with the error attached (snapshotPayload includes
+      // `error` while it's <10s old) — even on a cold boot with no cache, so the app's pill turns
+      // red and says WHY (RATE_LIMITED, HTTP_403, Unauthorized) instead of only watching the data
+      // age climb in silence.
+      broadcast('memescope', { event: 'memescope_updated', data: snapshotPayload() });
       return null;
     })
     .finally(() => {
@@ -293,14 +298,17 @@ function snapshotPayload() {
       newest = Math.max(newest, colCache[col.key].savedAt);
     }
   }
-  if (!any) return { columns: {}, titles: {}, cached: false, ageMs: -1, savedAt: 0 };
+  // Fresh failures travel with the payload (both branches): a cold boot that never got a 200
+  // still has to say WHY on the app side, not just push an empty column list.
+  const err = lastError && Date.now() - lastError.at < 10_000 ? { error: lastError.message } : {};
+  if (!any) return { columns: {}, titles: {}, cached: false, ageMs: -1, savedAt: 0, ...err };
   return {
     columns,
     titles: titles ?? FALLBACK_TITLES,
     cached: true,
     ageMs: Date.now() - newest,
     savedAt: newest,
-    ...(lastError && Date.now() - lastError.at < 10_000 ? { error: lastError.message } : {}),
+    ...err,
   };
 }
 
