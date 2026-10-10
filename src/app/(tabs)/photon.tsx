@@ -4,7 +4,7 @@
 // Filters travel to the server (which re-queries Photon with them) and echo locally for
 // instant feedback, so each column keeps its own set.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,24 +20,6 @@ import { photonLogoUrl, setPhotonServerFilters } from '@/lib/server-base';
 import { activePhotonFilterCount, applyPhotonFilters, normalizePhotonFilters, type RawPhotonFilters } from '@/lib/market/photon-filters';
 import type { PhotonColumn, PhotonFilters, PhotonToken } from '@/lib/types';
 import { useApp } from '@/state/app';
-
-// How long a move (color + arrow) stays visible after the token goes quiet.
-const MOVE_WINDOW_MS = 6_000;
-
-/**
- * Live-feed money in exact dollars — the real fix for "los datos están congelados".
- *
- * Measured on the live feed: frames arrive every 1.3s and ~1/3 of a column's mcap changes on
- * each fetch, but by fractions of a percent (+0.003% is typical). The compact form rounds
- * those to the *same* string ($276.5K → $276.5K), so the list looked frozen even though it
- * was repainting every frame. Grouped dollars change on every trade — that's what live looks
- * like. Only ≥$1B goes compact (it would overflow the row).
- */
-function formatLiveUsd(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return '—';
-  if (Math.abs(value) >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
-  return `$${Math.round(value).toLocaleString('en-US')}`;
-}
 
 /** Photon's raw item → the app's token shape. */
 function mapPhoton(item: { attributes?: Record<string, unknown> }, base: string): PhotonToken | null {
@@ -95,16 +77,12 @@ const FILTER_FIELDS: { key: keyof PhotonFilters; label: string }[] = [
   { key: 'bundlePct', label: 'Bundle %' },
 ];
 
-/** A row's live move: direction while the token keeps trading. */
-type PhotonDelta = 'up' | 'down';
-
-function PhotonRow({ token, delta, onPress }: { token: PhotonToken; delta?: PhotonDelta | null; onPress: () => void }) {
-  // Ganancia/pérdida vs el máximo histórico (fdv vs ath) — mismo lugar, color y formato
-  // que el % de FOMO. Cambia en cada frame porque fdv se mueve y ath casi no: es la línea
-  // viva que ocupaba el "fresh".
-  const athPct = token.ath != null && token.ath > 0 && token.mcap != null ? ((token.mcap - token.ath) / token.ath) * 100 : null;
+function PhotonRow({ token, onPress }: { token: PhotonToken; onPress: () => void }) {
+  // Ganancia hasta el máximo histórico: (ath ÷ market cap actual − 1), mismo lugar y formato
+  // que el % de FOMO. El + verde dice cuánto queda hasta el ATH (si lo superó, negativo en
+  // rojo). Se mueve en cada frame porque fdv cambia y ath casi no.
+  const athPct = token.mcap != null && token.mcap > 0 && token.ath != null ? ((token.ath - token.mcap) / token.mcap) * 100 : null;
   const tone = pnlClass(athPct);
-  const moveColor = delta ? (delta === 'up' ? Palette.green : Palette.red) : null;
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: Palette.bgTertiarySolid }]} accessibilityRole="button">
       {token.image ? (
@@ -129,17 +107,12 @@ function PhotonRow({ token, delta, onPress }: { token: PhotonToken; delta?: Phot
       </View>
 
       <View style={styles.rowRight}>
-        <View style={styles.rowMcapLine}>
-          <Text style={[styles.rowMcap, moveColor ? { color: moveColor } : null]}>{formatLiveUsd(token.mcap)}</Text>
-          {delta && moveColor ? (
-            <Text style={[styles.rowDelta, { color: moveColor }]}>{delta === 'up' ? '▲' : '▼'}</Text>
-          ) : null}
-        </View>
+        <Text style={styles.rowMcap}>{formatCompactUsd(token.mcap)}</Text>
         <Text style={[styles.rowChange, { color: tone === 'up' ? Palette.green : tone === 'down' ? Palette.red : Palette.textSecondary }]}>
           {athPct != null ? formatPct(athPct) : '—'}
         </Text>
         <Text style={styles.rowSub}>
-          {token.liquidity != null ? `liq ${formatLiveUsd(token.liquidity)}` : ''}
+          {token.liquidity != null ? `liq ${formatCompactUsd(token.liquidity)}` : ''}
           {token.bundlePct != null ? ` · bnd ${formatPct(token.bundlePct, { sign: false })}` : ''}
         </Text>
       </View>
@@ -162,54 +135,14 @@ export default function PhotonScreen() {
   // pure in render while still ticking.
   const [wallNow, setWallNow] = useState(0);
 
-  // "Is anything actually moving?" — measured live: frames arrive every 1.3s and ~1/3 of a
-  // column's mcap changes on each fetch, but by fractions of a percent. The row now prints
-  // exact dollars (the real fix — the compact form hid every move); this just flashes the
-  // direction for MOVE_WINDOW_MS so a trading token is obvious at a glance. Refs + Date.now()
-  // live in the WS listener, never in render.
-  const prevMcapRef = useRef(new Map<string, number | null>());
-  const movesRef = useRef(new Map<string, { dir: 'up' | 'down'; at: number }>());
-  const [deltas, setDeltas] = useState<Map<string, PhotonDelta>>(() => new Map());
-
-  const syncDeltas = useCallback(() => {
-    const snap = serverFeed.memescopeSnapshot();
-    const now = Date.now();
-    const prev = prevMcapRef.current;
-    for (const col of ['col1', 'col3'] as const) {
-      const data = snap?.columns?.[col]?.data;
-      if (!Array.isArray(data)) continue;
-      for (const item of data) {
-        const a = (item as { attributes?: Record<string, unknown> }).attributes;
-        const address = typeof a?.tokenAddress === 'string' ? a.tokenAddress : null;
-        if (!address) continue;
-        const raw = a?.fdv;
-        const mcap = raw == null || raw === '' ? null : Number(raw);
-        const value = mcap != null && Number.isFinite(mcap) ? mcap : null;
-        const before = prev.get(address);
-        if (value != null && before != null && value !== before) {
-          movesRef.current.set(address, { dir: value > before ? 'up' : 'down', at: now });
-        }
-        prev.set(address, value);
-      }
-    }
-    const out = new Map<string, PhotonDelta>();
-    for (const [address, move] of movesRef.current) {
-      if (now - move.at <= MOVE_WINDOW_MS) out.set(address, move.dir);
-      else movesRef.current.delete(address);
-    }
-    setDeltas(out);
-  }, []);
-
   useEffect(() => {
     void ServerFeed.ensureConnected(settings.serverBase);
   }, [settings.serverBase]);
 
   useFocusEffect(
     useCallback(() => {
-      syncDeltas();
       setWallNow(Date.now());
       const unsubscribe = serverFeed.subscribe(() => {
-        syncDeltas();
         setWallNow(Date.now());
         setTick((t) => t + 1);
       });
@@ -222,7 +155,7 @@ export default function PhotonScreen() {
         unsubscribe();
         clearInterval(id);
       };
-    }, [syncDeltas]),
+    }, []),
   );
 
   const raw = rawByCol[column];
@@ -235,9 +168,8 @@ export default function PhotonScreen() {
   // Recomputed every render ON PURPOSE — no useMemo. React Compiler reshapes memo deps and
   // was dropping [tick, snapshot] here (it can't see memescopeSnapshot() is mutable), which
   // froze this list until the screen remounted: that was "los tokens no cambian nada" — the
-  // age pill and the ▲/▼ kept moving because syncDeltas reads the snapshot live outside the
-  // memo, so arrows flipped while the numbers stayed put and "recibidos" outran "visibles"
-  // (7 recibidos / 8 visibles). ~30 tokens: map + filter is ~µs, less than the re-render.
+  // pill and the ▲/▼ kept moving while the numbers stayed put, and "recibidos" outran
+  // "visibles" (7 recibidos / 8 visibles). ~30 tokens: map + filter is ~µs.
   const tokens = applyPhotonFilters(columnTokens, filters);
 
   // Photon is pulled, not streamed: the filters travel to the server, which re-queries
@@ -295,12 +227,7 @@ export default function PhotonScreen() {
     [flash],
   );
 
-  const renderItem = useCallback(
-    ({ item }: { item: PhotonToken }) => (
-      <PhotonRow token={item} delta={deltas.get(item.address) ?? null} onPress={() => void openToken(item)} />
-    ),
-    [openToken, deltas],
-  );
+  const renderItem = useCallback(({ item }: { item: PhotonToken }) => <PhotonRow token={item} onPress={() => void openToken(item)} />, [openToken]);
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -435,8 +362,6 @@ const styles = StyleSheet.create({
   rowSub: { fontSize: 10, color: Palette.textTertiary },
 
   rowRight: { alignItems: 'flex-end', gap: 1 },
-  rowMcapLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   rowMcap: { fontSize: 13, fontWeight: '800', color: Palette.textPrimary, fontVariant: ['tabular-nums'] },
-  rowDelta: { fontSize: 11, fontWeight: '900' },
   rowChange: { fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },
 });
