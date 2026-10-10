@@ -45,3 +45,6 @@ example
 
 # Reference server from blanks-app (contains its own credentials) — not part of this project
 /server con APIS/
+
+# Nested copy of the Tradingsimulator app kept for reference - not part of this project
+/app/

@@ -21,10 +21,23 @@ import { activePhotonFilterCount, applyPhotonFilters, normalizePhotonFilters, ty
 import type { PhotonColumn, PhotonFilters, PhotonToken } from '@/lib/types';
 import { useApp } from '@/state/app';
 
-// A live Photon row moves by fractions of a percent per frame — the compact mcap rounds
-// those away, so a bare ▲/▼ next to an identical number reads as "frozen data". How long a
-// move stays visible after the token goes quiet.
+// How long a move (color + arrow) stays visible after the token goes quiet.
 const MOVE_WINDOW_MS = 6_000;
+
+/**
+ * Live-feed money in exact dollars — the real fix for "los datos están congelados".
+ *
+ * Measured on the live feed: frames arrive every 1.3s and ~1/3 of a column's mcap changes on
+ * each fetch, but by fractions of a percent (+0.003% is typical). The compact form rounds
+ * those to the *same* string ($276.5K → $276.5K), so the list looked frozen even though it
+ * was repainting every frame. Grouped dollars change on every trade — that's what live looks
+ * like. Only ≥$1B goes compact (it would overflow the row).
+ */
+function formatLiveUsd(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  if (Math.abs(value) >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
+  return `$${Math.round(value).toLocaleString('en-US')}`;
+}
 
 /** Photon's raw item → the app's token shape. */
 function mapPhoton(item: { attributes?: Record<string, unknown> }, base: string): PhotonToken | null {
@@ -81,15 +94,12 @@ const FILTER_FIELDS: { key: keyof PhotonFilters; label: string }[] = [
   { key: 'bundlePct', label: 'Bundle %' },
 ];
 
-/** A row's live move: direction + accumulated % since the streak started. */
-type PhotonDelta = { dir: 'up' | 'down'; pct: number };
+/** A row's live move: direction while the token keeps trading. */
+type PhotonDelta = 'up' | 'down';
 
 function PhotonRow({ token, delta, onPress }: { token: PhotonToken; delta?: PhotonDelta | null; onPress: () => void }) {
   const tone = pnlClass(null);
-  const moveColor = delta ? (delta.dir === 'up' ? Palette.green : Palette.red) : null;
-  // Under 0.01% the exact number is noise; the arrow alone says which way, and "<0.01"
-  // still tells the eye the value really changed (the compact mcap rounds it away).
-  const movePct = delta ? (Math.abs(delta.pct) < 0.01 ? '<0.01' : Math.abs(delta.pct).toFixed(2)) : null;
+  const moveColor = delta ? (delta === 'up' ? Palette.green : Palette.red) : null;
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: Palette.bgTertiarySolid }]} accessibilityRole="button">
       {token.image ? (
@@ -115,18 +125,16 @@ function PhotonRow({ token, delta, onPress }: { token: PhotonToken; delta?: Phot
 
       <View style={styles.rowRight}>
         <View style={styles.rowMcapLine}>
-          <Text style={[styles.rowMcap, moveColor ? { color: moveColor } : null]}>{token.mcap != null ? formatCompactUsd(token.mcap) : '—'}</Text>
-          {delta && moveColor && movePct ? (
-            <Text style={[styles.rowDelta, { color: moveColor }]}>
-              {delta.dir === 'up' ? '▲' : '▼'} {movePct}%
-            </Text>
+          <Text style={[styles.rowMcap, moveColor ? { color: moveColor } : null]}>{formatLiveUsd(token.mcap)}</Text>
+          {delta && moveColor ? (
+            <Text style={[styles.rowDelta, { color: moveColor }]}>{delta === 'up' ? '▲' : '▼'}</Text>
           ) : null}
         </View>
         <Text style={[styles.rowChange, { color: tone === 'up' ? Palette.green : Palette.red }]}>
           {token.freshPct != null ? `fresh ${formatPct(token.freshPct, { sign: false })}` : ''}
         </Text>
         <Text style={styles.rowSub}>
-          {token.liquidity != null ? `liq ${formatCompactUsd(token.liquidity)}` : ''}
+          {token.liquidity != null ? `liq ${formatLiveUsd(token.liquidity)}` : ''}
           {token.bundlePct != null ? ` · bnd ${formatPct(token.bundlePct, { sign: false })}` : ''}
         </Text>
       </View>
@@ -149,15 +157,13 @@ export default function PhotonScreen() {
   // pure in render while still ticking.
   const [wallNow, setWallNow] = useState(0);
 
-  // "Is anything actually moving?" — measured live, ~1/3 of a column's tokens change mcap on
-  // every fetch, but by fractions of a percent: the compact format rounds those away, so the
-  // list looked frozen while the arrows fired. Each frame is compared with the previous one;
-  // a move keeps a rolling baseline (the value the streak started from) and flashes the
-  // direction + the accumulated % until the token goes quiet for MOVE_WINDOW_MS — an actively
-  // trading token keeps flashing, which is exactly the "it's alive" signal the bare ▲/▼ never
-  // gave. Refs + Date.now() live in the WS listener, never in render.
+  // "Is anything actually moving?" — measured live: frames arrive every 1.3s and ~1/3 of a
+  // column's mcap changes on each fetch, but by fractions of a percent. The row now prints
+  // exact dollars (the real fix — the compact form hid every move); this just flashes the
+  // direction for MOVE_WINDOW_MS so a trading token is obvious at a glance. Refs + Date.now()
+  // live in the WS listener, never in render.
   const prevMcapRef = useRef(new Map<string, number | null>());
-  const movesRef = useRef(new Map<string, { dir: 'up' | 'down'; at: number; base: number }>());
+  const movesRef = useRef(new Map<string, { dir: 'up' | 'down'; at: number }>());
   const [deltas, setDeltas] = useState<Map<string, PhotonDelta>>(() => new Map());
 
   const syncDeltas = useCallback(() => {
@@ -176,22 +182,15 @@ export default function PhotonScreen() {
         const value = mcap != null && Number.isFinite(mcap) ? mcap : null;
         const before = prev.get(address);
         if (value != null && before != null && value !== before) {
-          const streak = movesRef.current.get(address);
-          // Within an active streak the baseline stays put, so the % shows the whole move.
-          const base = streak != null && now - streak.at <= MOVE_WINDOW_MS ? streak.base : before;
-          movesRef.current.set(address, { dir: value > base ? 'up' : 'down', at: now, base });
+          movesRef.current.set(address, { dir: value > before ? 'up' : 'down', at: now });
         }
         prev.set(address, value);
       }
     }
     const out = new Map<string, PhotonDelta>();
     for (const [address, move] of movesRef.current) {
-      if (now - move.at > MOVE_WINDOW_MS) {
-        movesRef.current.delete(address);
-        continue;
-      }
-      const value = prev.get(address);
-      if (value != null && move.base > 0) out.set(address, { dir: move.dir, pct: ((value - move.base) / move.base) * 100 });
+      if (now - move.at <= MOVE_WINDOW_MS) out.set(address, move.dir);
+      else movesRef.current.delete(address);
     }
     setDeltas(out);
   }, []);
@@ -430,6 +429,6 @@ const styles = StyleSheet.create({
   rowRight: { alignItems: 'flex-end', gap: 1 },
   rowMcapLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   rowMcap: { fontSize: 13, fontWeight: '800', color: Palette.textPrimary, fontVariant: ['tabular-nums'] },
-  rowDelta: { fontSize: 9, fontWeight: '900' },
+  rowDelta: { fontSize: 11, fontWeight: '900' },
   rowChange: { fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },
 });
