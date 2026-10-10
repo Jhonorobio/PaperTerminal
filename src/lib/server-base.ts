@@ -11,7 +11,7 @@ import type { Settings } from './storage';
 
 const TIMEOUT_MS = 8_000;
 
-export interface FomoProxyStatus {
+export interface FeedProxyStatus {
   url: string;
   enabled: boolean;
   transport: 'proxy' | 'direct';
@@ -19,8 +19,8 @@ export interface FomoProxyStatus {
 
 export interface ServerStatus {
   ok: boolean;
-  fomo: { live: boolean; graduated: number; trending: number; proxy: FomoProxyStatus } | null;
-  photon: { errorCount: number } | null;
+  fomo: { live: boolean; graduated: number; trending: number; proxy: FeedProxyStatus } | null;
+  photon: { errorCount: number; proxy?: FeedProxyStatus } | null;
 }
 
 async function call<T>(base: string, path: string, init?: RequestInit): Promise<T> {
@@ -48,8 +48,8 @@ async function call<T>(base: string, path: string, init?: RequestInit): Promise<
 /** Health + feed status in one shot. Throws with a readable message on failure. */
 export async function fetchServerStatus(base: string): Promise<ServerStatus> {
   const data = await call<{
-    fomo?: { live: boolean; graduated?: { count: number }; trending?: { count: number }; proxy?: FomoProxyStatus };
-    photon?: { errorCount?: number };
+    fomo?: { live: boolean; graduated?: { count: number }; trending?: { count: number }; proxy?: FeedProxyStatus };
+    photon?: { errorCount?: number; proxy?: FeedProxyStatus };
   }>(base, '/api/status');
   return {
     ok: true,
@@ -61,20 +61,30 @@ export async function fetchServerStatus(base: string): Promise<ServerStatus> {
           proxy: data.fomo.proxy ?? { url: '', enabled: false, transport: 'direct' },
         }
       : null,
-    photon: data.photon ? { errorCount: data.photon.errorCount ?? 0 } : null,
+    photon: data.photon
+      ? { errorCount: data.photon.errorCount ?? 0, proxy: data.photon.proxy ?? { url: '', enabled: false, transport: 'direct' } }
+      : null,
   };
 }
 
-export async function getFomoProxy(base: string): Promise<FomoProxyStatus> {
-  return call<FomoProxyStatus>(base, '/api/fomo/proxy');
+export async function getFeedProxy(base: string): Promise<FeedProxyStatus> {
+  return call<FeedProxyStatus>(base, '/api/fomo/proxy');
 }
 
-/** '' clears the proxy (direct). Throws with the server's validation message. */
-export async function setFomoProxy(base: string, url: string): Promise<FomoProxyStatus> {
-  return call<FomoProxyStatus>(base, '/api/fomo/proxy', { method: 'PUT', body: JSON.stringify({ url }) });
+/**
+ * Saves the shared FOMO + Photon egress proxy. '' clears the URL (direct); `enabled`
+ * flips the switch without losing a saved URL (omit to save-and-activate, which is
+ * what a URL alone has always meant). Throws with the server's validation message.
+ */
+export async function setFeedProxy(base: string, url: string, enabled?: boolean): Promise<FeedProxyStatus> {
+  return call<FeedProxyStatus>(base, '/api/fomo/proxy', {
+    method: 'PUT',
+    body: JSON.stringify(enabled == null ? { url } : { url, enabled }),
+  });
 }
 
-export const proxyHint = 'Acepta http://host:puerto, socks5://host:puerto o host:puerto. Vacío = conexión directa.';
+export const proxyHint =
+  'Un solo proxy para FOMO y Photon: http://host:puerto, socks5://host:puerto o host:puerto. El switch lo prende y apaga sin borrar la URL.';
 
 /** The Settings field the base URL is stored under. */
 export const SERVER_BASE_KEY: keyof Settings = 'serverBase';

@@ -25,45 +25,17 @@ import { broadcast, registerTopicProvider } from './ws.js';
 import { emitToken, seedSeen } from './notify.js';
 import { pulseEnrich } from './pulse.js';
 import { JsonStore } from './json-store.js';
+import { getEffectiveProxy, getProxyStatus, setProxy } from './proxy-config.js';
 
-// ── proxy config (persisted; the app sets it via PUT /api/fomo/proxy) ────────
-
-const PROXY_PROTOCOLS = ['http:', 'https:', 'socks:', 'socks4:', 'socks5:'];
-const configStore = new JsonStore('fomo-config');
-
-/** '' → '' (direct); a bare `host:port` gets http://; throws on junk. */
-function normalizeProxy(raw) {
-  const v = String(raw ?? '').trim();
-  if (!v) return '';
-  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : `http://${v}`;
-  let u;
-  try {
-    u = new URL(withScheme);
-  } catch {
-    throw new Error(`proxy inválido: ${v.slice(0, 80)}`);
-  }
-  if (!PROXY_PROTOCOLS.includes(u.protocol)) {
-    throw new Error(`protocolo no soportado: ${u.protocol} (usá http:// o socks5://)`);
-  }
-  if (!u.hostname) throw new Error('proxy sin host');
-  return withScheme;
-}
-
-function getProxyUrl() {
-  const stored = configStore.get('proxy');
-  if (stored != null && stored !== '') return normalizeProxy(stored);
-  return process.env.FOMO_WS_PROXY ? normalizeProxy(process.env.FOMO_WS_PROXY) : '';
-}
+// ── egress proxy (shared with Photon — see proxy-config.js) ──────────────────
 
 /**
- * Saves (or clears, with '') the FOMO egress proxy and reconnects the socket so
- * it applies immediately. The store wins over the env var.
+ * Saves the shared proxy (URL + the Settings switch) and reconnects the socket so
+ * it applies immediately. Photon picks the new value up on its next poll.
  */
-export function setFomoProxy(raw) {
-  const normalized = normalizeProxy(raw); // '' allowed → direct
-  configStore.set('proxy', normalized);
-  configStore.set('updated_at', new Date().toISOString());
-  preferProxy = Boolean(normalized);
+export function setFomoProxy(raw, enabled) {
+  const status = setProxy(raw, enabled);
+  preferProxy = status.enabled;
   if (ws) {
     try {
       ws.close();
@@ -75,13 +47,7 @@ export function setFomoProxy(raw) {
 }
 
 export function getFomoProxyStatus() {
-  let url = '';
-  try {
-    url = getProxyUrl();
-  } catch {
-    url = '';
-  }
-  return { url, enabled: Boolean(url), transport: currentTransport, preferProxy };
+  return { ...getProxyStatus(), transport: currentTransport, preferProxy };
 }
 
 // ── Privy auth ───────────────────────────────────────────────────────────────
@@ -393,13 +359,7 @@ function connect() {
     return;
   }
 
-  const proxyUrl = (() => {
-    try {
-      return getProxyUrl();
-    } catch {
-      return '';
-    }
-  })();
+  const proxyUrl = getEffectiveProxy();
   const useProxy = Boolean(proxyUrl) && preferProxy;
   currentTransport = useProxy ? 'proxy' : 'direct';
 

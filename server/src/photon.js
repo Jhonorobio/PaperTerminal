@@ -17,6 +17,7 @@ import initCycleTLS from 'cycletls';
 import { photonFilters } from './stores.js';
 import { broadcast, registerTopicProvider } from './ws.js';
 import { emitToken, seedSeen } from './notify.js';
+import { getEffectiveProxy, getProxyStatus, onProxyChange } from './proxy-config.js';
 
 const SEARCH_URL = 'https://photon-sol.tinyastro.io/api/memescope/search';
 const DEFAULT_TA =
@@ -138,6 +139,17 @@ let lastError = null;
 let unauthorized = false;
 let cycleTLS = null;
 
+// Egress: the same saved URL + Settings switch FOMO uses (proxy-config.js). CycleTLS takes the
+// proxy per request, so the poller re-reads it on every fetch — a toggle applies within ~1.3s.
+let photonPreferProxy = true;
+/** Transport of the current/last attempt ('proxy' | 'direct'). */
+let photonTransport = 'direct';
+
+onProxyChange(() => {
+  // A new URL (or a fresh toggle) deserves a fresh transport choice.
+  photonPreferProxy = true;
+});
+
 async function getCycleTLS() {
   if (!cycleTLS) cycleTLS = await initCycleTLS();
   return cycleTLS;
@@ -190,7 +202,14 @@ function notifyColumn(colKey, items) {
 async function fetchOnce(colKey) {
   fetchCount += 1;
   const client = await getCycleTLS();
-  const request = client(`${SEARCH_URL}?${buildQuery(colKey)}`, { client: 'chrome131', headers: HEADERS }, 'GET');
+  const proxyUrl = getEffectiveProxy();
+  const useProxy = Boolean(proxyUrl) && photonPreferProxy;
+  photonTransport = useProxy ? 'proxy' : 'direct';
+  const request = client(
+    `${SEARCH_URL}?${buildQuery(colKey)}`,
+    { client: 'chrome131', headers: HEADERS, ...(useProxy ? { proxy: proxyUrl } : {}) },
+    'GET',
+  );
   let timer;
   let resp;
   try {
@@ -200,6 +219,11 @@ async function fetchOnce(colKey) {
         timer = setTimeout(() => reject(new Error(`TIMEOUT_${FETCH_TIMEOUT_MS}MS`)), FETCH_TIMEOUT_MS);
       }),
     ]);
+  } catch (err) {
+    // Never reached the origin: flip the transport for the next tick — dead proxy → direct,
+    // dead direct → the saved proxy — the way the FOMO socket does on a failed handshake.
+    if (proxyUrl) photonPreferProxy = !photonPreferProxy;
+    throw err;
   } finally {
     clearTimeout(timer);
     request.catch(() => {});
@@ -207,10 +231,17 @@ async function fetchOnce(colKey) {
 
   const status = Number(resp?.status) || 0;
   if (status === 429) {
+    // Rate-limited on this IP: the proxy's IP is different, so prefer it next.
+    if (!useProxy && proxyUrl) photonPreferProxy = true;
     backoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
     throw Object.assign(new Error('RATE_LIMITED'), { rateLimited: true });
   }
-  if (status !== 200) throw new Error(`HTTP_${status}`);
+  if (status !== 200) {
+    // Whatever went wrong, the transport that carried it didn't deliver: alternate —
+    // dead proxy (status 0, 502, 407) → direct; Cloudflare on the direct IP (403) → proxy.
+    if (proxyUrl) photonPreferProxy = !useProxy;
+    throw new Error(`HTTP_${status}`);
+  }
 
   const json = toObj(resp.data);
   if (!json) throw new Error('BAD_BODY');
@@ -351,6 +382,7 @@ export function getMemescopeStatus() {
     lastError,
     unauthorized,
     backoffRemainingMs: Math.max(0, backoffUntil - Date.now()),
+    proxy: { ...getProxyStatus(), transport: photonTransport, preferProxy: photonPreferProxy },
   };
 }
 

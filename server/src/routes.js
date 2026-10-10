@@ -64,8 +64,10 @@ router.get('/fomo/proxy', (_req, res) => {
 
 router.put('/fomo/proxy', (req, res) => {
   try {
-    // Body { url: '' } clears it (direct connection).
-    res.json(setFomoProxy(req.body?.url ?? ''));
+    // Shared egress for FOMO + Photon. Body { url, enabled? }: '' clears the URL;
+    // `enabled` flips the Settings switch without losing a saved one. Omitting it
+    // keeps the historical behavior (a landed URL counts as on).
+    res.json(setFomoProxy(req.body?.url ?? '', req.body?.enabled));
   } catch (err) {
     res.status(400).json({ error: err?.message || 'proxy inválido' });
   }

@@ -14,7 +14,7 @@ import { Banner, Btn, Card, Field, Input, SegTabs } from '@/components/ui';
 import { Palette } from '@/constants/paper';
 import { ApiError, api } from '@/lib/api';
 import { PAPER_CONFIG } from '@/lib/engine/rules';
-import { fetchServerStatus, proxyHint, setFomoProxy, type FomoProxyStatus, type ServerStatus } from '@/lib/server-base';
+import { fetchServerStatus, proxyHint, setFeedProxy, type FeedProxyStatus, type ServerStatus } from '@/lib/server-base';
 import { formatUsd } from '@/lib/format';
 import { NAME_MAX, nameError, suggestedName } from '@/lib/profile';
 import { setSession } from '@/lib/storage';
@@ -80,7 +80,7 @@ export default function SettingsScreen() {
   const [serverInfo, setServerInfo] = useState<ServerStatus | null>(null);
   const [feedError, setFeedError] = useState<string | null>(null);
   const [proxyUrl, setProxyUrl] = useState('');
-  const [proxyStatus, setProxyStatus] = useState<FomoProxyStatus>({ url: '', enabled: false, transport: 'direct' });
+  const [proxyStatus, setProxyStatus] = useState<FeedProxyStatus>({ url: '', enabled: false, transport: 'direct' });
 
   const saveProfile = async (patch: { displayName?: string; photoUrl?: string | null }, done: string) => {
     if (patch.displayName !== undefined) {
@@ -124,17 +124,21 @@ export default function SettingsScreen() {
   const SLIPPAGE_CAP = PAPER_CONFIG.slippageCapPct;
   const NETWORK_FEE_CAP = 5;
 
-  // â”€â”€ feed server: probe + FOMO proxy â”€â”€
+  // ── feed server: probe + the shared FOMO/Photon egress proxy ──
+  const refreshStatus = async (base: string) => {
+    const info = await fetchServerStatus(base);
+    setServerInfo(info);
+    setProxyStatus(info.fomo?.proxy ?? { url: '', enabled: false, transport: 'direct' });
+    setProxyUrl(info.fomo?.proxy?.url ?? '');
+  };
+
   const checkServer = async () => {
     setServerChecking(true);
     setFeedError(null);
     try {
       const base = serverBase.trim();
       await updateSettings({ serverBase: base });
-      const info = await fetchServerStatus(base);
-      setServerInfo(info);
-      setProxyStatus(info.fomo?.proxy ?? { url: '', enabled: false, transport: 'direct' });
-      setProxyUrl(info.fomo?.proxy?.url ?? '');
+      await refreshStatus(base);
     } catch (err) {
       setServerInfo(null);
       setFeedError(err instanceof Error ? err.message : 'No se pudo conectar al servidor.');
@@ -143,15 +147,36 @@ export default function SettingsScreen() {
     }
   };
 
+  // "Guardar" saves + activates; "Directo" clears the URL. The switch below only flips
+  // `enabled`, so a saved proxy can sit off without being lost.
   const saveProxy = async (url: string) => {
     setFeedError(null);
     try {
-      const status = await setFomoProxy(settings.serverBase, url);
+      const status = await setFeedProxy(settings.serverBase, url, Boolean(url));
       setProxyStatus(status);
       setProxyUrl(status.url);
-      flash('ok', status.enabled ? 'Proxy guardado â€” el servidor reconectÃ³ FOMO.' : 'Proxy removido â€” FOMO va directo.');
+      flash('ok', status.enabled ? 'Proxy guardado — FOMO y Photon salen por él.' : 'Proxy removido — ambos van directo.');
+      void refreshStatus(settings.serverBase).catch(() => {}); // pick Photon's transport up
     } catch (err) {
       setFeedError(err instanceof Error ? err.message : 'No se pudo guardar el proxy.');
+    }
+  };
+
+  const toggleProxy = async (on: boolean) => {
+    setFeedError(null);
+    const url = (proxyUrl || proxyStatus.url).trim();
+    if (on && !url) {
+      setFeedError('Primero guardá la URL del proxy para poder prenderlo.');
+      return;
+    }
+    try {
+      const status = await setFeedProxy(settings.serverBase, url, on);
+      setProxyStatus(status);
+      setProxyUrl(status.url);
+      flash('ok', on ? 'Proxy prendido — FOMO y Photon salen por él.' : 'Proxy apagado — van directo (URL guardada).');
+      void refreshStatus(settings.serverBase).catch(() => {});
+    } catch (err) {
+      setFeedError(err instanceof Error ? err.message : 'No se pudo cambiar el proxy.');
     }
   };
 
@@ -392,16 +417,24 @@ export default function SettingsScreen() {
           </View>
           {feedError ? <Text style={styles.problem}>{feedError}</Text> : null}
 
-          <Field label="Proxy FOMO (opcional)">
-            <Input value={proxyUrl} onChangeText={setProxyUrl} placeholder={proxyStatus.url || 'vacÃ­o = directo'} autoCapitalize="none" autoCorrect={false} />
+          <Field label="Proxy de feeds (FOMO + Photon)">
+            <Input value={proxyUrl} onChangeText={setProxyUrl} placeholder={proxyStatus.url || 'vacío = directo'} autoCapitalize="none" autoCorrect={false} />
           </Field>
           <View style={styles.serverActions}>
             <Btn label="Guardar proxy" variant="sm" onPress={() => void saveProxy(proxyUrl)} />
             <Btn label="Directo" variant="sm" onPress={() => void saveProxy('')} />
+            <View style={{ flex: 1 }} />
+            <Text style={styles.fine}>Usar proxy</Text>
+            <Switch
+              value={proxyStatus.enabled}
+              onValueChange={(v) => void toggleProxy(v)}
+              trackColor={{ false: Palette.lineStrong, true: Palette.paperStrong }}
+              thumbColor={Palette.textPrimary}
+            />
           </View>
           <Text style={styles.fine}>
-            {proxyHint} Estado: {proxyStatus.enabled ? `proxy ${proxyStatus.transport}` : 'directo'}
-            {proxyStatus.url ? ` (${proxyStatus.url})` : ''}
+            {proxyHint} Estado: {!proxyStatus.url ? 'directo (sin proxy)' : proxyStatus.enabled ? `activo · FOMO ${proxyStatus.transport}` : 'apagado (URL guardada)'}
+            {serverInfo?.photon?.proxy ? ` · Photon ${serverInfo.photon.proxy.transport}` : ''}
           </Text>
           <Btn label="Notificaciones y alertas" variant="sm" icon="lightning" onPress={() => router.push('/alerts')} />
         </Card>
