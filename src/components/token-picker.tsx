@@ -2,7 +2,7 @@
 // tab, so the user pastes a link, "chain:address", or just a Solana address — and the last tokens
 // opened are one tap away.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { TokenAvatar } from '@/components/token-avatar';
@@ -11,15 +11,59 @@ import { Card } from '@/components/ui';
 import { Palette, Radius } from '@/constants/paper';
 import { parseManualAsset } from '@/lib/asset';
 import { formatPrice } from '@/lib/format';
+import { serverFeed } from '@/lib/market/server-feed';
+import { fetchHistory, type AlertHistoryEntry } from '@/lib/notifications';
 import { addRecentAsset } from '@/lib/storage';
 import type { Asset } from '@/lib/types';
 import { useApp } from '@/state/app';
 
+// Both chip rows cap at five — enough to re-open what's fresh without pushing the
+// panel below the fold.
+const RECENTS_SHOWN = 5;
+const ALERTS_SHOWN = 5;
+
+/** One chip per token address: the newest alert for a token is the one that shows. */
+function newestPerAddress(entries: AlertHistoryEntry[]): AlertHistoryEntry[] {
+  const seen = new Set<string>();
+  const out: AlertHistoryEntry[] = [];
+  for (const e of entries) {
+    if (!e?.address) continue;
+    const key = e.address.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(e);
+  }
+  return out;
+}
+
 export function TokenPicker({ value, onChange }: { value: Asset | null; onChange: (next: Asset | null) => void }) {
-  const { recents, flash } = useApp();
+  const { recents, flash, settings } = useApp();
   const [text, setText] = useState('');
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Last tokens this device was alerted on: the server history seeds the row, live
+  // pushes prepend while the app runs — the same server records both, so a remount
+  // re-hydrates whatever the session saw.
+  const [alerted, setAlerted] = useState<AlertHistoryEntry[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    void fetchHistory(settings.serverBase, 50).then((items) => {
+      if (alive) setAlerted((prev) => newestPerAddress([...prev, ...items]));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [settings.serverBase]);
+
+  useEffect(() => {
+    const unsubscribe = serverFeed.onAlert((data) => {
+      const entry = data as AlertHistoryEntry;
+      if (!entry?.address) return;
+      setAlerted((prev) => newestPerAddress([entry, ...prev]));
+    });
+    return unsubscribe;
+  }, []);
 
   // Before the field is touched it mirrors the selected token; afterwards it keeps whatever the
   // user is typing, so a half-typed address isn't overwritten by a background refresh.
@@ -78,7 +122,7 @@ export function TokenPicker({ value, onChange }: { value: Asset | null; onChange
         <View style={styles.recents}>
           <Text style={styles.recentsLabel}>Recent</Text>
           <View style={styles.chips}>
-            {recents.map((a) => {
+            {recents.slice(0, RECENTS_SHOWN).map((a) => {
               const key = `${a.chain}:${a.address}`.toLowerCase();
               const active = value && `${value.chain}:${value.address}`.toLowerCase() === key;
               return (
@@ -90,6 +134,33 @@ export function TokenPicker({ value, onChange }: { value: Asset | null; onChange
                   <TokenAvatar symbol={a.symbol} chainId={a.chain} address={a.address} size={18} />
                   <Text style={[styles.chipText, active && { color: Palette.textPrimary }]}>
                     {a.symbol ?? `${a.address.slice(0, 4)}…`}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {alerted.length ? (
+        <View style={styles.recents}>
+          <Text style={styles.recentsLabel}>Alertas</Text>
+          <View style={styles.chips}>
+            {alerted.slice(0, ALERTS_SHOWN).map((entry) => {
+              // The server stores chains as 'sol'; the app speaks 'solana' (same map the
+              // floating panel and the alert deep link use).
+              const chain = !entry.chain || entry.chain === 'sol' ? 'solana' : entry.chain;
+              const key = `${chain}:${entry.address}`.toLowerCase();
+              const active = value && `${value.chain}:${value.address}`.toLowerCase() === key;
+              return (
+                <Pressable
+                  key={key}
+                  onPress={() => choose({ chain, address: entry.address, symbol: entry.symbol })}
+                  accessibilityRole="button"
+                  style={[styles.chip, active && styles.chipActive]}>
+                  <TokenAvatar symbol={entry.symbol} chainId={chain} address={entry.address} size={18} />
+                  <Text style={[styles.chipText, active && { color: Palette.textPrimary }]}>
+                    {entry.symbol ?? entry.name ?? `${entry.address.slice(0, 4)}…`}
                   </Text>
                 </Pressable>
               );
