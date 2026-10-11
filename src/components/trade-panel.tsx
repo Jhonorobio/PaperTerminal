@@ -20,7 +20,7 @@ import {
   formatQty,
   formatUsd,
   pnlClass,
-  timeAgo,
+  timeOf,
 } from '@/lib/format';
 import type { Asset } from '@/lib/types';
 import { useApp } from '@/state/app';
@@ -291,7 +291,7 @@ export function TradePanel({ asset }: { asset: Asset | null }) {
                   label="Simulated slippage"
                   value={formatPct(side === 'BUY' ? settings.slippageBuyPct : settings.slippageSellPct, { sign: false })}
                 />
-                <DetailRow label="Price source" value={`${quote.dex ?? quote.source ?? 'market'} · ${timeAgo(new Date(trade.quoteReceivedAt).toISOString())}`} />
+                <DetailRow label="Price source" value={`${quote.dex ?? quote.source ?? 'market'} · ${timeOf(new Date(trade.quoteReceivedAt).toISOString())}`} />
               </>
             ) : null}
             {stale ? <Text style={styles.statusPara}>Market data is stale. Refresh before placing a paper trade.</Text> : null}

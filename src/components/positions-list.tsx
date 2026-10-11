@@ -19,7 +19,7 @@ import {
   formatPct,
   formatUsd,
   pnlClass,
-  timeAgo,
+  timeOf,
   tone,
 } from '@/lib/format';
 import type { ClosedTrade, Position } from '@/lib/types';
@@ -131,7 +131,7 @@ export function PositionsList({ tab, positions, closed, hideDust, priceDisplay, 
                     color={pnlClass(p.unrealizedPnl) === 'up' ? Palette.green : Palette.red}
                   />
                   <DetailRow label="Value" value={formatUsd(value)} />
-                  <DetailRow label="Opened" value={timeAgo(p.openedAt)} />
+                  <DetailRow label="Opened" value={timeOf(p.openedAt)} />
                   <View style={styles.actions}>
                     <Btn label="Share P&L" variant="share" icon="share" onPress={() => onShare?.(shareOpen(p, level))} />
                     <Btn
@@ -178,7 +178,7 @@ export function PositionsList({ tab, positions, closed, hideDust, priceDisplay, 
                 <View style={styles.subLine}>
                   {dup.has(t.symbol ?? '') ? <ChainTag chain={t.chainId} /> : null}
                   <Text style={styles.sub}>
-                    Held {formatDuration(t.holdMs)}, closed {timeAgo(t.exitTime)}
+                    Held {formatDuration(t.holdMs)}, closed {timeOf(t.exitTime)}
                   </Text>
                 </View>
               </View>

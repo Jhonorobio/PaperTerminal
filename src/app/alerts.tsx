@@ -1,5 +1,5 @@
-// Notification settings — which categories alert, the alert history, and a test
-// button that fires a synthetic alert through the real path (floating panel + push).
+// Notification settings — which categories alert this device. The alert history moved to the
+// History tab ("Alertas"), where trades and alerts share one timeline.
 // Filters are NOT configured here: the feed screens own them (FOMO pushes both tabs,
 // Photon its columns) and the server notifies on exactly what those screens show.
 
@@ -7,22 +7,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Image as ExpoImage } from 'expo-image';
 
 import { Icon } from '@/components/icons';
-import { Banner, Card, Empty } from '@/components/ui';
-import { Palette, Radius } from '@/constants/paper';
-import { formatCompactUsd, timeAgo } from '@/lib/format';
+import { Banner, Card } from '@/components/ui';
+import { Palette } from '@/constants/paper';
 import {
   ALERT_CATEGORIES,
-  alertDeepLink,
-  fetchHistory,
   loadConfig,
   pushAvailable,
   registerDevice,
   saveCategories,
   type AlertCategory,
-  type AlertHistoryEntry,
 } from '@/lib/notifications';
 import { useApp } from '@/state/app';
 
@@ -41,7 +36,6 @@ export default function AlertsScreen() {
     photon_new: false,
     photon_graduated: false,
   });
-  const [history, setHistory] = useState<AlertHistoryEntry[]>([]);
   const [registered, setRegistered] = useState(false);
   const [pushOk, setPushOk] = useState(true);
   // Whether the server holds a push token for this device — null until known. Without
@@ -79,7 +73,6 @@ export default function AlertsScreen() {
       } else {
         setProblem(settings.serverBase ? 'El servidor no responde — ¿está corriendo?' : 'Configurá la URL del servidor en Settings.');
       }
-      setHistory(await fetchHistory(settings.serverBase));
     })();
     return () => {
       live = false;
@@ -150,37 +143,7 @@ export default function AlertsScreen() {
             Los filtros no se configuran acá: son los de las pantallas FOMO y Photon. Se envían al server con cada cambio, y
             la alerta se dispara con exactamente los mismos — lo que ves en la lista es lo que te avisa.
           </Text>
-        </Card>
-
-        <Card style={{ padding: 14, gap: 8 }}>
-          <Text style={styles.groupTitle}>Historial</Text>
-          {history.length ? (
-            history.map((entry) => (
-              <Pressable
-                key={entry.id}
-                onPress={() => router.push(alertDeepLink(entry) as never)}
-                style={({ pressed }) => [styles.histRow, pressed && { backgroundColor: Palette.bgTertiarySolid }]}>
-                {entry.logo ? (
-                  <ExpoImage source={{ uri: entry.logo }} style={styles.histImage} contentFit="cover" />
-                ) : (
-                  <View style={[styles.histImage, styles.histImageFallback]}>
-                    <Text style={styles.histInitial}>{(entry.symbol ?? '?').slice(0, 1)}</Text>
-                  </View>
-                )}
-                <View style={styles.rowLead}>
-                  <Text style={styles.rowTitle}>
-                    {entry.symbol ?? 'Token'} {entry.mcap != null ? `· ${formatCompactUsd(entry.mcap)}` : ''}
-                  </Text>
-                  <Text style={styles.rowSub}>
-                    {entry.category.replace('_', ' ')} · {timeAgo(entry.notified_at)}
-                  </Text>
-                </View>
-                <Icon name="chevron" size={13} color={Palette.textTertiary} style={{ transform: [{ rotate: '-90deg' }] }} />
-              </Pressable>
-            ))
-          ) : (
-            <Empty title="Sin alertas todavía" body="Cuando aparezca un token nuevo en un feed activo, queda acá." />
-          )}
+          <Text style={styles.fine}>El historial de alertas vive ahora en la pestaña History → Alertas.</Text>
         </Card>
       </ScrollView>
     </SafeAreaView>
@@ -201,19 +164,5 @@ const styles = StyleSheet.create({
   rowTitle: { fontSize: 14, fontWeight: '700', color: Palette.textPrimary },
   rowSub: { fontSize: 11, color: Palette.textTertiary },
 
-  actions: { flexDirection: 'row', gap: 8, marginTop: 2 },  fine: { fontSize: 11, color: Palette.textTertiary, lineHeight: 15 },
-
-  histRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 10,
-    backgroundColor: Palette.bgPrimary,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Palette.line,
-  },
-  histImage: { width: 32, height: 32, borderRadius: 16, backgroundColor: Palette.bgTertiarySolid },
-  histImageFallback: { alignItems: 'center', justifyContent: 'center' },
-  histInitial: { fontSize: 13, fontWeight: '800', color: Palette.textSecondary },
+  fine: { fontSize: 11, color: Palette.textTertiary, lineHeight: 15 },
 });

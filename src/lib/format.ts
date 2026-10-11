@@ -105,4 +105,5 @@ export const dayLabel = (iso: string) => {
   });
 };
 
-export const timeOf = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+export const timeOf = (iso: string | null | undefined) =>
+  iso ? new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '-';

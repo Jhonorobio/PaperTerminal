@@ -18,29 +18,52 @@ import {
   tone,
 } from '@/lib/format';
 import { api } from '@/lib/api';
+import { alertDeepLink, fetchHistory, type AlertHistoryEntry } from '@/lib/notifications';
 import type { Trade } from '@/lib/types';
 import { useApp } from '@/state/app';
 
 type SideFilter = '' | 'BUY' | 'SELL';
+/** Trade fills and the alert feed (FOMO/Photon) now share one History page. */
+type HistoryMode = 'trades' | 'alerts';
+
+/** Server alert categories → labels, same taxonomy as the floating panel. */
+const ALERT_LABELS: Record<string, string> = {
+  fomo_graduated: 'FOMO Grad.',
+  fomo_trending: 'FOMO Trend.',
+  photon_new: 'Photon New',
+  photon_graduated: 'Photon Grad.',
+};
 
 const toneColor = (v: number | null | undefined) =>
   pnlClass(v) === 'up' ? Palette.green : pnlClass(v) === 'down' ? Palette.red : Palette.textPrimary;
 
 export default function HistoryScreen() {
-  const { ready, user, banner } = useApp();
+  const { ready, user, banner, settings } = useApp();
   const [trades, setTrades] = useState<Trade[] | null>(null);
   const [side, setSide] = useState<SideFilter>('');
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Alerts are keyed by device (X-Device-Id), so they load with or without an account.
+  const [mode, setMode] = useState<HistoryMode>('trades');
+  const [alerts, setAlerts] = useState<AlertHistoryEntry[] | null>(null);
 
   useFocusEffect(
     useCallback(() => {
-      if (!user) return;
+      if (mode !== 'trades' || !user) return;
       void api
         .trades()
         .then((r) => setTrades(r.trades))
         .catch(() => setTrades((t) => t ?? []));
-    }, [user]),
+    }, [user, mode]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (mode !== 'alerts') return;
+      void fetchHistory(settings.serverBase, 100)
+        .then(setAlerts)
+        .catch(() => setAlerts((a) => a ?? []));
+    }, [mode, settings.serverBase]),
   );
 
   const visible = useMemo(() => {
@@ -73,7 +96,19 @@ export default function HistoryScreen() {
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         {banner ? <Text style={styles.banner}>{banner.text}</Text> : null}
 
-        {!user ? (
+        <View style={styles.filters}>
+          <SegTabs
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: 'trades' as HistoryMode, label: 'Trades' },
+              { value: 'alerts' as HistoryMode, label: 'Alertas' },
+            ]}
+          />
+        </View>
+
+        {mode === 'trades' ? (
+        !user ? (
           <Card style={{ padding: 16, gap: 10 }}>
             <Empty title="Sign in to see your history" body="Every simulated fill lands here, newest first." />
             <Btn label="Go to Trade" variant="setup" onPress={() => router.push('/trade')} />
@@ -177,6 +212,45 @@ export default function HistoryScreen() {
               </View>
             )}
           </>
+        )
+) : alerts === null ? (
+          <View style={{ gap: 6 }}>{[0, 1, 2, 3].map((i) => <Skeleton key={i} height={56} />)}</View>
+        ) : !alerts.length ? (
+          <Card style={{ padding: 16 }}>
+            <Empty title="Sin notificaciones todavía" body="Se disparan con los filtros de FOMO y Photon — lo que ves en esas listas es lo que te avisa." />
+          </Card>
+        ) : (
+          <View style={{ gap: 6 }}>
+            {alerts.map((entry, i) => {
+              const day = dayLabel(entry.notified_at);
+              const previousDay = i > 0 ? dayLabel(alerts[i - 1].notified_at) : null;
+              return (
+                <View key={entry.id}>
+                  {day !== previousDay ? <Text style={styles.dayHeader}>{day}</Text> : null}
+                  <Pressable
+                    onPress={() => router.push(alertDeepLink(entry) as never)}
+                    style={({ pressed }) => [styles.row, pressed && { backgroundColor: Palette.bgTertiarySolid }]}>
+                    <TokenAvatar
+                      symbol={entry.symbol}
+                      chainId={entry.chain === 'sol' ? 'solana' : entry.chain}
+                      address={entry.address}
+                      size={34}
+                    />
+                    <View style={styles.rowLead}>
+                      <Text style={styles.rowName}>{entry.symbol ?? 'Token'}</Text>
+                      <Text style={styles.rowSub}>
+                        {ALERT_LABELS[entry.category] ?? entry.category}
+                        {entry.mcap != null ? ` · ${formatCompactUsd(entry.mcap)} MC` : ''}
+                      </Text>
+                    </View>
+                    {/* Exact time, not "10m ago" — the alert feed is read as a timeline. */}
+                    <Text style={styles.rowSubValue}>{timeOf(entry.notified_at)}</Text>
+                    <Icon name="chevron" size={13} color={Palette.textTertiary} style={{ transform: [{ rotate: '-90deg' }] }} />
+                  </Pressable>
+                </View>
+              );
+            })}
+          </View>
         )}
       </ScrollView>
     </SafeAreaView>
