@@ -229,7 +229,7 @@ export default function HistoryScreen() {
                   {day !== previousDay ? <Text style={styles.dayHeader}>{day}</Text> : null}
                   <Pressable
                     onPress={() => router.push(alertDeepLink(entry) as never)}
-                    style={({ pressed }) => [styles.row, pressed && { backgroundColor: Palette.bgTertiarySolid }]}>
+                    style={({ pressed }) => [styles.row, styles.alertRow, pressed && { backgroundColor: Palette.bgTertiarySolid }]}>
                     <TokenAvatar
                       symbol={entry.symbol}
                       chainId={entry.chain === 'sol' ? 'solana' : entry.chain}
@@ -243,8 +243,9 @@ export default function HistoryScreen() {
                         {entry.mcap != null ? ` · ${formatCompactUsd(entry.mcap)} MC` : ''}
                       </Text>
                     </View>
-                    {/* Exact time, not "10m ago" — the alert feed is read as a timeline. */}
-                    <Text style={styles.rowSubValue}>{timeOf(entry.notified_at)}</Text>
+                    {/* Exact time, not "10m ago" — the alert feed is read as a timeline.
+                        rowSubValue has no color (trades pass the PnL tone inline), so set one here. */}
+                    <Text style={[styles.rowSubValue, { color: Palette.textSecondary }]}>{timeOf(entry.notified_at)}</Text>
                     <Icon name="chevron" size={13} color={Palette.textTertiary} style={{ transform: [{ rotate: '-90deg' }] }} />
                   </Pressable>
                 </View>
@@ -282,6 +283,9 @@ const styles = StyleSheet.create({
   dayHeader: { fontSize: 12, fontWeight: '800', color: Palette.textTertiary, textTransform: 'uppercase', letterSpacing: 1, marginTop: 6 },
 
   row: { borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.line, overflow: 'hidden' },
+  // Alert rows paint their own background + padding (the trade rows get those from the
+  // tone-tinted wrapper + rowMain), matching the cards the history had in Notificaciones.
+  alertRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, backgroundColor: Palette.bgPrimary },
   rowMain: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10 },
   rowLead: { flex: 1, gap: 2, minWidth: 0 },
   rowName: { fontSize: 14, fontWeight: '800', color: Palette.textPrimary },
