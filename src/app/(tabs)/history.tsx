@@ -46,6 +46,7 @@ export default function HistoryScreen() {
   // Alerts are keyed by device (X-Device-Id), so they load with or without an account.
   const [mode, setMode] = useState<HistoryMode>('trades');
   const [alerts, setAlerts] = useState<AlertHistoryEntry[] | null>(null);
+  const [alertQuery, setAlertQuery] = useState('');
 
   useFocusEffect(
     useCallback(() => {
@@ -71,6 +72,15 @@ export default function HistoryScreen() {
     const q = query.trim().toUpperCase();
     return trades.filter((t) => (side ? t.side === side : true) && (q ? (t.symbol ?? '').toUpperCase().includes(q) : true));
   }, [trades, side, query]);
+
+  const visibleAlerts = useMemo(() => {
+    if (!alerts) return null;
+    const q = alertQuery.trim().toUpperCase();
+    if (!q) return alerts;
+    return alerts.filter(
+      (e) => (e.symbol ?? '').toUpperCase().includes(q) || (e.name ?? '').toUpperCase().includes(q),
+    );
+  }, [alerts, alertQuery]);
 
   if (!ready) {
     return (
@@ -220,38 +230,59 @@ export default function HistoryScreen() {
             <Empty title="Sin notificaciones todavía" body="Se disparan con los filtros de FOMO y Photon — lo que ves en esas listas es lo que te avisa." />
           </Card>
         ) : (
-          <View style={{ gap: 6 }}>
-            {alerts.map((entry, i) => {
-              const day = dayLabel(entry.notified_at);
-              const previousDay = i > 0 ? dayLabel(alerts[i - 1].notified_at) : null;
-              return (
-                <View key={entry.id}>
-                  {day !== previousDay ? <Text style={styles.dayHeader}>{day}</Text> : null}
-                  <Pressable
-                    onPress={() => router.push(alertDeepLink(entry) as never)}
-                    style={({ pressed }) => [styles.row, styles.alertRow, pressed && { backgroundColor: Palette.bgTertiarySolid }]}>
-                    <TokenAvatar
-                      symbol={entry.symbol}
-                      chainId={entry.chain === 'sol' ? 'solana' : entry.chain}
-                      address={entry.address}
-                      size={34}
-                    />
-                    <View style={styles.rowLead}>
-                      <Text style={styles.rowName}>{entry.symbol ?? 'Token'}</Text>
-                      <Text style={styles.rowSub}>
-                        {ALERT_LABELS[entry.category] ?? entry.category}
-                        {entry.mcap != null ? ` · ${formatCompactUsd(entry.mcap)} MC` : ''}
-                      </Text>
+          <>
+            <View style={styles.search}>
+              <Icon name="search" size={16} color={Palette.textTertiary} />
+              <TextInput
+                value={alertQuery}
+                onChangeText={setAlertQuery}
+                placeholder="Buscar símbolo o nombre…"
+                placeholderTextColor={Palette.textTertiary}
+                autoCorrect={false}
+                style={styles.searchInput}
+                accessibilityLabel="Buscar alertas por símbolo o nombre"
+              />
+            </View>
+
+            {!visibleAlerts?.length ? (
+              <Card style={{ padding: 16 }}>
+                <Empty title="No hay alertas que coincidan" body="Probá con otro símbolo o nombre." />
+              </Card>
+            ) : (
+              <View style={{ gap: 6 }}>
+                {visibleAlerts.map((entry, i) => {
+                  const day = dayLabel(entry.notified_at);
+                  const previousDay = i > 0 ? dayLabel(visibleAlerts[i - 1].notified_at) : null;
+                  return (
+                    <View key={entry.id}>
+                      {day !== previousDay ? <Text style={styles.dayHeader}>{day}</Text> : null}
+                      <Pressable
+                        onPress={() => router.push(alertDeepLink(entry) as never)}
+                        style={({ pressed }) => [styles.row, styles.alertRow, pressed && { backgroundColor: Palette.bgTertiarySolid }]}>
+                        <TokenAvatar
+                          symbol={entry.symbol}
+                          chainId={entry.chain === 'sol' ? 'solana' : entry.chain}
+                          address={entry.address}
+                          size={34}
+                        />
+                        <View style={styles.rowLead}>
+                          <Text style={styles.rowName}>{entry.symbol ?? entry.name ?? 'Token'}</Text>
+                          <Text style={styles.rowSub}>
+                            {ALERT_LABELS[entry.category] ?? entry.category}
+                            {entry.mcap != null ? ` · ${formatCompactUsd(entry.mcap)} MC` : ''}
+                          </Text>
+                        </View>
+                        {/* Exact time, not "10m ago" — the alert feed is read as a timeline.
+                            rowSubValue has no color (trades pass the PnL tone inline), so set one here. */}
+                        <Text style={[styles.rowSubValue, { color: Palette.textSecondary }]}>{timeOf(entry.notified_at)}</Text>
+                        <Icon name="chevron" size={13} color={Palette.textTertiary} style={{ transform: [{ rotate: '-90deg' }] }} />
+                      </Pressable>
                     </View>
-                    {/* Exact time, not "10m ago" — the alert feed is read as a timeline.
-                        rowSubValue has no color (trades pass the PnL tone inline), so set one here. */}
-                    <Text style={[styles.rowSubValue, { color: Palette.textSecondary }]}>{timeOf(entry.notified_at)}</Text>
-                    <Icon name="chevron" size={13} color={Palette.textTertiary} style={{ transform: [{ rotate: '-90deg' }] }} />
-                  </Pressable>
-                </View>
-              );
-            })}
-          </View>
+                  );
+                })}
+              </View>
+            )}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
