@@ -19,7 +19,9 @@ import { broadcast, registerTopicProvider } from './ws.js';
 import { emitToken, seedSeen } from './notify.js';
 import { getEffectiveProxy, getProxyStatus, onProxyChange } from './proxy-config.js';
 
-const SEARCH_URL = 'https://photon-sol.tinyastro.io/api/memescope/search';
+// PHOTON_SEARCH_URL exists for tests (a local mock of the memscope endpoint); production
+// always talks to the real host.
+export const SEARCH_URL = process.env.PHOTON_SEARCH_URL || 'https://photon-sol.tinyastro.io/api/memescope/search';
 const DEFAULT_TA =
   '%2BGwOfWeQXAdpObsrbWbYS4vdSrTe5DyYZYGZyWWrgjc3wnJs1sBXV54nyBjf8moVolF87pu3FuBkpi6THzirx5zJ5ycXBFGwanMgB%2BnWxySZ3kQkUpBIHGLWcskMvI8%2FyhcTneZcavfpOHocyeASyqWR%2Fxjrj5Wdtg1gYi%2BUGZrW6LrUFO6CausIAiuUmll74MNPL4ke9q8dqdHwOXKacAz2Go8PHNkysFui8nf0lVsuOarFTSN2pAON103FitzKXH2Od6BhuOeFQtvbuHq8%2FN9QW9T12cH3pZ4LsKbIeARo0BqEpwiM7weVCieEPimC7fj3MwDfOQ%2Fl7Kl864A7ZArqBV3N%2FZuaF%2FCeFBJchYndc7XmcgXfwXEmHBEJ0572%2BIu%2FxLFYxxyPe4G2jSsy6lKj2ePgYSvpTm%2BycWirh2GglInPezLLtXephFUXOU%2FmiOLJ%2FtXC2K4%2FezjU0hCYicG1bwyJEKPdnkgjhcEByIkvO8%2BikldoLN4IqHnj7yfriRlntQ%3D%3D--cYKmQ7Xoco6etjgy--LWP33asZkd3yg8juNGqXDA%3D%3D';
 
@@ -30,7 +32,7 @@ const RATE_LIMIT_BACKOFF_MS = 45_000;
 const FETCH_TIMEOUT_MS = 10_000;
 const COL_STALE_MS = 8_000;
 
-const COMMON_FILTERS =
+export const COMMON_FILTERS =
   'dexes=pump%2Craydium_launchpad%2Cmoonshot%2Cboop%2Cmeteora_virtual_curve%2Corca_wavebreak%2Craydium_clmm%2Craydium_cpmm' +
   '&platform=bonk%2Cbelieve%2Cmoonshotdbc%2Cjupiter%2Cbags%2Cwendev%2Cmayhem%2Cbonker%2Cprintr%2Cstonk' +
   '&pump_rewards_enabled=true&quote_token=wsol%2Cusdc%2Cusd1%2Ccustom';
@@ -72,7 +74,7 @@ const numOrNull = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
-function sanitizeColumnFilters(raw) {
+export function sanitizeColumnFilters(raw) {
   const out = {};
   if (!raw || typeof raw !== 'object') return out;
   for (const field of Object.keys(FILTER_FIELDS)) {
@@ -121,7 +123,7 @@ function buildQuery(colKey) {
   return parts.join('&');
 }
 
-const HEADERS = {
+export const HEADERS = {
   accept: '*/*',
   'sec-fetch-dest': 'empty',
   'sec-fetch-mode': 'cors',

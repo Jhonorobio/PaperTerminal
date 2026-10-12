@@ -14,6 +14,11 @@
  *   DELETE /api/notifications/config        unregister
  *   GET  /api/notifications/history         alert history for this device
  *   POST /api/notifications/test            fire a test alert (panel + push)
+ *   GET  /api/track                         tracked tokens (summary) + config + status
+ *   GET  /api/track/export                  everything WITH snapshots (analysis)
+ *   GET  /api/track/config · PUT            the tracker's own filter set
+ *   GET  /api/track/:address                one tracked token + its snapshots
+ *   DELETE /api/track                       clear every tracked token
  */
 
 import { Router } from 'express';
@@ -22,6 +27,7 @@ import { getFomoGraduated, getFomoProxyStatus, getFomoStatus, getFomoTrending, s
 import { getFomoFilters, setFomoFilters } from './fomo-filter-store.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters } from './photon.js';
 import { photonLogo } from './logo-proxy.js';
+import { clearTrack, getTrackConfig, getTrackStatus, getTrackToken, listTrackTokens, setTrackConfig, TRACK_SNAPSHOT_MAX, TRACK_TOKENS_MAX } from './track.js';
 import { notificationConfig, notificationHistory } from './stores.js';
 import { getPushReceipt, isValidPushToken, sendPush } from './push.js';
 import { sendToDevice } from './ws.js';
@@ -244,6 +250,56 @@ router.post('/notifications/test', async (req, res) => {
       push = { sent: false, reason: `expo_unreachable: ${err instanceof Error ? err.message : String(err)}` };
     }
     res.json({ ok: true, entry, push });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// ── Track ────────────────────────────────────────────────────────────────────
+
+// Summary list + config + health in one call (what the app's Track tab loads).
+router.get('/track', (_req, res) => {
+  try {
+    res.json({ config: getTrackConfig(), status: getTrackStatus(), tokens: listTrackTokens() });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// Everything WITH snapshots — the analysis dump the user asked for.
+router.get('/track/export', (_req, res) => {
+  try {
+    res.json({
+      config: getTrackConfig(),
+      status: getTrackStatus(),
+      snapshotMax: TRACK_SNAPSHOT_MAX,
+      tokensMax: TRACK_TOKENS_MAX,
+      tokens: listTrackTokens().map((s) => ({ ...s, snapshots: getTrackToken(s.address)?.snapshots ?? [] })),
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.get('/track/config', (_req, res) => res.json(getTrackConfig()));
+
+router.put('/track/config', (req, res) => {
+  try {
+    res.json(setTrackConfig(req.body ?? {}));
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.get('/track/:address', (req, res) => {
+  const token = getTrackToken(req.params.address);
+  if (!token) return res.status(404).json({ error: 'Token no trackeado' });
+  res.json(token);
+});
+
+router.delete('/track', (_req, res) => {
+  try {
+    res.json(clearTrack());
   } catch (err) {
     fail(res, err);
   }

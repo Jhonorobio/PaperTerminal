@@ -15,6 +15,7 @@ import routes from './routes.js';
 import { initWebSocket } from './ws.js';
 import { startFomoWatcher } from './fomo.js';
 import { startPhotonPoller } from './photon.js';
+import { startTrackPoller } from './track.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 
@@ -38,6 +39,7 @@ server.listen(PORT, () => {
   console.log(`Data dir: ${process.env.DATA_DIR || 'data/'}`);
   startFomoWatcher();
   startPhotonPoller();
+  startTrackPoller();
 });
 
 // Photon's CycleTLS daemon must not keep the process alive on shutdown.

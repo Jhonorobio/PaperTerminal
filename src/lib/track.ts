@@ -1,0 +1,121 @@
+/**
+ * Track client — reads the server's token tracker (a second Photon Graduated
+ * poller that snapshots the tokens passing the track's own filters, once a
+ * minute, up to 50 snapshots per token).
+ *
+ * The data is global (not per-device): the same server tracks for whoever asks.
+ */
+
+const TIMEOUT_MS = 12_000;
+
+async function call<T>(base: string, path: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${base.replace(/\/+$/, '')}${path}`, {
+      ...init,
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error ?? `HTTP_${res.status}`);
+    }
+    return (await res.json()) as T;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The same field vocabulary as the Photon column filters (MC in thousands). */
+export const TRACK_FILTER_FIELDS = [
+  { key: 'age', label: 'Edad (min)' },
+  { key: 'mktCap', label: 'MC ($K)' },
+  { key: 'holders', label: 'Holders' },
+  { key: 'tpHolders', label: 'TP Holders' },
+  { key: 'buys', label: 'Compras' },
+  { key: 'freshPct', label: 'Fresh %' },
+  { key: 'bundleHolders', label: 'Bundle Holders' },
+  { key: 'bundlePct', label: 'Bundle %' },
+] as const;
+
+export type TrackFilterKey = (typeof TRACK_FILTER_FIELDS)[number]['key'];
+
+export interface TrackFilterPair {
+  min?: string;
+  max?: string;
+}
+
+export interface TrackConfig {
+  enabled: boolean;
+  filters: Partial<Record<TrackFilterKey, TrackFilterPair>>;
+}
+
+/** One minute of the token's stats — the exact shape the server snapshots. */
+export interface TrackSnapshot {
+  at: string;
+  mcap: number | null;
+  volume: number | null;
+  holders: number | null;
+  topHoldersPct: number | null;
+  freshPct: number | null;
+  freshHolders: number | null;
+  snipersPct: number | null;
+  snipers: number | null;
+  bundlePct: number | null;
+  bundleHolders: number | null;
+  tpHolders: number | null;
+}
+
+export interface TrackTokenSummary {
+  address: string;
+  chain: string;
+  symbol: string | null;
+  name: string | null;
+  logo: string | null;
+  /** 'active' = the track is still open (< 50 snapshots); 'done' = cut at 50. */
+  status: 'active' | 'done';
+  firstSeenAt: string;
+  lastSeenAt: string;
+  /** Currently visible in Photon's Graduated column (capture running). */
+  visible: boolean;
+  snapshotCount: number;
+}
+
+export interface TrackTokenDetail extends TrackTokenSummary {
+  snapshots: TrackSnapshot[];
+}
+
+export interface TrackStatus {
+  running: boolean;
+  enabled: boolean;
+  tickMs: number;
+  snapshotMax: number;
+  tokensMax: number;
+  lastFetchAt: string | null;
+  fetchCount: number;
+  errorCount: number;
+  lastError: { message: string; at: number } | null;
+  transport: 'proxy' | 'direct';
+  proxy: { url: string; enabled: boolean };
+  counts: { total: number; active: number; done: number; visible: number };
+}
+
+export interface TrackState {
+  config: TrackConfig;
+  /** null only in the app's offline fallback (the server always sends one). */
+  status: TrackStatus | null;
+  tokens: TrackTokenSummary[];
+}
+
+export async function fetchTrack(base: string): Promise<TrackState> {
+  return call<TrackState>(base, '/api/track');
+}
+
+export async function fetchTrackToken(base: string, address: string): Promise<TrackTokenDetail> {
+  return call<TrackTokenDetail>(base, `/api/track/${encodeURIComponent(address)}`);
+}
+
+export async function saveTrackConfig(base: string, config: TrackConfig): Promise<TrackConfig> {
+  return call<TrackConfig>(base, '/api/track/config', { method: 'PUT', body: JSON.stringify(config) });
+}
