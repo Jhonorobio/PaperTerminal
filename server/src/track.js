@@ -537,17 +537,19 @@ export function getTrackStatus() {
 
 /**
  * Health pill for one token — derived from its OWN snapshot series (nothing
- * extra to persist): the analysis of these snapshots showed holders growth
- * (r=0.71) and net buying (r=0.56) are what separate pumps from rugs, while
- * every static entry metric (bundle, fresh, top holders…) was noise.
- *   green  holders ≥ +10% first→last AND buys ≥ sells lately AND still above
- *          (or near) the entry mcap — everything says "still working"
- *   red    holders ≤ −10% (bleeding out), or shrinking under selling pressure,
- *          or the mcap collapsed more than −50% from its tracked peak
+ * extra to persist). Signals, in order of measured strength on ~130 tracked
+ * tokens: holders growth (r=0.82 vs final return), net buying, drawdown,
+ * turnover (vol/mcap — ≥10x means distribution: 0% of those doubled, median
+ * −67%) and bundle collapse (insiders dumping, −22pts on the dead vs +1 on
+ * the winners). Also: 3 consecutive up minutes early = 83% chance of doubling.
+ *   green  holders ≥ +10% first→last AND buys ≥ sells AND above entry, with
+ *          turnover < 8x and no bundle dump — or 3+ up minutes with buying
+ *   red    holders ≤ −10%, or shrinking under selling pressure, or down ≥ −50%
+ *          from the tracked peak, or turnover ≥ 10x, or bundle collapsing ≤ −10
  *   amber  mixed signals — null until there are 2 snapshots to judge
  */
 export function trackHealth(snaps) {
-  if (!Array.isArray(snaps) || snaps.length < 2) return { health: null, holdersDeltaPct: null, flowRatio: null };
+  if (!Array.isArray(snaps) || snaps.length < 2) return { health: null, holdersDeltaPct: null, flowRatio: null, turnover: null };
   const first = snaps[0];
   const last = snaps[snaps.length - 1];
   const holdersDeltaPct =
@@ -572,24 +574,43 @@ export function trackHealth(snaps) {
   const drawdownPct = peak != null && last.mcap != null ? (last.mcap / peak - 1) * 100 : null;
   // Return vs the FIRST tracked mcap — green must not sit below its entry.
   const entryReturnPct = first.mcap != null && last.mcap != null && first.mcap > 0 ? (last.mcap / first.mcap - 1) * 100 : null;
+  // Turnover NOW (volume ÷ mcap): healthy = a few x; ≥10x = they are exiting
+  // into the volume (0% of tracked tokens with ≥10x ended above entry).
+  const turnover = last.mcap > 0 ? numOrNull(last.volume) != null ? last.volume / last.mcap : null : null;
+  // Bundle delta over the window: insiders dumping shows here first (the dead
+  // lost ~22 pts of bundled supply while the winners stayed flat).
+  const bundleDeltaPct =
+    numOrNull(last.bundlePct) != null && numOrNull(prev.bundlePct) != null ? last.bundlePct - prev.bundlePct : null;
+  // Momentum: consecutive latest snapshots each above the previous. 3+ up
+  // minutes early was the single strongest pattern (83% doubled, n=12).
+  let upStreak = 0;
+  for (let i = snaps.length - 1; i > 0; i--) {
+    if (snaps[i].mcap != null && snaps[i - 1].mcap != null && snaps[i].mcap > snaps[i - 1].mcap) upStreak++;
+    else break;
+  }
 
   let health = 'amber';
   if (
     (holdersDeltaPct != null && holdersDeltaPct <= -10) ||
     (holdersDeltaPct != null && holdersDeltaPct < 0 && (flowRatio == null || flowRatio < 1)) ||
-    (drawdownPct != null && drawdownPct <= -50)
+    (drawdownPct != null && drawdownPct <= -50) ||
+    (turnover != null && turnover >= 10) ||
+    (bundleDeltaPct != null && bundleDeltaPct <= -10)
   ) {
     health = 'red';
   } else if (
-    holdersDeltaPct != null &&
-    holdersDeltaPct >= 10 &&
-    flowRatio != null &&
-    flowRatio >= 1 &&
-    (entryReturnPct == null || entryReturnPct >= -10)
+    (holdersDeltaPct != null &&
+      holdersDeltaPct >= 10 &&
+      flowRatio != null &&
+      flowRatio >= 1 &&
+      (entryReturnPct == null || entryReturnPct >= -10)) ||
+    (upStreak >= 3 && flowRatio != null && flowRatio >= 1)
   ) {
-    health = 'green';
+    // The holders+-but-dying trap: high turnover or an insider dump downgrades
+    // green to amber even when the other signals look fine.
+    health = (turnover != null && turnover >= 8) || (bundleDeltaPct != null && bundleDeltaPct <= -5) ? 'amber' : 'green';
   }
-  return { health, holdersDeltaPct, flowRatio };
+  return { health, holdersDeltaPct, flowRatio, turnover };
 }
 
 /**
@@ -599,7 +620,10 @@ export function trackHealth(snaps) {
  */
 export function snapshotsWithHealth(snaps) {
   const series = Array.isArray(snaps) ? snaps : [];
-  return series.map((s, i) => ({ ...s, health: trackHealth(series.slice(0, i + 1)).health }));
+  return series.map((s, i) => {
+    const h = trackHealth(series.slice(0, i + 1));
+    return { ...s, health: h.health, turnover: h.turnover };
+  });
 }
 
 /** Summary fields for one tracked token (the list row + the detail's header). */

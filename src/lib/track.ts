@@ -74,6 +74,8 @@ export interface TrackSnapshot {
    * [0..i] of the series — no hindsight). null on the first snapshot.
    */
   health: 'green' | 'amber' | 'red' | null;
+  /** Volume ÷ mcap at that minute — the turnover the chip watches. */
+  turnover: number | null;
 }
 
 export interface TrackTokenSummary {
@@ -98,6 +100,8 @@ export interface TrackTokenSummary {
   holdersDeltaPct: number | null;
   /** Buys/sells over the last ~3 min — ≥1 means net buying. */
   flowRatio: number | null;
+  /** Volume ÷ mcap right now — ≥10x means distribution (they're exiting). */
+  turnover: number | null;
   /** 'active' = the track is still open (< 50 snapshots); 'done' = cut at 50. */
   status: 'active' | 'done';
   firstSeenAt: string;

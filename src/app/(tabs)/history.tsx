@@ -666,6 +666,7 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
           {HEALTH_META[detail.health].label} · holders{' '}
           {detail.holdersDeltaPct == null ? '—' : formatPct(detail.holdersDeltaPct, { sign: true })} · flujo compras/ventas{' '}
           {detail.flowRatio == null ? '—' : detail.flowRatio.toFixed(2)}
+          {detail.turnover != null ? ` · vol/mcap ${detail.turnover.toFixed(1)}x` : ''}
         </Text>
       ) : null}
       {snaps
