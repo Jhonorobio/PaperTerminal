@@ -110,8 +110,13 @@ export function setPhotonFilters(raw) {
   return getPhotonFilters();
 }
 
-function buildQuery(colKey) {
-  const f = getPhotonFilters()[colKey] ?? {};
+/**
+ * The memscope query for one column. `filtersOverride` lets another poller (the
+ * token tracker) reuse Photon's OWN filtering with its own filter set, instead
+ * of the stored per-column filters — same params, same units, same semantics.
+ */
+export function buildQuery(colKey, filtersOverride) {
+  const f = filtersOverride ?? getPhotonFilters()[colKey] ?? {};
   const parts = [COMMON_FILTERS];
   for (const [field, param] of Object.entries(FILTER_FIELDS)) {
     const v = f[field];

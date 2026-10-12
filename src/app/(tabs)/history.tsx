@@ -475,7 +475,7 @@ export default function HistoryScreen() {
                   {proxyTest.result ? (
                     <Text style={[styles.detailHint, { color: proxyTest.result.ok ? Palette.green : Palette.red }]}>
                       {proxyTest.result.ok
-                        ? `✓ responde en ${proxyTest.result.ms} ms — vio ${proxyTest.result.tokens ?? 0} tokens de la columna Graduated`
+                        ? `✓ responde en ${proxyTest.result.ms} ms — vio ${proxyTest.result.tokens ?? 0} tokens de Graduated con tus filtros`
                         : `✗ ${proxyTest.result.error}`}
                     </Text>
                   ) : null}
@@ -554,7 +554,7 @@ export default function HistoryScreen() {
               <Card style={{ padding: 16 }}>
                 <Empty
                   title="Sin tokens trackeados"
-                  body="El server trackea los tokens de Photon Graduated que pasen tus filtros y les saca un snapshot por minuto, hasta 50 por token."
+                  body="El server le pide a Photon la columna Graduated con tus filtros (los mismos parámetros que la página Photon) y les saca un snapshot por minuto, hasta 50 por token."
                 />
               </Card>
             ) : (

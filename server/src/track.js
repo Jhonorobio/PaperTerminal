@@ -3,8 +3,11 @@
  * care about, once a minute, so a migration can be analysed after the fact.
  *
  * Lifecycle:
- *   enter   — a token shows up in the Graduated column AND passes the track's OWN
- *             filter set (track_config; independent from the app column filters).
+ *   enter   — a token shows up in the Graduated column after PHOTON filters it
+ *             with the track's OWN filter set (track_config; independent from the
+ *             app column filters). The filters travel as query params — the exact
+ *             mechanism the app's Photon screen uses — so "pasa el filtro"
+ *             means the same thing on both screens.
  *   capture — while it stays visible in the column: one snapshot per minute with
  *             top holders %, holders, fresh %, fresh holders, snipers %, snipers,
  *             bundle %, bundle count, buys, sells, market cap, volume and tp
@@ -28,7 +31,7 @@
  */
 import initCycleTLS from 'cycletls';
 
-import { COMMON_FILTERS, HEADERS, SEARCH_URL, sanitizeColumnFilters } from './photon.js';
+import { buildQuery, HEADERS, SEARCH_URL, sanitizeColumnFilters } from './photon.js';
 import { normalizeProxy } from './proxy-config.js';
 import { trackConfig, trackTokens } from './stores.js';
 
@@ -51,10 +54,6 @@ const RATE_LIMIT_BACKOFF_MS = 45_000;
 const ERROR_BACKOFF_MS = 15_000;
 export const TRACK_SNAPSHOT_MAX = 50;
 export const TRACK_TOKENS_MAX = 500;
-
-// Same field vocabulary the app's filter UI speaks (age in minutes, mktCap in
-// thousands of USD — the convention the Photon columns already use).
-const TRACK_FIELDS = ['age', 'holders', 'tpHolders', 'mktCap', 'buys', 'freshPct', 'bundleHolders', 'bundlePct'];
 
 const numOrNull = (v) => {
   if (v == null || v === '') return null;
@@ -119,35 +118,6 @@ export function setTrackConfig(raw) {
     updated_at: new Date().toISOString(),
   });
   return getTrackConfig();
-}
-
-/** The token's own attribute values, in the filter field vocabulary. */
-function attrValues(a) {
-  const created = numOrNull(a.created_timestamp); // epoch seconds
-  return {
-    age: created ? (Date.now() / 1000 - created) / 60 : null,
-    holders: numOrNull(a.holders_count),
-    tpHolders: numOrNull(a.tp_holders_count),
-    mktCap: numOrNull(a.fdv),
-    buys: numOrNull(a.buys_count),
-    freshPct: numOrNull(a.fresh_holding_perc),
-    bundleHolders: numOrNull(a.bundle_holders_count),
-    bundlePct: numOrNull(a.bundle_holding_perc),
-  };
-}
-
-/** A configured bound with no data to check against = the token does not pass. */
-function passesFilters(values, filters) {
-  for (const field of TRACK_FIELDS) {
-    const pair = filters[field];
-    if (!pair) continue;
-    const v = values[field];
-    if (v == null) return false;
-    const mult = field === 'mktCap' ? 1000 : 1; // app types MC in thousands
-    if (pair.min != null && v < Number(pair.min) * mult) return false;
-    if (pair.max != null && v > Number(pair.max) * mult) return false;
-  }
-  return true;
 }
 
 /** One minute's worth of the stats the analysis runs on. */
@@ -224,16 +194,21 @@ export async function closeTrack() {
   }
 }
 
-/** Fetches the RAW Graduated column (no query filters — matching is local). */
+/**
+ * Fetches the Graduated column with the track's OWN filters handed to Photon as
+ * query params — the exact mechanism the app's Photon screen uses (buildQuery),
+ * so "passed the filters" means the same thing on both screens.
+ */
 async function fetchGraduated() {
   fetchCount += 1;
   const client = await getCycleTLS();
   // The gate guarantees the track's own proxy is here; it is the ONLY egress —
   // no silent fallback to direct (that IP is exactly what the user is avoiding).
-  const proxyUrl = getTrackConfig().proxy;
+  const config = getTrackConfig();
+  const proxyUrl = config.proxy;
   transport = proxyUrl ? 'proxy' : 'direct';
   const request = client(
-    `${SEARCH_URL}?${COMMON_FILTERS}&col=col3`,
+    `${SEARCH_URL}?${buildQuery('col3', config.filters)}`,
     { client: 'chrome131', headers: HEADERS, ...(proxyUrl ? { proxy: proxyUrl } : {}) },
     'GET',
   );
@@ -303,7 +278,9 @@ export async function testTrackProxy(rawProxy) {
 
   const started = Date.now();
   const request = (await getCycleTLS())(
-    `${SEARCH_URL}?${COMMON_FILTERS}&col=col3`,
+    // Same query the tracker will really use (its own filters as Photon params):
+    // testing any other URL would say nothing about the tracking fetch itself.
+    `${SEARCH_URL}?${buildQuery('col3', getTrackConfig().filters)}`,
     { client: 'chrome131', headers: HEADERS, proxy: proxyUrl },
     'GET',
   );
@@ -393,8 +370,8 @@ async function trackTick() {
       // whole store (up to 500 tokens × 50 snaps) 46x/min would be absurd.
       let persist = false;
       if (!tracked) {
-        // New to the column: only enters the set if it passes the track filters.
-        if (!passesFilters(attrValues(a), config.filters)) continue;
+        // New in the (already Photon-filtered) column — no local re-check: what
+        // Photon returns is what gets tracked, exactly like the Photon screen.
         tracked = {
           address,
           chain: 'sol',
@@ -439,9 +416,12 @@ async function trackTick() {
 
     // Tracked tokens missing from this column: paused after a couple of misses —
     // at 1.3s pulls a single partial/reshuffled response must not flip the list.
-    // Data is kept; capture resumes on the next appearance. A token that stays
-    // out for 30 continuous minutes is done for good (its run ended), even if it
-    // never hit the snapshot cap — "paused forever" was never a real state.
+    // Missing now also covers "stopped passing the track filters": the column is
+    // filtered upstream, so a token that falls out of the range simply isn't
+    // returned anymore. Data is kept; capture resumes on the next appearance. A
+    // token that stays out for 30 continuous minutes is done for good (its run
+    // ended), even if it never hit the snapshot cap — "paused forever" was never
+    // a real state.
     for (const [address, tracked] of Object.entries(trackTokens.getAll())) {
       if (byAddress.has(address)) {
         missCount.delete(address);
