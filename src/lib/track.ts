@@ -111,6 +111,8 @@ export interface TrackStatus {
   pullMs: number;
   /** Per-token stats snapshots — one per minute. */
   snapshotMs: number;
+  /** 30 continuous minutes out of the column end the run ("Cortado"). */
+  pauseCutMs: number;
   snapshotMax: number;
   tokensMax: number;
   lastFetchAt: string | null;

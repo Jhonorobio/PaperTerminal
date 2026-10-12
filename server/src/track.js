@@ -40,6 +40,10 @@ const SNAPSHOT_MS = 60_000;
 // A miss must repeat before a token is paused: at 1.3s pulls a single
 // partial/reshuffled column response would otherwise flip the whole list.
 const TRACK_MISS_GRACE = 2;
+// Terminal, not a pause forever: 30 continuous minutes out of the column end the
+// run ("Cortado") even if the token never reached the 50-snapshot cap. Reappearing
+// after the cut stays cut — same rule as hitting the cap.
+const TRACK_PAUSE_CUT_MS = 30 * 60_000;
 const FETCH_TIMEOUT_MS = 10_000;
 const PROXY_TEST_TIMEOUT_MS = 15_000;
 const RATE_LIMIT_BACKOFF_MS = 45_000;
@@ -435,13 +439,23 @@ async function trackTick() {
 
     // Tracked tokens missing from this column: paused after a couple of misses —
     // at 1.3s pulls a single partial/reshuffled response must not flip the list.
-    // Data is kept; capture resumes on the next appearance.
+    // Data is kept; capture resumes on the next appearance. A token that stays
+    // out for 30 continuous minutes is done for good (its run ended), even if it
+    // never hit the snapshot cap — "paused forever" was never a real state.
     for (const [address, tracked] of Object.entries(trackTokens.getAll())) {
       if (byAddress.has(address)) {
         missCount.delete(address);
         continue;
       }
-      if (!tracked.visible) continue;
+      if (!tracked.visible) {
+        // Already paused: check the 30-min cut against the last time it was seen.
+        if (tracked.status === 'active' && Date.now() - Date.parse(tracked.lastSeenAt) >= TRACK_PAUSE_CUT_MS) {
+          tracked.status = 'done';
+          trackTokens.set(address, tracked);
+          changed = true;
+        }
+        continue;
+      }
       const misses = (missCount.get(address) ?? 0) + 1;
       missCount.set(address, misses);
       if (misses < TRACK_MISS_GRACE) continue;
@@ -500,6 +514,8 @@ export function getTrackStatus() {
     // snapshots (the stats series) stay at one per SNAPSHOT_MS per token.
     pullMs: PULL_MS,
     snapshotMs: SNAPSHOT_MS,
+    // 30 continuous minutes out of the column end the run ("Cortado").
+    pauseCutMs: TRACK_PAUSE_CUT_MS,
     snapshotMax: TRACK_SNAPSHOT_MAX,
     tokensMax: TRACK_TOKENS_MAX,
     lastFetchAt: lastFetchAt || null,
