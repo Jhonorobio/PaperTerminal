@@ -17,6 +17,7 @@
  *   GET  /api/track                         tracked tokens (summary) + config + status
  *   GET  /api/track/export                  everything WITH snapshots (analysis)
  *   GET  /api/track/config · PUT            the tracker's own filter set
+ *   POST /api/track/proxy-test              prove a proxy with one real fetch
  *   GET  /api/track/:address                one tracked token + its snapshots
  *   DELETE /api/track                       clear every tracked token
  */
@@ -27,7 +28,7 @@ import { getFomoGraduated, getFomoProxyStatus, getFomoStatus, getFomoTrending, s
 import { getFomoFilters, setFomoFilters } from './fomo-filter-store.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters } from './photon.js';
 import { photonLogo } from './logo-proxy.js';
-import { clearTrack, getTrackConfig, getTrackStatus, getTrackToken, listTrackTokens, setTrackConfig, TRACK_SNAPSHOT_MAX, TRACK_TOKENS_MAX } from './track.js';
+import { clearTrack, getTrackConfig, getTrackStatus, getTrackToken, listTrackTokens, setTrackConfig, testTrackProxy, TRACK_SNAPSHOT_MAX, TRACK_TOKENS_MAX } from './track.js';
 import { notificationConfig, notificationHistory } from './stores.js';
 import { getPushReceipt, isValidPushToken, sendPush } from './push.js';
 import { sendToDevice } from './ws.js';
@@ -289,6 +290,11 @@ router.put('/track/config', (req, res) => {
   } catch (err) {
     fail(res, err);
   }
+});
+
+// Test a (possibly unsaved) proxy with one real fetch — never throws.
+router.post('/track/proxy-test', async (req, res) => {
+  res.json(await testTrackProxy(req.body?.proxy));
 });
 
 router.get('/track/:address', (req, res) => {

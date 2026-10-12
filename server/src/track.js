@@ -18,22 +18,23 @@
  * first-tracked time, so history stays bounded while always covering the newest
  * migrations.
  *
- * Hard gate: the poller idles until the app's shared proxy is saved AND switched
- * on, and the track's own filter set has at least one field — no proxy, no
- * entries; no filters, no entries.
+ * Hard gate: the poller idles until the track's OWN proxy (configured in the
+ * app, never the shared FOMO/Photon one) is saved, and the track's filter set
+ * has at least one field — no proxy, no entries; no filters, no entries.
  *
  * Own CycleTLS client + own backoff, so the app feed's rate limit and transport
- * never interact with tracking. Egress always rides the app-configured proxy
- * (the gate guarantees one is there).
+ * never interact with tracking. Egress ONLY rides the track's own proxy — a dead
+ * proxy means failed ticks and retries, never a direct fallback.
  */
 import initCycleTLS from 'cycletls';
 
 import { COMMON_FILTERS, HEADERS, SEARCH_URL, sanitizeColumnFilters } from './photon.js';
-import { getEffectiveProxy, getProxyStatus, onProxyChange } from './proxy-config.js';
+import { normalizeProxy } from './proxy-config.js';
 import { trackConfig, trackTokens } from './stores.js';
 
 const TICK_MS = 60_000;
 const FETCH_TIMEOUT_MS = 10_000;
+const PROXY_TEST_TIMEOUT_MS = 15_000;
 const RATE_LIMIT_BACKOFF_MS = 45_000;
 export const TRACK_SNAPSHOT_MAX = 50;
 export const TRACK_TOKENS_MAX = 500;
@@ -48,20 +49,39 @@ const numOrNull = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
-// ── config (its own, not the columns') ───────────────────────────────────────
+// ── config (its own proxy + filters, both independent from the app columns) ──
 
 export function getTrackConfig() {
   const stored = trackConfig.get('global') ?? {};
+  // The tracker's OWN proxy — never the FOMO/Photon one; junk in the store reads as ''.
+  let proxy = '';
+  try {
+    proxy = stored.proxy ? normalizeProxy(stored.proxy) : '';
+  } catch {
+    proxy = '';
+  }
   return {
     enabled: stored.enabled !== false, // default on: it works out of the box
+    proxy,
     filters: sanitizeColumnFilters(stored.filters),
   };
 }
 
+/** Omitted fields keep their stored value — a partial PUT never wipes the rest. */
 export function setTrackConfig(raw) {
+  const stored = trackConfig.get('global') ?? {};
+  let proxy = stored.proxy ?? '';
+  if (raw?.proxy !== undefined) {
+    try {
+      proxy = normalizeProxy(raw.proxy); // '' allowed → cleared
+    } catch (err) {
+      throw Object.assign(new Error(err.message), { status: 400 }); // the app flashes this
+    }
+  }
   trackConfig.set('global', {
-    enabled: raw?.enabled != null ? Boolean(raw.enabled) : true,
-    filters: sanitizeColumnFilters(raw?.filters),
+    enabled: raw?.enabled != null ? Boolean(raw.enabled) : stored.enabled !== false,
+    proxy,
+    filters: sanitizeColumnFilters(raw?.filters ?? stored.filters),
     updated_at: new Date().toISOString(),
   });
   return getTrackConfig();
@@ -117,26 +137,31 @@ function snapshotOf(a) {
 }
 
 /**
- * Hard gate: the tracker idles until the app's proxy is saved AND switched on,
- * and at least one filter is configured. No egress, no entries, nothing — until
- * both conditions hold the poller has nothing to do.
+ * Hard gate: the tracker idles until its OWN proxy is saved (never the
+ * FOMO/Photon one — the track doesn't egress without its own) and the filter
+ * set has at least one field. No proxy, no entries; no filters, no entries.
  */
 export function getTrackGate() {
-  const proxy = getProxyStatus();
-  const filters = getTrackConfig().filters;
-  const proxyOk = Boolean(proxy.url) && proxy.enabled;
-  const filtersOk = Object.keys(filters).length > 0;
+  const config = getTrackConfig();
+  let proxyOk = false;
+  let proxyUrl = '';
+  try {
+    proxyUrl = config.proxy ? normalizeProxy(config.proxy) : '';
+    proxyOk = Boolean(proxyUrl);
+  } catch {
+    proxyOk = false;
+  }
+  const filtersOk = Object.keys(config.filters).length > 0;
   return {
     ok: proxyOk && filtersOk,
-    proxy: { ok: proxyOk, url: proxy.url, enabled: proxy.enabled },
-    filters: { ok: filtersOk, count: Object.keys(filters).length },
+    proxy: { ok: proxyOk, url: proxyUrl },
+    filters: { ok: filtersOk, count: Object.keys(config.filters).length },
   };
 }
 
 // ── transport (own client, own backoff) ──────────────────────────────────────
 
 let cycleTLS = null;
-let preferProxy = true;
 let transport = 'direct';
 let poller = null;
 let backoffUntil = 0;
@@ -145,10 +170,6 @@ let errorCount = 0;
 let lastError = null;
 let lastFetchAt = 0;
 let gateLogged = false;
-
-onProxyChange(() => {
-  preferProxy = true;
-});
 
 async function getCycleTLS() {
   if (!cycleTLS) cycleTLS = await initCycleTLS();
@@ -171,12 +192,13 @@ export async function closeTrack() {
 async function fetchGraduated() {
   fetchCount += 1;
   const client = await getCycleTLS();
-  const proxyUrl = getEffectiveProxy();
-  const useProxy = Boolean(proxyUrl) && preferProxy;
-  transport = useProxy ? 'proxy' : 'direct';
+  // The gate guarantees the track's own proxy is here; it is the ONLY egress —
+  // no silent fallback to direct (that IP is exactly what the user is avoiding).
+  const proxyUrl = getTrackConfig().proxy;
+  transport = proxyUrl ? 'proxy' : 'direct';
   const request = client(
     `${SEARCH_URL}?${COMMON_FILTERS}&col=col3`,
-    { client: 'chrome131', headers: HEADERS, ...(useProxy ? { proxy: proxyUrl } : {}) },
+    { client: 'chrome131', headers: HEADERS, ...(proxyUrl ? { proxy: proxyUrl } : {}) },
     'GET',
   );
   let timer;
@@ -188,9 +210,6 @@ async function fetchGraduated() {
         timer = setTimeout(() => reject(new Error(`TIMEOUT_${FETCH_TIMEOUT_MS}MS`)), FETCH_TIMEOUT_MS);
       }),
     ]);
-  } catch (err) {
-    if (proxyUrl) preferProxy = !preferProxy; // dead proxy → direct, dead direct → proxy
-    throw err;
   } finally {
     clearTimeout(timer);
     request.catch(() => {});
@@ -198,18 +217,20 @@ async function fetchGraduated() {
 
   const status = Number(resp?.status) || 0;
   if (status === 429) {
-    if (!useProxy && proxyUrl) preferProxy = true;
     backoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
     throw Object.assign(new Error('RATE_LIMITED'), { rateLimited: true });
   }
   if (status !== 200) {
-    if (proxyUrl) preferProxy = !useProxy;
-    throw new Error(`HTTP_${status}`);
+    // CycleTLS reports an unreachable/broken proxy as a bare 401 — say it plainly.
+    throw new Error(proxyUrl && status === 401 ? 'PROXY_401 (el proxy no respondió o rechazó)' : `HTTP_${status}`);
   }
 
-  // CycleTLS can hand the body over already parsed (object) or as raw bytes —
-  // photon.js's toObj learned this the hard way, so accept both shapes.
-  const raw = resp.data;
+  return toItems(resp);
+}
+
+/** CycleTLS hands the body over parsed (object) or as raw bytes — accept both. */
+function toItems(resp) {
+  const raw = resp?.data;
   let json;
   if (raw != null && typeof raw === 'object' && !Buffer.isBuffer(raw)) {
     json = raw;
@@ -222,10 +243,66 @@ async function fetchGraduated() {
     }
   }
   if (json.error) throw new Error(String(json.error));
-
   const slice = json.columns?.col3 ?? { data: [] };
   const items = Array.isArray(slice.data) ? slice.data : [];
   return items.map((it) => it?.attributes).filter(Boolean);
+}
+
+// ── proxy test (the app's "Probar" button) ───────────────────────────────────
+
+/**
+ * One real Graduated fetch through a proxy, timed — the app's way of knowing
+ * whether the proxy works BEFORE trusting it with tracking. Accepts an unsaved
+ * draft (testing doesn't require saving first) and never throws: every outcome
+ * comes back shaped, so the UI can just print it.
+ */
+export async function testTrackProxy(rawProxy) {
+  let proxyUrl = '';
+  try {
+    proxyUrl = normalizeProxy(rawProxy ?? getTrackConfig().proxy);
+  } catch (err) {
+    return { ok: false, stage: 'config', ms: 0, error: String(err?.message || err) };
+  }
+  if (!proxyUrl) return { ok: false, stage: 'config', ms: 0, error: 'no hay proxy cargado' };
+
+  const started = Date.now();
+  const request = (await getCycleTLS())(
+    `${SEARCH_URL}?${COMMON_FILTERS}&col=col3`,
+    { client: 'chrome131', headers: HEADERS, proxy: proxyUrl },
+    'GET',
+  );
+  let timer;
+  let resp;
+  try {
+    resp = await Promise.race([
+      request,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`TIMEOUT_${PROXY_TEST_TIMEOUT_MS}MS`)), PROXY_TEST_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (err) {
+    return { ok: false, proxy: proxyUrl, ms: Date.now() - started, error: String(err?.message || err) };
+  } finally {
+    clearTimeout(timer);
+    request.catch(() => {});
+  }
+
+  const ms = Date.now() - started;
+  const status = Number(resp?.status) || 0;
+  if (status !== 200) {
+    return {
+      ok: false,
+      proxy: proxyUrl,
+      status,
+      ms,
+      error: status === 401 ? 'el proxy no respondió o rechazó (¿es SOCKS? usá socks5://)' : `HTTP_${status}`,
+    };
+  }
+  try {
+    return { ok: true, proxy: proxyUrl, status, ms, tokens: toItems(resp).length };
+  } catch (err) {
+    return { ok: false, proxy: proxyUrl, status, ms, error: String(err?.message || err) };
+  }
 }
 
 // ── the tick ─────────────────────────────────────────────────────────────────
@@ -346,7 +423,6 @@ export function startTrackPoller() {
 
 export function getTrackStatus() {
   const all = Object.values(trackTokens.getAll());
-  const stale = lastError && Date.now() - lastError.at < 10_000 ? lastError : null;
   return {
     running: Boolean(poller),
     enabled: getTrackConfig().enabled,
@@ -357,9 +433,11 @@ export function getTrackStatus() {
     lastFetchAt: lastFetchAt || null,
     fetchCount,
     errorCount,
-    lastError: stale,
+    // Survives until the next successful tick clears it — a dead proxy has to
+    // stay visible (a 10s freshness window against 60s ticks hid it forever).
+    lastError,
     transport,
-    proxy: getProxyStatus(),
+    proxy: { url: getTrackConfig().proxy },
     counts: {
       total: all.length,
       active: all.filter((t) => t.status === 'active').length,

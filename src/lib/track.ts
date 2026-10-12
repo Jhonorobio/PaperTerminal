@@ -48,6 +48,8 @@ export interface TrackFilterPair {
 
 export interface TrackConfig {
   enabled: boolean;
+  /** The track's OWN proxy — never the shared FOMO/Photon one. '' = not configured. */
+  proxy: string;
   filters: Partial<Record<TrackFilterKey, TrackFilterPair>>;
 }
 
@@ -88,10 +90,10 @@ export interface TrackTokenDetail extends TrackTokenSummary {
   snapshots: TrackSnapshot[];
 }
 
-/** Why the tracker is (or isn't) allowed to run: app proxy on + ≥1 filter. */
+/** Why the tracker is (or isn't) allowed to run: its own proxy + ≥1 filter. */
 export interface TrackGate {
   ok: boolean;
-  proxy: { ok: boolean; url: string; enabled: boolean };
+  proxy: { ok: boolean; url: string };
   filters: { ok: boolean; count: number };
 }
 
@@ -107,7 +109,7 @@ export interface TrackStatus {
   errorCount: number;
   lastError: { message: string; at: number } | null;
   transport: 'proxy' | 'direct';
-  proxy: { url: string; enabled: boolean };
+  proxy: { url: string };
   counts: { total: number; active: number; done: number; visible: number };
 }
 
@@ -128,4 +130,20 @@ export async function fetchTrackToken(base: string, address: string): Promise<Tr
 
 export async function saveTrackConfig(base: string, config: TrackConfig): Promise<TrackConfig> {
   return call<TrackConfig>(base, '/api/track/config', { method: 'PUT', body: JSON.stringify(config) });
+}
+
+/** Result of the "Probar" button — one real fetch through the given proxy. */
+export interface ProxyTestResult {
+  ok: boolean;
+  proxy?: string;
+  status?: number;
+  ms: number;
+  tokens?: number;
+  stage?: 'config';
+  error?: string;
+}
+
+/** Proves a proxy works before saving it; ''/omitted falls back to the saved one. */
+export async function testTrackProxy(base: string, proxy?: string): Promise<ProxyTestResult> {
+  return call<ProxyTestResult>(base, '/api/track/proxy-test', { method: 'POST', body: JSON.stringify({ proxy }) });
 }

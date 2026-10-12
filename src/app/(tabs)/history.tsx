@@ -21,7 +21,7 @@ import {
 } from '@/lib/format';
 import { api } from '@/lib/api';
 import { alertDeepLink, fetchHistory, type AlertHistoryEntry } from '@/lib/notifications';
-import { TRACK_FILTER_FIELDS, fetchTrack, fetchTrackToken, saveTrackConfig, type TrackConfig, type TrackState, type TrackTokenDetail } from '@/lib/track';
+import { TRACK_FILTER_FIELDS, fetchTrack, fetchTrackToken, saveTrackConfig, testTrackProxy, type ProxyTestResult, type TrackConfig, type TrackState, type TrackTokenDetail } from '@/lib/track';
 import type { Trade } from '@/lib/types';
 import { useApp } from '@/state/app';
 
@@ -55,6 +55,7 @@ export default function HistoryScreen() {
   const [track, setTrack] = useState<TrackState | null>(null);
   const [trackConfigOpen, setTrackConfigOpen] = useState(false);
   const [trackDraft, setTrackDraft] = useState<TrackConfig | null>(null);
+  const [proxyTest, setProxyTest] = useState<{ busy: boolean; result: ProxyTestResult | null }>({ busy: false, result: null });
   const [trackDetail, setTrackDetail] = useState<Record<string, TrackTokenDetail>>({});
   const [expandedTrack, setExpandedTrack] = useState<string | null>(null);
 
@@ -86,7 +87,7 @@ export default function HistoryScreen() {
           // The server copy only fills a draft the user hasn't touched yet.
           setTrackDraft((d) => d ?? state.config);
         })
-        .catch(() => setTrack((t) => t ?? { config: { enabled: false, filters: {} }, status: null, tokens: [] }));
+        .catch(() => setTrack((t) => t ?? { config: { enabled: false, proxy: '', filters: {} }, status: null, tokens: [] }));
     }, [mode, settings.serverBase]),
   );
 
@@ -115,6 +116,14 @@ export default function HistoryScreen() {
         flash('ok', 'Filtros de Track guardados');
       })
       .catch((err) => flash('err', `No se guardaron: ${err instanceof Error ? err.message : String(err)}`));
+  };
+
+  // "Probar": one real fetch through the DRAFT proxy (test before saving).
+  const runProxyTest = () => {
+    setProxyTest({ busy: true, result: null });
+    void testTrackProxy(settings.serverBase, trackDraft?.proxy || undefined)
+      .then((result) => setProxyTest({ busy: false, result }))
+      .catch((err) => setProxyTest({ busy: false, result: { ok: false, ms: 0, error: err instanceof Error ? err.message : String(err) } }));
   };
 
   const toggleTrackRow = (address: string) => {
@@ -344,7 +353,7 @@ export default function HistoryScreen() {
               <Text style={styles.rowSub}>Trackeo</Text>
               <Switch
                 value={track?.config.enabled ?? false}
-                onValueChange={(v) => saveTrack({ enabled: v, filters: track?.config.filters ?? {} })}
+                onValueChange={(v) => saveTrack({ ...(trackDraft ?? track?.config ?? { enabled: true, proxy: '', filters: {} }), enabled: v })}
                 trackColor={{ false: Palette.lineStrong, true: Palette.paperT }}
                 thumbColor={Palette.bgPrimary}
               />
@@ -352,6 +361,32 @@ export default function HistoryScreen() {
 
             {trackConfigOpen && trackDraft ? (
               <Card style={{ padding: 12, gap: 8 }}>
+                <View style={{ gap: 4 }}>
+                  <Text style={styles.filterLabel}>Proxy propio del track</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Input
+                      value={trackDraft.proxy}
+                      onChangeText={(v) => setTrackDraft((d) => (d ? { ...d, proxy: v } : d))}
+                      placeholder="http://user:pass@host:port"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType="url"
+                      style={{ flex: 1 }}
+                    />
+                    <Btn label="Probar" variant="sm" busy={proxyTest.busy} onPress={runProxyTest} />
+                  </View>
+                  <Text style={styles.detailHint}>
+                    Distinto al de FOMO y Photon — el track solo sale por este. Formato: http://host:port o
+                    socks5://host:port. Sin proxy, no arranca.
+                  </Text>
+                  {proxyTest.result ? (
+                    <Text style={[styles.detailHint, { color: proxyTest.result.ok ? Palette.green : Palette.red }]}>
+                      {proxyTest.result.ok
+                        ? `✓ responde en ${proxyTest.result.ms} ms — vio ${proxyTest.result.tokens ?? 0} tokens de la columna Graduated`
+                        : `✗ ${proxyTest.result.error}`}
+                    </Text>
+                  ) : null}
+                </View>
                 <View style={styles.filterGrid}>
                   {TRACK_FILTER_FIELDS.map((f) => (
                     <View key={f.key} style={styles.filterField}>
@@ -388,7 +423,7 @@ export default function HistoryScreen() {
             {track?.status && !track.status.gate.ok ? (
               <Banner kind="err">
                 {[
-                  !track.status.gate.proxy.ok ? 'Configurá el proxy en Settings (el mismo de FOMO y Photon) y prendelo' : null,
+                  !track.status.gate.proxy.ok ? 'Poné el proxy propio del track (no el de FOMO/Photon) en Filtros' : null,
                   !track.status.gate.filters.ok ? 'poné al menos un filtro de Track' : null,
                 ]
                   .filter(Boolean)
