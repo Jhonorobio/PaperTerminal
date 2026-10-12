@@ -7,7 +7,8 @@
  *             filter set (track_config; independent from the app column filters).
  *   capture — while it stays visible in the column: one snapshot per minute with
  *             top holders %, holders, fresh %, fresh holders, snipers %, snipers,
- *             bundle %, bundle count, market cap, volume and tp holders ("bots").
+ *             bundle %, bundle count, buys, sells, market cap, volume and tp
+ *             holders ("bots").
  *   pause   — it dropped out of the column: capture stops, the data stays; if it
  *             reappears capture resumes, over and over.
  *   cut     — 50 snapshots reached: the track is over for that token (its data is
@@ -17,9 +18,13 @@
  * first-tracked time, so history stays bounded while always covering the newest
  * migrations.
  *
+ * Hard gate: the poller idles until the app's shared proxy is saved AND switched
+ * on, and the track's own filter set has at least one field — no proxy, no
+ * entries; no filters, no entries.
+ *
  * Own CycleTLS client + own backoff, so the app feed's rate limit and transport
- * never interact with tracking. Egress uses the shared proxy URL when one is
- * saved and switched on.
+ * never interact with tracking. Egress always rides the app-configured proxy
+ * (the gate guarantees one is there).
  */
 import initCycleTLS from 'cycletls';
 
@@ -97,6 +102,8 @@ function snapshotOf(a) {
     at: new Date().toISOString(),
     mcap: numOrNull(a.fdv),
     volume: numOrNull(a.volume),
+    buys: numOrNull(a.buys_count),
+    sells: numOrNull(a.sells_count),
     holders: numOrNull(a.holders_count),
     topHoldersPct: numOrNull(a.audit?.top_holders_perc),
     freshPct: numOrNull(a.fresh_holding_perc),
@@ -106,6 +113,23 @@ function snapshotOf(a) {
     bundlePct: numOrNull(a.bundle_holding_perc),
     bundleHolders: numOrNull(a.bundle_holders_count),
     tpHolders: numOrNull(a.tp_holders_count),
+  };
+}
+
+/**
+ * Hard gate: the tracker idles until the app's proxy is saved AND switched on,
+ * and at least one filter is configured. No egress, no entries, nothing — until
+ * both conditions hold the poller has nothing to do.
+ */
+export function getTrackGate() {
+  const proxy = getProxyStatus();
+  const filters = getTrackConfig().filters;
+  const proxyOk = Boolean(proxy.url) && proxy.enabled;
+  const filtersOk = Object.keys(filters).length > 0;
+  return {
+    ok: proxyOk && filtersOk,
+    proxy: { ok: proxyOk, url: proxy.url, enabled: proxy.enabled },
+    filters: { ok: filtersOk, count: Object.keys(filters).length },
   };
 }
 
@@ -120,6 +144,7 @@ let fetchCount = 0;
 let errorCount = 0;
 let lastError = null;
 let lastFetchAt = 0;
+let gateLogged = false;
 
 onProxyChange(() => {
   preferProxy = true;
@@ -222,6 +247,19 @@ async function trackTick() {
     const config = getTrackConfig();
     if (!config.enabled) return;
 
+    // Proxy + at least one filter, or there is nothing to do (the app's Track tab
+    // says exactly what's missing).
+    const gate = getTrackGate();
+    if (!gate.ok) {
+      if (!gateLogged) {
+        gateLogged = true;
+        const missing = [!gate.proxy.ok ? 'proxy' : null, !gate.filters.ok ? 'filtro' : null].filter(Boolean).join(' + ');
+        console.log(`[track] en espera — falta configurar: ${missing}`);
+      }
+      return;
+    }
+    gateLogged = false;
+
     const attrs = await fetchGraduated();
     lastFetchAt = Date.now();
     lastError = null;
@@ -312,6 +350,7 @@ export function getTrackStatus() {
   return {
     running: Boolean(poller),
     enabled: getTrackConfig().enabled,
+    gate: getTrackGate(),
     tickMs: TICK_MS,
     snapshotMax: TRACK_SNAPSHOT_MAX,
     tokensMax: TRACK_TOKENS_MAX,

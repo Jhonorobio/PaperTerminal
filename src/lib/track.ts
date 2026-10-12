@@ -56,6 +56,8 @@ export interface TrackSnapshot {
   at: string;
   mcap: number | null;
   volume: number | null;
+  buys: number | null;
+  sells: number | null;
   holders: number | null;
   topHoldersPct: number | null;
   freshPct: number | null;
@@ -86,9 +88,17 @@ export interface TrackTokenDetail extends TrackTokenSummary {
   snapshots: TrackSnapshot[];
 }
 
+/** Why the tracker is (or isn't) allowed to run: app proxy on + ≥1 filter. */
+export interface TrackGate {
+  ok: boolean;
+  proxy: { ok: boolean; url: string; enabled: boolean };
+  filters: { ok: boolean; count: number };
+}
+
 export interface TrackStatus {
   running: boolean;
   enabled: boolean;
+  gate: TrackGate;
   tickMs: number;
   snapshotMax: number;
   tokensMax: number;

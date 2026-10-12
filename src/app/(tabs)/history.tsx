@@ -5,7 +5,7 @@ import { useFocusEffect, router } from 'expo-router';
 
 import { Icon } from '@/components/icons';
 import { TokenAvatar } from '@/components/token-avatar';
-import { Btn, Card, DetailRow, Empty, Input, SegTabs, Skeleton } from '@/components/ui';
+import { Banner, Btn, Card, DetailRow, Empty, Input, SegTabs, Skeleton } from '@/components/ui';
 import { Palette, Radius, toneTint } from '@/constants/paper';
 import {
   dayLabel,
@@ -385,6 +385,18 @@ export default function HistoryScreen() {
               </Card>
             ) : null}
 
+            {track?.status && !track.status.gate.ok ? (
+              <Banner kind="err">
+                {[
+                  !track.status.gate.proxy.ok ? 'Configurá el proxy en Settings (el mismo de FOMO y Photon) y prendelo' : null,
+                  !track.status.gate.filters.ok ? 'poné al menos un filtro de Track' : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}{' '}
+                — hasta entonces el track no arranca.
+              </Banner>
+            ) : null}
+
             {track?.status ? (
               <Text style={styles.detailHint}>
                 {track.status.enabled
@@ -477,7 +489,8 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
             <Text style={styles.snapTime}>{timeOf(s.at)}</Text>
             <View style={{ flex: 1 }}>
               <Text style={styles.snapStat}>
-                {formatCompactUsd(s.mcap)} · vol {formatCompactUsd(s.volume)} · H {formatCompactQty(s.holders)}
+                {formatCompactUsd(s.mcap)} · vol {formatCompactUsd(s.volume)} · H {formatCompactQty(s.holders)} · C{' '}
+                {formatCompactQty(s.buys)} V {formatCompactQty(s.sells)}
               </Text>
               <Text style={styles.snapSub}>
                 Top {pct(s.topHoldersPct)} · Fresh {pct(s.freshPct)} ({formatCompactQty(s.freshHolders)}) · Snip {pct(s.snipersPct)} (
