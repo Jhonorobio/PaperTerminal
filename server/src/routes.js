@@ -48,7 +48,11 @@ function deviceId(req) {
 
 const fail = (res, err) => res.status(err?.status || 500).json({ error: err?.message || 'Internal error' });
 
-router.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+router.get('/health', (_req, res) =>
+  // dataDir lets the app (and we) confirm the server writes to a persistent
+  // volume — on Railway it must be /data or every redeploy wipes the stores.
+  res.json({ ok: true, time: new Date().toISOString(), dataDir: process.env.DATA_DIR || 'data/' })
+);
 
 router.get('/status', (_req, res) => {
   res.json({
