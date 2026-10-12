@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState, FlatList, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
@@ -21,8 +21,9 @@ import {
   tone,
 } from '@/lib/format';
 import { api } from '@/lib/api';
+import { serverFeed, ServerFeed, TOPICS } from '@/lib/market/server-feed';
 import { alertDeepLink, fetchHistory, type AlertHistoryEntry } from '@/lib/notifications';
-import { TRACK_FILTER_FIELDS, clearTrackTokens, fetchTrack, fetchTrackToken, saveTrackConfig, testTrackProxy, type ProxyTestResult, type TrackConfig, type TrackState, type TrackTokenDetail } from '@/lib/track';
+import { TRACK_FILTER_FIELDS, clearTrackTokens, fetchTrack, fetchTrackToken, saveTrackConfig, testTrackProxy, type ProxyTestResult, type TrackConfig, type TrackState, type TrackTokenDetail, type TrackTokenSummary } from '@/lib/track';
 import type { Trade } from '@/lib/types';
 import { useApp } from '@/state/app';
 
@@ -53,6 +54,25 @@ const HEALTH_META: Record<'green' | 'amber' | 'red', { label: string; color: str
 // 60s, so 15s keeps the list honest (status flips, new tokens, snapshot counts)
 // without chatty requests.
 const TRACK_REFRESH_MS = 15_000;
+// The server PUSHES the track state (throttled on its side); the HTTP poll below
+// is only the safety net, so it skips while pushes are arriving.
+const TRACK_PUSH_FRESH_MS = 60_000;
+
+/**
+ * The tracked list is virtualized and every row is memoized, so a poll must NOT
+ * hand React fresh objects for rows whose data didn't change — with hundreds of
+ * tracked tokens, re-rendering them all every 15s is exactly what made the tab
+ * crawl. Every summary field is a primitive, so identity is the comparison.
+ */
+const sameSummary = (a: TrackTokenSummary, b: TrackTokenSummary): boolean => {
+  for (const key of Object.keys(a) as (keyof TrackTokenSummary)[]) if (a[key] !== b[key]) return false;
+  return true;
+};
+
+/** Group headers + rows, in render order — built once per (tokens, sort) change. */
+type TrackRowItem =
+  | { kind: 'header'; group: 'active' | 'done'; count: number }
+  | { kind: 'token'; t: TrackTokenSummary };
 
 export default function HistoryScreen() {
   const { ready, user, banner, settings, updateSettings, flash } = useApp();
@@ -78,8 +98,44 @@ export default function HistoryScreen() {
   useEffect(() => {
     expandedTrackRef.current = expandedTrack;
   }, [expandedTrack]);
+  // The row press handler stays STABLE (no dep churn): with memoized rows, a
+  // callback identity change would re-render the whole list for nothing.
+  const trackDetailRef = useRef(trackDetail);
+  const flashRef = useRef(flash);
+  const serverBaseRef = useRef(settings.serverBase);
+  useEffect(() => {
+    trackDetailRef.current = trackDetail;
+    flashRef.current = flash;
+    serverBaseRef.current = settings.serverBase;
+  }, [trackDetail, flash, settings.serverBase]);
   const [clearArmed, setClearArmed] = useState(false);
   const [trackSort, setTrackSort] = useState<'recent' | 'gain'>('recent');
+
+  // ONE merge path, shared by the WS push and the HTTP fallback: rows whose data
+  // didn't change keep their object identity (the memoized rows skip the
+  // re-render), and when nothing at all changed the SAME state object goes back
+  // so React bails out of the render entirely.
+  const applyTrackState = useCallback((next: TrackState) => {
+    setTrack((prev) => {
+      // Never blank out a config we already hold if a restart wiped the server
+      // mid-session (the mirror heals it on the next full load).
+      const serverEmpty = !next.config.proxy && !Object.keys(next.config.filters).length;
+      const keep = prev?.config;
+      const config = serverEmpty && keep && (keep.proxy || Object.keys(keep.filters ?? {}).length) ? keep : next.config;
+      if (!prev) return { ...next, config };
+      const prevByAddress = new Map(prev.tokens.map((t) => [t.address, t]));
+      const tokens = next.tokens.map((t) => {
+        const old = prevByAddress.get(t.address);
+        return old && sameSummary(old, t) ? old : t;
+      });
+      const statusSame = JSON.stringify(prev.status) === JSON.stringify(next.status);
+      const configSame = JSON.stringify(prev.config) === JSON.stringify(config);
+      if (configSame && statusSame && prev.tokens.length === tokens.length && tokens.every((t, i) => t === prev.tokens[i])) {
+        return prev;
+      }
+      return { ...next, config: configSame ? prev.config : config, status: statusSame ? prev.status : next.status };
+    });
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -102,8 +158,9 @@ export default function HistoryScreen() {
 
   // The tracker keeps working server-side every 1.3s — the tab follows it without
   // making the user leave and come back. Load once on focus (with the mirror
-  // self-heal), then poll the list (and the open row's snapshots) while visible;
-  // returning to the foreground refreshes instantly.
+  // self-heal), then LIVE: the server pushes the state on the `track` topic
+  // (throttled there) while the tab is subscribed; the 15s HTTP poll only runs
+  // as the safety net when the socket is silent.
   useFocusEffect(
     useCallback(() => {
       if (mode !== 'track') return;
@@ -116,7 +173,7 @@ export default function HistoryScreen() {
             const mirror = settings.trackConfig;
             const serverEmpty = !state.config.proxy && !Object.keys(state.config.filters).length;
             const adopt = (config: TrackState['config']) => {
-              setTrack({ ...state, config });
+              applyTrackState({ ...state, config });
               setTrackDraft((d) => d ?? config);
             };
             if (serverEmpty && mirror && (mirror.proxy || Object.keys(mirror.filters ?? {}).length)) {
@@ -131,17 +188,7 @@ export default function HistoryScreen() {
 
       const refresh = () => {
         void fetchTrack(settings.serverBase)
-          .then((state) =>
-            setTrack((prev) => {
-              // Never blank out a config we already hold if a restart wiped the server
-              // mid-session (the mirror heals it on the next full load).
-              const serverEmpty = !state.config.proxy && !Object.keys(state.config.filters).length;
-              const keep = prev?.config;
-              const config =
-                serverEmpty && keep && (keep.proxy || Object.keys(keep.filters ?? {}).length) ? keep : state.config;
-              return { ...state, config };
-            }),
-          )
+          .then(applyTrackState)
           .catch(() => {});
         const open = expandedTrackRef.current;
         if (open) {
@@ -151,16 +198,48 @@ export default function HistoryScreen() {
         }
       };
 
+      // Live: the server PUSHES the whole track state on this topic (throttled
+      // on ITS side, and only while someone is subscribed). The HTTP poll stays
+      // wired as the safety net for a dead socket or a server without the topic.
+      let lastPushAt = 0;
+      let lastDetailAt = 0;
+      const offTopic = serverFeed.onTopic(TOPICS.track, (data) => {
+        const next = data as TrackState | null;
+        if (!next?.tokens || !next.status) return;
+        lastPushAt = Date.now();
+        applyTrackState(next);
+        // The open row's snapshot series is NOT part of the list payload — top
+        // it up, but at the poll's rhythm, not at the push's (pushes run hot).
+        const open = expandedTrackRef.current;
+        if (open && Date.now() - lastDetailAt >= TRACK_REFRESH_MS) {
+          lastDetailAt = Date.now();
+          void fetchTrackToken(settings.serverBase, open)
+            .then((d) => setTrackDetail((all) => ({ ...all, [open]: d })))
+            .catch(() => {});
+        }
+      });
+      serverFeed.subscribeTopic(TOPICS.track);
+      // The socket is shared (alerts/Photon/FOMO keep it up) — make sure it is
+      // there even for a phone that only ever opens Track. subscribeTopic is
+      // sticky, so the subscription rides along whenever the socket comes up.
+      void ServerFeed.ensureConnected(settings.serverBase);
+
       load();
-      const poll = setInterval(refresh, TRACK_REFRESH_MS);
+      const poll = setInterval(() => {
+        // Pushes arriving = the socket IS the refresh; only poll when silent.
+        if (serverFeed.status().connected && Date.now() - lastPushAt < TRACK_PUSH_FRESH_MS) return;
+        refresh();
+      }, TRACK_REFRESH_MS);
       const sub = AppState.addEventListener('change', (s) => {
         if (s === 'active') refresh();
       });
       return () => {
         clearInterval(poll);
         sub.remove();
+        offTopic();
+        serverFeed.unsubscribeTopic(TOPICS.track);
       };
-    }, [mode, settings.serverBase, settings.trackConfig]),
+    }, [mode, settings.serverBase, settings.trackConfig, applyTrackState]),
   );
 
   const visible = useMemo(() => {
@@ -179,6 +258,25 @@ export default function HistoryScreen() {
   }, [alerts, alertQuery]);
 
   const trackFilterCount = Object.keys(trackDraft?.filters ?? track?.config.filters ?? {}).length;
+
+  // Grouping + sorting in one memo: the render pass just walks the array, and
+  // the FlatList gets stable `data` references (a fresh array every render would
+  // defeat its own virtualization).
+  const trackTokens = track?.tokens;
+  const trackRows = useMemo<TrackRowItem[]>(() => {
+    if (!trackTokens) return [];
+    const rows: TrackRowItem[] = [];
+    for (const group of ['active', 'done'] as const) {
+      const entries = trackTokens
+        .filter((t) => t.status === group)
+        // server order is newest activity; "Ganancia" ranks by first→max MC
+        .sort((a, b) => (trackSort === 'gain' ? (b.gainPct ?? -Infinity) - (a.gainPct ?? -Infinity) : 0));
+      if (!entries.length) continue;
+      rows.push({ kind: 'header', group, count: entries.length });
+      for (const t of entries) rows.push({ kind: 'token', t });
+    }
+    return rows;
+  }, [trackTokens, trackSort]);
 
   const saveTrack = (next: TrackConfig) => {
     void saveTrackConfig(settings.serverBase, next)
@@ -218,15 +316,15 @@ export default function HistoryScreen() {
       .catch((err) => flash('err', `No se borró: ${err instanceof Error ? err.message : String(err)}`));
   };
 
-  const toggleTrackRow = (address: string) => {
-    const willOpen = expandedTrack !== address;
+  const toggleTrackRow = useCallback((address: string) => {
+    const willOpen = expandedTrackRef.current !== address;
     setExpandedTrack(willOpen ? address : null);
-    if (willOpen && !trackDetail[address]) {
-      void fetchTrackToken(settings.serverBase, address)
+    if (willOpen && !trackDetailRef.current[address]) {
+      void fetchTrackToken(serverBaseRef.current, address)
         .then((d) => setTrackDetail((all) => ({ ...all, [address]: d })))
-        .catch(() => flash('err', 'No se pudieron cargar los snapshots'));
+        .catch(() => flashRef.current('err', 'No se pudieron cargar los snapshots'));
     }
-  };
+  }, []);
 
   if (!ready) {
     return (
@@ -249,6 +347,179 @@ export default function HistoryScreen() {
         </Pressable>
       </View>
 
+      {mode === 'track' ? (
+        // Virtualized list: with hundreds of tracked tokens, a ScrollView mounts
+        // every row at once (thousands of native views) and every 15s poll
+        // re-rendered all of them. FlatList paints only what's on screen.
+        <FlatList
+          data={trackRows}
+          keyExtractor={(item) => (item.kind === 'header' ? `hdr-${item.group}` : item.t.address)}
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={9}
+          removeClippedSubviews
+          ListHeaderComponent={
+            <View style={{ gap: 10 }}>
+              {banner ? <Text style={styles.banner}>{banner.text}</Text> : null}
+
+              <View style={styles.filters}>
+                <SegTabs
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { value: 'trades' as HistoryMode, label: 'Trades' },
+                    { value: 'alerts' as HistoryMode, label: 'Alertas' },
+                    { value: 'track' as HistoryMode, label: 'Track' },
+                  ]}
+                />
+              </View>
+
+              <View style={styles.trackTop}>
+                <Btn
+                  label={trackConfigOpen ? 'Ocultar filtros' : `Filtros${trackFilterCount ? ` · ${trackFilterCount}` : ''}`}
+                  variant="sm"
+                  icon={trackConfigOpen ? 'check' : 'search'}
+                  onPress={() => setTrackConfigOpen((v) => !v)}
+                />
+                <Btn label={clearArmed ? '¿Seguro?' : 'Borrar'} variant="danger" icon="trash" onPress={clearAllTrack} />
+                <View style={{ flex: 1 }} />
+                <Text style={styles.rowSub}>Trackeo</Text>
+                <Switch
+                  value={track?.config.enabled ?? false}
+                  onValueChange={(v) => saveTrack({ ...(trackDraft ?? track?.config ?? { enabled: true, proxy: '', filters: {} }), enabled: v })}
+                  trackColor={{ false: Palette.lineStrong, true: Palette.paperT }}
+                  thumbColor={Palette.bgPrimary}
+                />
+              </View>
+
+              {trackConfigOpen && trackDraft ? (
+                <Card style={{ padding: 12, gap: 8 }}>
+                  <View style={{ gap: 4 }}>
+                    <Text style={styles.filterLabel}>Proxy propio del track</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Input
+                        value={trackDraft.proxy}
+                        onChangeText={(v) => setTrackDraft((d) => (d ? { ...d, proxy: v } : d))}
+                        placeholder="http://user:pass@host:port"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardType="url"
+                        style={{ flex: 1 }}
+                      />
+                      <Btn label="Probar" variant="sm" busy={proxyTest.busy} onPress={runProxyTest} />
+                    </View>
+                    <Text style={styles.detailHint}>
+                      Distinto al de FOMO y Photon — el track solo sale por este. Formato: http://host:port o
+                      socks5://host:port. Sin proxy, no arranca.
+                    </Text>
+                    {proxyTest.result ? (
+                      <Text style={[styles.detailHint, { color: proxyTest.result.ok ? Palette.green : Palette.red }]}>
+                        {proxyTest.result.ok
+                          ? `✓ responde en ${proxyTest.result.ms} ms — vio ${proxyTest.result.tokens ?? 0} tokens de Graduated con tus filtros`
+                          : `✗ ${proxyTest.result.error}`}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <View style={styles.filterGrid}>
+                    {TRACK_FILTER_FIELDS.map((f) => (
+                      <View key={f.key} style={styles.filterField}>
+                        <Text style={styles.filterLabel}>{f.label}</Text>
+                        <View style={styles.filterPair}>
+                          <Input
+                            value={trackDraft.filters[f.key]?.min ?? ''}
+                            onChangeText={(v) =>
+                              setTrackDraft((d) => (d ? { ...d, filters: { ...d.filters, [f.key]: { ...d.filters[f.key], min: v || undefined } } } : d))
+                            }
+                            keyboardType="decimal-pad"
+                            placeholder="mín"
+                          />
+                          <Input
+                            value={trackDraft.filters[f.key]?.max ?? ''}
+                            onChangeText={(v) =>
+                              setTrackDraft((d) => (d ? { ...d, filters: { ...d.filters, [f.key]: { ...d.filters[f.key], max: v || undefined } } } : d))
+                            }
+                            keyboardType="decimal-pad"
+                            placeholder="máx"
+                          />
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                  <View style={styles.filterActions}>
+                    <Btn label="Limpiar" variant="sm" onPress={() => setTrackDraft((d) => (d ? { ...d, filters: {} } : d))} />
+                    <Btn label="Guardar" variant="sm" icon="check" onPress={() => saveTrack(trackDraft)} />
+                    <Text style={styles.detailHint}>MC en miles: 150 = $150.000.</Text>
+                  </View>
+                </Card>
+              ) : null}
+
+              {track?.status && !track.status.gate.ok ? (
+                <Banner kind="err">
+                  {[
+                    !track.status.gate.proxy.ok ? 'Poné el proxy propio del track (no el de FOMO/Photon) en Filtros' : null,
+                    !track.status.gate.filters.ok ? 'poné al menos un filtro de Track' : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}{' '}
+                  — hasta entonces el track no arranca.
+                </Banner>
+              ) : null}
+
+              {track?.status ? (
+                <Text style={styles.detailHint}>
+                  {track.status.enabled
+                    ? track.status.lastFetchAt
+                      ? `Último pull ${timeOf(track.status.lastFetchAt)} · ${track.status.counts.visible} tokens en Graduated ahora`
+                      : 'Esperando el primer pull del server…'
+                    : 'Trackeo pausado — activá el switch.'}
+                  {track.status.lastError ? ` · error: ${track.status.lastError.message}` : ''}
+                </Text>
+              ) : null}
+
+              {track && track.tokens.length > 1 ? (
+                <View style={styles.trackSort}>
+                  <Text style={styles.rowSub}>Ordenar</Text>
+                  <SegTabs
+                    options={[{ value: 'recent', label: 'Reciente' }, { value: 'gain', label: 'Ganancia' }]}
+                    value={trackSort}
+                    onChange={setTrackSort}
+                    style={{ flex: 1 }}
+                  />
+                </View>
+              ) : null}
+            </View>
+          }
+          ListEmptyComponent={
+            track === null ? (
+              <View style={{ gap: 6 }}>{[0, 1, 2, 3].map((i) => <Skeleton key={i} height={56} />)}</View>
+            ) : (
+              <Card style={{ padding: 16 }}>
+                <Empty
+                  title="Sin tokens trackeados"
+                  body="El server le pide a Photon la columna Graduated con tus filtros (los mismos parámetros que la página Photon) y les saca un snapshot por minuto, hasta 50 por token."
+                />
+              </Card>
+            )
+          }
+          renderItem={({ item }) =>
+            item.kind === 'header' ? (
+              <Text style={styles.dayHeader}>
+                {item.group === 'active' ? `Trackeando · ${item.count}` : `Terminados (50/50) · ${item.count}`}
+              </Text>
+            ) : (
+              <TrackRow
+                t={item.t}
+                open={expandedTrack === item.t.address}
+                detail={expandedTrack === item.t.address ? trackDetail[item.t.address] : undefined}
+                snapshotMax={track?.status?.snapshotMax ?? 50}
+                onToggle={toggleTrackRow}
+              />
+            )
+          }
+        />
+      ) : (
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         {banner ? <Text style={styles.banner}>{banner.text}</Text> : null}
 
@@ -432,219 +703,93 @@ export default function HistoryScreen() {
             )}
           </>
         )
-        ) : (
-          <>
-            <View style={styles.trackTop}>
-              <Btn
-                label={trackConfigOpen ? 'Ocultar filtros' : `Filtros${trackFilterCount ? ` · ${trackFilterCount}` : ''}`}
-                variant="sm"
-                icon={trackConfigOpen ? 'check' : 'search'}
-                onPress={() => setTrackConfigOpen((v) => !v)}
-              />
-              <Btn label={clearArmed ? '¿Seguro?' : 'Borrar'} variant="danger" icon="trash" onPress={clearAllTrack} />
-              <View style={{ flex: 1 }} />
-              <Text style={styles.rowSub}>Trackeo</Text>
-              <Switch
-                value={track?.config.enabled ?? false}
-                onValueChange={(v) => saveTrack({ ...(trackDraft ?? track?.config ?? { enabled: true, proxy: '', filters: {} }), enabled: v })}
-                trackColor={{ false: Palette.lineStrong, true: Palette.paperT }}
-                thumbColor={Palette.bgPrimary}
-              />
-            </View>
-
-            {trackConfigOpen && trackDraft ? (
-              <Card style={{ padding: 12, gap: 8 }}>
-                <View style={{ gap: 4 }}>
-                  <Text style={styles.filterLabel}>Proxy propio del track</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Input
-                      value={trackDraft.proxy}
-                      onChangeText={(v) => setTrackDraft((d) => (d ? { ...d, proxy: v } : d))}
-                      placeholder="http://user:pass@host:port"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      keyboardType="url"
-                      style={{ flex: 1 }}
-                    />
-                    <Btn label="Probar" variant="sm" busy={proxyTest.busy} onPress={runProxyTest} />
-                  </View>
-                  <Text style={styles.detailHint}>
-                    Distinto al de FOMO y Photon — el track solo sale por este. Formato: http://host:port o
-                    socks5://host:port. Sin proxy, no arranca.
-                  </Text>
-                  {proxyTest.result ? (
-                    <Text style={[styles.detailHint, { color: proxyTest.result.ok ? Palette.green : Palette.red }]}>
-                      {proxyTest.result.ok
-                        ? `✓ responde en ${proxyTest.result.ms} ms — vio ${proxyTest.result.tokens ?? 0} tokens de Graduated con tus filtros`
-                        : `✗ ${proxyTest.result.error}`}
-                    </Text>
-                  ) : null}
-                </View>
-                <View style={styles.filterGrid}>
-                  {TRACK_FILTER_FIELDS.map((f) => (
-                    <View key={f.key} style={styles.filterField}>
-                      <Text style={styles.filterLabel}>{f.label}</Text>
-                      <View style={styles.filterPair}>
-                        <Input
-                          value={trackDraft.filters[f.key]?.min ?? ''}
-                          onChangeText={(v) =>
-                            setTrackDraft((d) => (d ? { ...d, filters: { ...d.filters, [f.key]: { ...d.filters[f.key], min: v || undefined } } } : d))
-                          }
-                          keyboardType="decimal-pad"
-                          placeholder="mín"
-                        />
-                        <Input
-                          value={trackDraft.filters[f.key]?.max ?? ''}
-                          onChangeText={(v) =>
-                            setTrackDraft((d) => (d ? { ...d, filters: { ...d.filters, [f.key]: { ...d.filters[f.key], max: v || undefined } } } : d))
-                          }
-                          keyboardType="decimal-pad"
-                          placeholder="máx"
-                        />
-                      </View>
-                    </View>
-                  ))}
-                </View>
-                <View style={styles.filterActions}>
-                  <Btn label="Limpiar" variant="sm" onPress={() => setTrackDraft((d) => (d ? { ...d, filters: {} } : d))} />
-                  <Btn label="Guardar" variant="sm" icon="check" onPress={() => saveTrack(trackDraft)} />
-                  <Text style={styles.detailHint}>MC en miles: 150 = $150.000.</Text>
-                </View>
-              </Card>
-            ) : null}
-
-            {track?.status && !track.status.gate.ok ? (
-              <Banner kind="err">
-                {[
-                  !track.status.gate.proxy.ok ? 'Poné el proxy propio del track (no el de FOMO/Photon) en Filtros' : null,
-                  !track.status.gate.filters.ok ? 'poné al menos un filtro de Track' : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}{' '}
-                — hasta entonces el track no arranca.
-              </Banner>
-            ) : null}
-
-            {track?.status ? (
-              <Text style={styles.detailHint}>
-                {track.status.enabled
-                  ? track.status.lastFetchAt
-                    ? `Último pull ${timeOf(track.status.lastFetchAt)} · ${track.status.counts.visible} tokens en Graduated ahora`
-                    : 'Esperando el primer pull del server…'
-                  : 'Trackeo pausado — activá el switch.'}
-                {track.status.lastError ? ` · error: ${track.status.lastError.message}` : ''}
-              </Text>
-            ) : null}
-
-            {track && track.tokens.length > 1 ? (
-              <View style={styles.trackSort}>
-                <Text style={styles.rowSub}>Ordenar</Text>
-                <SegTabs
-                  options={[{ value: 'recent', label: 'Reciente' }, { value: 'gain', label: 'Ganancia' }]}
-                  value={trackSort}
-                  onChange={setTrackSort}
-                  style={{ flex: 1 }}
-                />
-              </View>
-            ) : null}
-
-            {track === null ? (
-              <View style={{ gap: 6 }}>{[0, 1, 2, 3].map((i) => <Skeleton key={i} height={56} />)}</View>
-            ) : !track.tokens.length ? (
-              <Card style={{ padding: 16 }}>
-                <Empty
-                  title="Sin tokens trackeados"
-                  body="El server le pide a Photon la columna Graduated con tus filtros (los mismos parámetros que la página Photon) y les saca un snapshot por minuto, hasta 50 por token."
-                />
-              </Card>
-            ) : (
-              (['active', 'done'] as const).map((group) => {
-                const entries = track.tokens
-                  .filter((t) => t.status === group)
-                  // server order is newest activity; "Ganancia" ranks by first→max MC
-                  .sort((a, b) => (trackSort === 'gain' ? (b.gainPct ?? -Infinity) - (a.gainPct ?? -Infinity) : 0));
-                if (!entries.length) return null;
-                return (
-                  <View key={group} style={{ gap: 6 }}>
-                    <Text style={styles.dayHeader}>
-                      {group === 'active' ? `Trackeando · ${entries.length}` : `Terminados (50/50) · ${entries.length}`}
-                    </Text>
-                    {entries.map((t) => {
-                      const open = expandedTrack === t.address;
-                      return (
-                        <View key={t.address} style={styles.row}>
-                          <Pressable onPress={() => toggleTrackRow(t.address)} style={styles.rowMain} accessibilityRole="button">
-                            <TokenAvatar
-                              symbol={t.symbol}
-                              chainId={t.chain === 'sol' ? 'solana' : t.chain}
-                              address={t.address}
-                              logo={t.logo}
-                              size={34}
-                            />
-                            <View style={styles.rowLead}>
-                              <Text style={styles.rowName}>{t.symbol ?? t.name ?? `${t.address.slice(0, 4)}…`}</Text>
-                              <Text style={styles.rowSub}>
-                                MC {formatCompactUsd(t.mcap)} · VOL {formatCompactUsd(t.volume)}
-                                {t.gainPct != null ? (
-                                  <Text style={{ color: t.gainPct >= 0 ? Palette.green : Palette.red }}>
-                                    {' · '}
-                                    {formatPct(t.gainPct, { sign: true })}
-                                  </Text>
-                                ) : null}
-                              </Text>
-                              <View style={styles.rowAddr}>
-                                {t.health ? (
-                                  <View style={[styles.health, { backgroundColor: `${HEALTH_META[t.health].color}22`, borderColor: HEALTH_META[t.health].color }]}>
-                                    <Text style={[styles.healthText, { color: HEALTH_META[t.health].color }]}>
-                                      {HEALTH_META[t.health].label}
-                                    </Text>
-                                  </View>
-                                ) : null}
-                                <Text style={styles.addrText}>
-                                  {t.snapshotCount}/{track.status?.snapshotMax ?? 50} snaps
-                                </Text>
-                                <Text style={styles.addrText} selectable>
-                                  {`${t.address.slice(0, 4)}…${t.address.slice(-4)}`}
-                                </Text>
-                                <Pressable
-                                  accessibilityRole="link"
-                                  accessibilityLabel="Ver el token en GMGN"
-                                  onPress={() => void WebBrowser.openBrowserAsync(`https://gmgn.ai/sol/token/${encodeURIComponent(t.address)}`)}
-                                  hitSlop={8}
-                                  style={styles.gmgn}>
-                                  <Text style={styles.gmgnText}>GMGN</Text>
-                                </Pressable>
-                              </View>
-                            </View>
-                            <View style={styles.rowValue}>
-                              <Text
-                                style={[
-                                  styles.rowMainValue,
-                                  // Tres estados, no dos: "Activo" es capturando AHORA (en la
-                                  // columna), "Pausado" salió de ella y "Cortado" llegó al tope
-                                  // de 50 snapshots — antes un pausado se veía verde igual.
-                                  { color: t.status !== 'active' ? Palette.textSecondary : t.visible ? Palette.green : Palette.warning },
-                                ]}>
-                                {t.status !== 'active' ? 'Cortado' : t.visible ? 'Activo' : 'Pausado'}
-                              </Text>
-                              <Text style={[styles.rowSubValue, { color: Palette.textTertiary }]}>{timeOf(t.lastSeenAt)}</Text>
-                            </View>
-                            <Icon name="chevron" size={13} color={Palette.textTertiary} style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }} />
-                          </Pressable>
-                          {open ? <TrackDetail detail={trackDetail[t.address]} /> : null}
-                        </View>
-                      );
-                    })}
-                  </View>
-                );
-              })
-            )}
-          </>
-        )}
+        ) : null}
       </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
+
+/**
+ * One tracked row — memoized on purpose: the poll hands over the SAME object
+ * for tokens whose data didn't change, so only the rows that actually moved
+ * re-render. Everything it paints is a prop; nothing is read from closures.
+ */
+const TrackRow = memo(function TrackRow({
+  t,
+  open,
+  detail,
+  snapshotMax,
+  onToggle,
+}: {
+  t: TrackTokenSummary;
+  open: boolean;
+  detail?: TrackTokenDetail;
+  snapshotMax: number;
+  onToggle: (address: string) => void;
+}) {
+  return (
+    <View style={styles.row}>
+      <Pressable onPress={() => onToggle(t.address)} style={styles.rowMain} accessibilityRole="button">
+        <TokenAvatar
+          symbol={t.symbol}
+          chainId={t.chain === 'sol' ? 'solana' : t.chain}
+          address={t.address}
+          logo={t.logo}
+          size={34}
+        />
+        <View style={styles.rowLead}>
+          <Text style={styles.rowName}>{t.symbol ?? t.name ?? `${t.address.slice(0, 4)}…`}</Text>
+          <Text style={styles.rowSub}>
+            MC {formatCompactUsd(t.mcap)} · VOL {formatCompactUsd(t.volume)}
+            {t.gainPct != null ? (
+              <Text style={{ color: t.gainPct >= 0 ? Palette.green : Palette.red }}>
+                {' · '}
+                {formatPct(t.gainPct, { sign: true })}
+              </Text>
+            ) : null}
+          </Text>
+          <View style={styles.rowAddr}>
+            {t.health ? (
+              <View style={[styles.health, { backgroundColor: `${HEALTH_META[t.health].color}22`, borderColor: HEALTH_META[t.health].color }]}>
+                <Text style={[styles.healthText, { color: HEALTH_META[t.health].color }]}>{HEALTH_META[t.health].label}</Text>
+              </View>
+            ) : null}
+            <Text style={styles.addrText}>
+              {t.snapshotCount}/{snapshotMax} snaps
+            </Text>
+            <Text style={styles.addrText} selectable>
+              {`${t.address.slice(0, 4)}…${t.address.slice(-4)}`}
+            </Text>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel="Ver el token en GMGN"
+              onPress={() => void WebBrowser.openBrowserAsync(`https://gmgn.ai/sol/token/${encodeURIComponent(t.address)}`)}
+              hitSlop={8}
+              style={styles.gmgn}>
+              <Text style={styles.gmgnText}>GMGN</Text>
+            </Pressable>
+          </View>
+        </View>
+        <View style={styles.rowValue}>
+          <Text
+            style={[
+              styles.rowMainValue,
+              // Tres estados, no dos: "Activo" es capturando AHORA (en la
+              // columna), "Pausado" salió de ella y "Cortado" llegó al tope
+              // de 50 snapshots — antes un pausado se veía verde igual.
+              { color: t.status !== 'active' ? Palette.textSecondary : t.visible ? Palette.green : Palette.warning },
+            ]}>
+            {t.status !== 'active' ? 'Cortado' : t.visible ? 'Activo' : 'Pausado'}
+          </Text>
+          <Text style={[styles.rowSubValue, { color: Palette.textTertiary }]}>{timeOf(t.lastSeenAt)}</Text>
+        </View>
+        <Icon name="chevron" size={13} color={Palette.textTertiary} style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }} />
+      </Pressable>
+      {open ? <TrackDetail detail={detail} /> : null}
+    </View>
+  );
+});
 
 /** Expanded track row — the token's snapshot series (newest first), minute by minute. */
 function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {

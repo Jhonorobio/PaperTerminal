@@ -20,6 +20,8 @@ export const TOPICS = {
   trending: 'fomo_trending',
   memescope: 'memescope',
   alerts: 'alerts',
+  /** Token tracker state (History → Track) — subscribed only while that tab is open. */
+  track: 'track',
 } as const;
 
 type Listener = () => void;
@@ -63,6 +65,10 @@ class ServerFeed {
   private fomoAt = 0;
   private readonly listeners = new Set<Listener>();
   private readonly alertListeners = new Set<AlertListener>();
+  /** Optional topics the app asked for (track, …) — subscribed on open + reconnect. */
+  private readonly stickyTopics = new Set<string>();
+  /** topic → listeners for the optional topics (payload per push). */
+  private readonly topicListeners = new Map<string, Set<(data: unknown) => void>>();
 
   // ── lifecycle ──────────────────────────────────────────────────────────────
 
@@ -133,6 +139,8 @@ class ServerFeed {
       this.send({ action: 'subscribe', topic: TOPICS.trending });
       this.send({ action: 'subscribe', topic: TOPICS.memescope });
       this.send({ action: 'subscribe', topic: `${TOPICS.alerts}:${deviceId}` });
+      // Optional topics (track, …) must survive reconnects too.
+      for (const topic of this.stickyTopics) this.send({ action: 'subscribe', topic });
       if (this.pingTimer) clearInterval(this.pingTimer);
       this.pingTimer = setInterval(() => this.keepAlive(ws), PING_MS);
     };
@@ -211,6 +219,12 @@ class ServerFeed {
     } else if (topic.startsWith(`${TOPICS.alerts}:`)) {
       for (const listener of [...this.alertListeners]) listener(data);
       return; // alerts do not repaint the feed lists
+    } else {
+      // Optional topics (track, …): payload to their own listeners, and out —
+      // they must never wake the feed lists' subscribers.
+      const set = this.topicListeners.get(topic);
+      if (set) for (const listener of [...set]) listener(data);
+      return;
     }
 
     for (const listener of [...this.listeners]) listener();
@@ -244,6 +258,35 @@ class ServerFeed {
   onAlert(listener: AlertListener): () => void {
     this.alertListeners.add(listener);
     return () => this.alertListeners.delete(listener);
+  }
+
+  /**
+   * Opt a topic in: subscribed on the live socket (and on every reconnect) and
+   * pushed by the server while anyone asks. Only the tab that uses it opts in,
+   * so a phone that never opens Track never pays for it.
+   */
+  subscribeTopic(topic: string): void {
+    this.stickyTopics.add(topic);
+    this.send({ action: 'subscribe', topic });
+  }
+
+  unsubscribeTopic(topic: string): void {
+    if (!this.stickyTopics.delete(topic)) return;
+    this.send({ action: 'unsubscribe', topic });
+  }
+
+  /** Payload listener for an optional topic; returns the unsubscribe. */
+  onTopic(topic: string, listener: (data: unknown) => void): () => void {
+    let set = this.topicListeners.get(topic);
+    if (!set) {
+      set = new Set();
+      this.topicListeners.set(topic, set);
+    }
+    set.add(listener);
+    return () => {
+      set?.delete(listener);
+      if (set && set.size === 0) this.topicListeners.delete(topic);
+    };
   }
 
   status() {

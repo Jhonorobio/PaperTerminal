@@ -32,6 +32,7 @@
 import initCycleTLS from 'cycletls';
 
 import { buildQuery, HEADERS, SEARCH_URL, sanitizeColumnFilters } from './photon.js';
+import { broadcast, getSubscriptions, registerTopicProvider } from './ws.js';
 import { normalizeProxy } from './proxy-config.js';
 import { trackConfig, trackTokens } from './stores.js';
 
@@ -447,6 +448,7 @@ async function trackTick() {
 
     evictOverCap();
     if (changed) console.log(`[track] tick · ${byAddress.size} in column · ${Object.keys(trackTokens.getAll()).length} tracked`);
+    maybeBroadcast(changed);
   } catch (err) {
     errorCount += 1;
     lastError = { message: String(err?.message || err), at: Date.now() };
@@ -454,6 +456,8 @@ async function trackTick() {
     // log). The 429 path already set its longer rate-limit backoff.
     if (!err?.rateLimited) backoffUntil = Date.now() + ERROR_BACKOFF_MS;
     console.error('[track] tick failed:', lastError.message);
+    // The error IS news for the tab — push it on the heartbeat's rhythm.
+    maybeBroadcast(false);
   }
 }
 
@@ -472,6 +476,9 @@ function pollTick() {
 }
 
 export function startTrackPoller() {
+  // A device that opens the Track tab subscribes and gets the current state on
+  // the spot; from then on it is pushed, not polled.
+  registerTopicProvider(TRACK_TOPIC, () => ({ event: 'track_updated', data: trackSnapshot() }));
   if (poller) return;
   // A short delay so booting doesn't race Photon's own warm-up with a second
   // cold CycleTLS init.
@@ -513,6 +520,39 @@ export function getTrackStatus() {
       visible: all.filter((t) => t.visible).length,
     },
   };
+}
+
+// ── live push (WS topic `track`) ─────────────────────────────────────────────
+
+/**
+ * The payload the Track tab paints — identical to GET /api/track, so the phone
+ * runs the same merge whether the state arrived by poll or by push.
+ */
+export function trackSnapshot() {
+  return { config: getTrackConfig(), status: getTrackStatus(), tokens: listTrackTokens() };
+}
+
+const TRACK_TOPIC = 'track';
+// The tracker mutates every 1.3s (presence) and every 60s (snapshots): pushing
+// every change would spam the phone for a list it repaints in one go anyway.
+const BROADCAST_MIN_MS = 2_000;
+// Silence is not freshness — with nothing moving, say so every 30s anyway, so
+// lastFetchAt / errors / gate changes still reach the tab without a poll.
+const BROADCAST_HEARTBEAT_MS = 30_000;
+
+let lastBroadcastAt = 0;
+
+/**
+ * Push the track state to whoever is watching. Two rules keep it cheap for the
+ * wire AND for the phone: nobody subscribed → not even serialized; changed →
+ * throttled to BROADCAST_MIN_MS, unchanged → heartbeat only.
+ */
+function maybeBroadcast(changed) {
+  if (!getSubscriptions().has(TRACK_TOPIC)) return;
+  const now = Date.now();
+  if (now - lastBroadcastAt < (changed ? BROADCAST_MIN_MS : BROADCAST_HEARTBEAT_MS)) return;
+  lastBroadcastAt = now;
+  broadcast(TRACK_TOPIC, { event: 'track_updated', data: trackSnapshot() });
 }
 
 /**
