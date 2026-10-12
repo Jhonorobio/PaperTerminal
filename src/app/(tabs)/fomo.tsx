@@ -176,7 +176,15 @@ export default function FomoScreen() {
   const openToken = useCallback(
     async (token: FomoToken) => {
       await addRecentAsset({ chain: 'solana', address: token.address, symbol: token.symbol, source: 'url' });
-      router.push('/trade');
+      // The token travels as a param — the same path a deep link takes. Trade keeps
+      // the last MANUAL pick in `assetOverride` forever (tabs reuse the mounted
+      // screen), so arriving with no params showed that stale token instead of the
+      // tapped one; a link wins over the override and a new pick consumes it back.
+      router.push(
+        `/trade?address=${encodeURIComponent(token.address)}${
+          token.symbol ? `&symbol=${encodeURIComponent(token.symbol)}` : ''
+        }&chain=solana` as never,
+      );
       flash('ok', `${token.symbol ?? 'Token'} loaded in Trade.`);
     },
     [flash],

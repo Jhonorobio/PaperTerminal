@@ -47,11 +47,13 @@ function AccountStrip() {
 
 export default function TradeScreen() {
   const { ready, recents, banner, flash } = useApp();
-  // A deep link (a tapped alert, or a clipboard copy) preselects its token. Tabs reuse the
-  // mounted screen, so a NEW copied address arrives as a params change — not a remount —
-  // and has to win over the previous selection. The linked asset wins until the user
-  // picks one manually (that pick "consumes" the link), and any new link wins back over
-  // that manual choice — pure state, no refs in render and no setState in effects.
+  // A link — a tapped alert, a token tapped in FOMO/Photon, or a clipboard copy —
+  // preselects its token. Tabs reuse the mounted screen, so a NEW address arrives as
+  // a params change — not a remount — and has to win over the previous selection. The
+  // linked asset wins until the user picks one manually (that pick "consumes" the
+  // link), and any new link wins back over that manual choice — pure state, no refs
+  // in render and no setState in effects. Without the param, a stale manual pick
+  // (assetOverride) kept showing instead of the token that was tapped.
   const [consumedLink, setConsumedLink] = useState<string | null>(null);
   const params = useLocalSearchParams<{ address?: string; symbol?: string; chain?: string }>();
   const linkAddress = typeof params.address === 'string' ? params.address : null;
