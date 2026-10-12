@@ -535,34 +535,96 @@ export function getTrackStatus() {
   };
 }
 
+/**
+ * Health pill for one token — derived from its OWN snapshot series (nothing
+ * extra to persist): the analysis of these snapshots showed holders growth
+ * (r=0.71) and net buying (r=0.56) are what separate pumps from rugs, while
+ * every static entry metric (bundle, fresh, top holders…) was noise.
+ *   green  holders ≥ +10% first→last AND buys ≥ sells lately AND still above
+ *          (or near) the entry mcap — everything says "still working"
+ *   red    holders ≤ −10% (bleeding out), or shrinking under selling pressure,
+ *          or the mcap collapsed more than −50% from its tracked peak
+ *   amber  mixed signals — null until there are 2 snapshots to judge
+ */
+export function trackHealth(snaps) {
+  if (!Array.isArray(snaps) || snaps.length < 2) return { health: null, holdersDeltaPct: null, flowRatio: null };
+  const first = snaps[0];
+  const last = snaps[snaps.length - 1];
+  const holdersDeltaPct =
+    first.holders != null && last.holders != null && first.holders > 0
+      ? ((last.holders - first.holders) / first.holders) * 100
+      : null;
+  // buys/sells are cumulative: a window's flow is the delta across it (~3 min
+  // when the series is long enough, so one noisy minute can't flip the chip).
+  const prev = snaps[Math.max(0, snaps.length - 4)];
+  let flowRatio = null;
+  if (last.buys != null && last.sells != null && prev.buys != null && prev.sells != null) {
+    const dBuys = last.buys - prev.buys;
+    const dSells = last.sells - prev.sells;
+    if (dSells > 0) flowRatio = dBuys / dSells;
+    else if (dBuys > 0) flowRatio = 99; // window with no sellers at all
+    else if (last.sells > 0) flowRatio = last.buys / last.sells; // flat window → lifetime ratio
+  }
+  // Drawdown from the tracked peak — a run that gave back half is broken even
+  // if holders still look fine on paper.
+  let peak = null;
+  for (const s of snaps) if (s.mcap != null && (peak == null || s.mcap > peak)) peak = s.mcap;
+  const drawdownPct = peak != null && last.mcap != null ? (last.mcap / peak - 1) * 100 : null;
+  // Return vs the FIRST tracked mcap — green must not sit below its entry.
+  const entryReturnPct = first.mcap != null && last.mcap != null && first.mcap > 0 ? (last.mcap / first.mcap - 1) * 100 : null;
+
+  let health = 'amber';
+  if (
+    (holdersDeltaPct != null && holdersDeltaPct <= -10) ||
+    (holdersDeltaPct != null && holdersDeltaPct < 0 && (flowRatio == null || flowRatio < 1)) ||
+    (drawdownPct != null && drawdownPct <= -50)
+  ) {
+    health = 'red';
+  } else if (
+    holdersDeltaPct != null &&
+    holdersDeltaPct >= 10 &&
+    flowRatio != null &&
+    flowRatio >= 1 &&
+    (entryReturnPct == null || entryReturnPct >= -10)
+  ) {
+    health = 'green';
+  }
+  return { health, holdersDeltaPct, flowRatio };
+}
+
+/** Summary fields for one tracked token (the list row + the detail's header). */
+export function summarizeTrackToken(t) {
+  const snaps = Array.isArray(t.snapshots) ? t.snapshots : [];
+  const last = snaps[snaps.length - 1];
+  const firstMcap = snaps[0]?.mcap ?? null;
+  let maxMcap = null;
+  for (const s of snaps) if (s.mcap != null && (maxMcap == null || s.mcap > maxMcap)) maxMcap = s.mcap;
+  return {
+    address: t.address,
+    chain: t.chain ?? 'sol',
+    symbol: t.symbol ?? null,
+    name: t.name ?? null,
+    logo: t.logo ?? null,
+    status: t.status,
+    firstSeenAt: t.firstSeenAt,
+    lastSeenAt: t.lastSeenAt,
+    visible: Boolean(t.visible),
+    snapshotCount: snaps.length,
+    // the row's "MC / VOL" line comes from the newest snapshot
+    mcap: last?.mcap ?? null,
+    volume: last?.volume ?? null,
+    // first snapshot → the highest seen: how far it pumped while tracked
+    maxMcap,
+    gainPct: firstMcap && maxMcap != null ? (maxMcap / firstMcap - 1) * 100 : null,
+    // the health chip: green / amber / red (null < 2 snapshots)
+    ...trackHealth(snaps),
+  };
+}
+
 /** Summaries without snapshots (the list); newest activity first. */
 export function listTrackTokens() {
   return Object.values(trackTokens.getAll())
-    .map((t) => {
-      const snaps = Array.isArray(t.snapshots) ? t.snapshots : [];
-      const last = snaps[snaps.length - 1];
-      const firstMcap = snaps[0]?.mcap ?? null;
-      let maxMcap = null;
-      for (const s of snaps) if (s.mcap != null && (maxMcap == null || s.mcap > maxMcap)) maxMcap = s.mcap;
-      return {
-        address: t.address,
-        chain: t.chain ?? 'sol',
-        symbol: t.symbol ?? null,
-        name: t.name ?? null,
-        logo: t.logo ?? null,
-        status: t.status,
-        firstSeenAt: t.firstSeenAt,
-        lastSeenAt: t.lastSeenAt,
-        visible: Boolean(t.visible),
-        snapshotCount: snaps.length,
-        // the row's "MC / VOL" line comes from the newest snapshot
-        mcap: last?.mcap ?? null,
-        volume: last?.volume ?? null,
-        // first snapshot → the highest seen: how far it pumped while tracked
-        maxMcap,
-        gainPct: firstMcap && maxMcap != null ? (maxMcap / firstMcap - 1) * 100 : null,
-      };
-    })
+    .map(summarizeTrackToken)
     .sort((a, b) => String(b.lastSeenAt).localeCompare(String(a.lastSeenAt)));
 }
 

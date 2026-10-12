@@ -41,6 +41,14 @@ const ALERT_LABELS: Record<string, string> = {
 const toneColor = (v: number | null | undefined) =>
   pnlClass(v) === 'up' ? Palette.green : pnlClass(v) === 'down' ? Palette.red : Palette.textPrimary;
 
+// The health chip (server-computed from the snapshot series): holders growing +
+// net buying = green; holders bleeding or selling pressure = red; mixed = amber.
+const HEALTH_META: Record<'green' | 'amber' | 'red', { label: string; color: string }> = {
+  green: { label: 'Sostenible', color: Palette.green },
+  amber: { label: 'Duda', color: Palette.warning },
+  red: { label: 'Distribuye', color: Palette.red },
+};
+
 // How often the Track tab re-polls the server while visible. Snapshots land every
 // 60s, so 15s keeps the list honest (status flips, new tokens, snapshot counts)
 // without chatty requests.
@@ -585,6 +593,13 @@ export default function HistoryScreen() {
                                 ) : null}
                               </Text>
                               <View style={styles.rowAddr}>
+                                {t.health ? (
+                                  <View style={[styles.health, { backgroundColor: `${HEALTH_META[t.health].color}22`, borderColor: HEALTH_META[t.health].color }]}>
+                                    <Text style={[styles.healthText, { color: HEALTH_META[t.health].color }]}>
+                                      {HEALTH_META[t.health].label}
+                                    </Text>
+                                  </View>
+                                ) : null}
                                 <Text style={styles.addrText}>
                                   {t.snapshotCount}/{track.status?.snapshotMax ?? 50} snaps
                                 </Text>
@@ -646,6 +661,13 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
       <Text style={styles.detailLine}>
         {snaps.length} snapshots · {formatDateTime(first.at)} → {formatDateTime(last.at)}
       </Text>
+      {detail.health ? (
+        <Text style={[styles.detailLine, { color: HEALTH_META[detail.health].color }]}>
+          {HEALTH_META[detail.health].label} · holders{' '}
+          {detail.holdersDeltaPct == null ? '—' : formatPct(detail.holdersDeltaPct, { sign: true })} · flujo compras/ventas{' '}
+          {detail.flowRatio == null ? '—' : detail.flowRatio.toFixed(2)}
+        </Text>
+      ) : null}
       {snaps
         .slice(-15)
         .reverse()
@@ -762,6 +784,8 @@ const styles = StyleSheet.create({
   chipSub: { fontSize: 10, fontWeight: '400', color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
   trackSort: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   rowAddr: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
+  health: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, borderWidth: 1 },
+  healthText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.4 },
   addrText: { fontSize: 10, color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
   gmgn: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, backgroundColor: Palette.paperT },
   gmgnText: { fontSize: 9, fontWeight: '800', color: Palette.paper, letterSpacing: 0.5 },

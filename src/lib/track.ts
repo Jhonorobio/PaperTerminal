@@ -83,6 +83,16 @@ export interface TrackTokenSummary {
   /** Highest market cap seen while tracked, and the gain first→max (percent). */
   maxMcap: number | null;
   gainPct: number | null;
+  /**
+   * Health chip (from the snapshot series): 'green' holders growing + net
+   * buying · 'red' holders bleeding or selling pressure · 'amber' mixed.
+   * null until there are ≥2 snapshots to judge.
+   */
+  health: 'green' | 'amber' | 'red' | null;
+  /** Holders first→last snapshot, percent (the strongest signal, r=0.71). */
+  holdersDeltaPct: number | null;
+  /** Buys/sells over the last ~3 min — ≥1 means net buying. */
+  flowRatio: number | null;
   /** 'active' = the track is still open (< 50 snapshots); 'done' = cut at 50. */
   status: 'active' | 'done';
   firstSeenAt: string;
