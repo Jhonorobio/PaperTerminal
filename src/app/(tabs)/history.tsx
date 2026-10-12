@@ -535,6 +535,9 @@ export default function HistoryScreen() {
                                 ) : null}
                               </Text>
                               <View style={styles.rowAddr}>
+                                <Text style={styles.addrText}>
+                                  {t.snapshotCount}/{track.status?.snapshotMax ?? 50} snaps
+                                </Text>
                                 <Text style={styles.addrText} selectable>
                                   {`${t.address.slice(0, 4)}…${t.address.slice(-4)}`}
                                 </Text>
