@@ -39,6 +39,12 @@ export interface Settings {
    */
   feedProxyUrl?: string;
   feedProxyOn?: boolean;
+  /**
+   * Mirror of the Track config as last saved here — proxy + filters. A restarted
+   * server loses its store; the Track tab re-applies this mirror on load, so the
+   * user's setup survives Railway redeploys without re-saving.
+   */
+  trackConfig?: { enabled: boolean; proxy: string; filters: Record<string, { min?: string; max?: string }> } | null;
   [key: string]: unknown;
 }
 
@@ -58,6 +64,7 @@ export const DEFAULTS: Settings = {
   photonFilters: { col1: {}, col3: {} },
   feedProxyUrl: '',
   feedProxyOn: false,
+  trackConfig: null,
 };
 
 const KEYS = { settings: 'settings', session: 'session', recents: 'recentAssets', portfolioVersion: 'portfolioVersion' };

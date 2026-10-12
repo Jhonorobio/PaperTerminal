@@ -41,7 +41,7 @@ const toneColor = (v: number | null | undefined) =>
   pnlClass(v) === 'up' ? Palette.green : pnlClass(v) === 'down' ? Palette.red : Palette.textPrimary;
 
 export default function HistoryScreen() {
-  const { ready, user, banner, settings, flash } = useApp();
+  const { ready, user, banner, settings, updateSettings, flash } = useApp();
   const [trades, setTrades] = useState<Trade[] | null>(null);
   const [side, setSide] = useState<SideFilter>('');
   const [query, setQuery] = useState('');
@@ -84,12 +84,23 @@ export default function HistoryScreen() {
       if (mode !== 'track') return;
       void fetchTrack(settings.serverBase)
         .then((state) => {
-          setTrack(state);
-          // The server copy only fills a draft the user hasn't touched yet.
-          setTrackDraft((d) => d ?? state.config);
+          // A restarted server comes back with an empty config store — restore the
+          // app's mirror (saved on every "Guardar") so proxy + filters survive.
+          const mirror = settings.trackConfig;
+          const serverEmpty = !state.config.proxy && !Object.keys(state.config.filters).length;
+          const adopt = (config: TrackState['config']) => {
+            setTrack({ ...state, config });
+            setTrackDraft((d) => d ?? config);
+          };
+          if (serverEmpty && mirror && (mirror.proxy || Object.keys(mirror.filters ?? {}).length)) {
+            return saveTrackConfig(settings.serverBase, mirror)
+              .then((saved) => adopt(saved))
+              .catch(() => adopt(state.config));
+          }
+          adopt(state.config);
         })
         .catch(() => setTrack((t) => t ?? { config: { enabled: false, proxy: '', filters: {} }, status: null, tokens: [] }));
-    }, [mode, settings.serverBase]),
+    }, [mode, settings.serverBase, settings.trackConfig]),
   );
 
   const visible = useMemo(() => {
@@ -114,6 +125,8 @@ export default function HistoryScreen() {
       .then((saved) => {
         setTrackDraft(saved);
         setTrack((t) => (t ? { ...t, config: saved } : t));
+        // Mirror into settings: a server restart can't lose what was configured here.
+        void updateSettings({ trackConfig: saved });
         flash('ok', 'Filtros de Track guardados');
       })
       .catch((err) => flash('err', `No se guardaron: ${err instanceof Error ? err.message : String(err)}`));

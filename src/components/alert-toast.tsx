@@ -14,6 +14,7 @@ import { TokenAvatar } from '@/components/token-avatar';
 import { Palette, Radius } from '@/constants/paper';
 import { formatCompactUsd } from '@/lib/format';
 import { alertDeepLink, registerDevice, type AlertHistoryEntry } from '@/lib/notifications';
+import { healFeedProxy } from '@/lib/server-base';
 import { serverFeed, ServerFeed } from '@/lib/market/server-feed';
 import { useApp } from '@/state/app';
 
@@ -33,7 +34,10 @@ export function AlertOverlay() {
     // Push token refresh on every app open (dev builds): the server's copy must track
     // token rotation — in Expo Go the import fails and this stays panel-only.
     void registerDevice(settings.serverBase);
-  }, [settings.serverBase]);
+    // A restarted server lost its config store — put the mirrored proxy back so the
+    // feed rides it again without the user re-saving it in Settings.
+    void healFeedProxy(settings.serverBase, settings.feedProxyUrl ?? '', settings.feedProxyOn !== false).catch(() => {});
+  }, [settings.serverBase, settings.feedProxyUrl, settings.feedProxyOn]);
 
   useEffect(() => {
     const unsubscribe = serverFeed.onAlert((data) => setEntry(data as AlertHistoryEntry));

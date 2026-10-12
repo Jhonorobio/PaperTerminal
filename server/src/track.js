@@ -56,15 +56,36 @@ export function getTrackConfig() {
   // The tracker's OWN proxy — never the FOMO/Photon one; junk in the store reads as ''.
   let proxy = '';
   try {
-    proxy = stored.proxy ? normalizeProxy(stored.proxy) : '';
+    proxy = stored.proxy ? normalizeProxy(stored.proxy) : envProxy();
   } catch {
     proxy = '';
   }
+  const storedFilters = sanitizeColumnFilters(stored.filters);
   return {
     enabled: stored.enabled !== false, // default on: it works out of the box
     proxy,
-    filters: sanitizeColumnFilters(stored.filters),
+    // A wiped store (Railway restarts have no disk) falls back to the env floor, so a
+    // redeploy can't silently lose the setup the user saved from the app.
+    filters: Object.keys(storedFilters).length ? storedFilters : envFilters(),
   };
+}
+
+/** TRACK_PROXY env — restart-safe floor for the track's own proxy. */
+function envProxy() {
+  try {
+    return process.env.TRACK_PROXY ? normalizeProxy(process.env.TRACK_PROXY) : '';
+  } catch {
+    return '';
+  }
+}
+
+/** TRACK_FILTERS='{"holders":{"min":"60"}}' — same shape as the store, sanitized. */
+function envFilters() {
+  try {
+    return sanitizeColumnFilters(JSON.parse(process.env.TRACK_FILTERS ?? '{}'));
+  } catch {
+    return {};
+  }
 }
 
 /** Omitted fields keep their stored value — a partial PUT never wipes the rest. */

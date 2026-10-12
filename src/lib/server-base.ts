@@ -84,6 +84,21 @@ export async function setFeedProxy(base: string, url: string, enabled?: boolean)
   });
 }
 
+/**
+ * A restarted server (Railway has no persistent disk) comes back with an empty
+ * store — the app keeps the last-saved proxy as a mirror and re-applies it on
+ * boot, so FOMO/Photon don't sit direct (and Cloudflare-blocked) until the user
+ * notices. Returns whether it re-applied; the server stays the authority when
+ * it has its own copy.
+ */
+export async function healFeedProxy(base: string, mirrorUrl: string, mirrorOn = true): Promise<boolean> {
+  if (!mirrorUrl.trim()) return false;
+  const current = await getFeedProxy(base);
+  if (current.url) return false;
+  await setFeedProxy(base, mirrorUrl.trim(), mirrorOn);
+  return true;
+}
+
 export const proxyHint =
   'Un solo proxy para FOMO y Photon: http://host:puerto, socks5://host:puerto o host:puerto. El switch lo prende y apaga sin borrar la URL.';
 

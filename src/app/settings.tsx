@@ -153,8 +153,10 @@ export default function SettingsScreen() {
         setServerInfo(info);
         setProxyStatus(saved);
         if (saved.url) setProxyUrl(saved.url);
-        // Keep the mirror in step with the server so the next open is instant.
-        void updateSettings({ feedProxyUrl: saved.url, feedProxyOn: saved.enabled });
+        // Keep the mirror in step with the server so the next open is instant. An
+        // EMPTY server (post-restart wipe) must not erase the mirror — that copy is
+        // what puts the proxy back (see healFeedProxy in AlertOverlay).
+        if (saved.url) void updateSettings({ feedProxyUrl: saved.url, feedProxyOn: saved.enabled });
       })
       .catch(() => {
         // offline: the mirrored values already on screen are the best guess available
