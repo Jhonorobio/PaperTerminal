@@ -37,6 +37,11 @@ server.listen(PORT, () => {
   console.log(`Feed server on http://localhost:${PORT}`);
   console.log(`WebSocket on ws://localhost:${PORT}/ws`);
   console.log(`Data dir: ${process.env.DATA_DIR || 'data/'}`);
+  if (process.env.RAILWAY_ENVIRONMENT && !process.env.DATA_DIR) {
+    console.warn(
+      '[warn] SIN VOLUMEN: Railway borra este disco en cada reinicio/deploy — los tokens, snapshots y configs del track se pierden. Montá un volumen en el servicio con mount path /data y seteá la variable DATA_DIR=/data.'
+    );
+  }
   startFomoWatcher();
   startPhotonPoller();
   startTrackPoller();
