@@ -28,7 +28,7 @@ import { getFomoGraduated, getFomoProxyStatus, getFomoStatus, getFomoTrending, s
 import { getFomoFilters, setFomoFilters } from './fomo-filter-store.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters } from './photon.js';
 import { photonLogo } from './logo-proxy.js';
-import { clearTrack, getTrackConfig, getTrackStatus, getTrackToken, listTrackTokens, setTrackConfig, summarizeTrackToken, testTrackProxy, TRACK_SNAPSHOT_MAX, TRACK_TOKENS_MAX } from './track.js';
+import { clearTrack, getTrackConfig, getTrackStatus, getTrackToken, listTrackTokens, setTrackConfig, snapshotsWithHealth, summarizeTrackToken, testTrackProxy, TRACK_SNAPSHOT_MAX, TRACK_TOKENS_MAX } from './track.js';
 import { notificationConfig, notificationHistory } from './stores.js';
 import { getPushReceipt, isValidPushToken, sendPush } from './push.js';
 import { sendToDevice } from './ws.js';
@@ -285,7 +285,7 @@ router.get('/track/export', (_req, res) => {
       status: getTrackStatus(),
       snapshotMax: TRACK_SNAPSHOT_MAX,
       tokensMax: TRACK_TOKENS_MAX,
-      tokens: listTrackTokens().map((s) => ({ ...s, snapshots: getTrackToken(s.address)?.snapshots ?? [] })),
+      tokens: listTrackTokens().map((s) => ({ ...s, snapshots: snapshotsWithHealth(getTrackToken(s.address)?.snapshots ?? []) })),
     });
   } catch (err) {
     fail(res, err);
@@ -310,8 +310,9 @@ router.post('/track/proxy-test', async (req, res) => {
 router.get('/track/:address', (req, res) => {
   const token = getTrackToken(req.params.address);
   if (!token) return res.status(404).json({ error: 'Token no trackeado' });
-  // Summary (incl. the health chip) + the full series for the expanded row.
-  res.json({ ...summarizeTrackToken(token), snapshots: token.snapshots ?? [] });
+  // Summary (incl. the health chip) + the series, each snapshot tagged with
+  // the chip it showed AT THAT MINUTE (prefix series — no hindsight).
+  res.json({ ...summarizeTrackToken(token), snapshots: snapshotsWithHealth(token.snapshots) });
 });
 
 router.delete('/track', (_req, res) => {

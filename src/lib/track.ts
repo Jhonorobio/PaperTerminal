@@ -69,6 +69,11 @@ export interface TrackSnapshot {
   bundlePct: number | null;
   bundleHolders: number | null;
   tpHolders: number | null;
+  /**
+   * The chip as it looked AT THAT MINUTE (server computes it from the prefix
+   * [0..i] of the series — no hindsight). null on the first snapshot.
+   */
+  health: 'green' | 'amber' | 'red' | null;
 }
 
 export interface TrackTokenSummary {

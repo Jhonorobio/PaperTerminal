@@ -676,6 +676,18 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
             <Text style={styles.snapTime}>{timeOf(s.at)}</Text>
             <View style={{ flex: 1, gap: 3 }}>
               <View style={styles.chipRow}>
+                {/* el chip tal como estaba EN ESE minuto (serie prefijo 0..i) */}
+                {s.health ? (
+                  <View
+                    style={[
+                      styles.health,
+                      { backgroundColor: `${HEALTH_META[s.health].color}22`, borderColor: HEALTH_META[s.health].color },
+                    ]}>
+                    <Text style={[styles.healthText, { color: HEALTH_META[s.health].color }]}>
+                      {HEALTH_META[s.health].label}
+                    </Text>
+                  </View>
+                ) : null}
                 <MiniStat label="MC" value={formatCompactUsd(s.mcap)} labelTone={Palette.paper} />
                 <MiniStat label="VOL" value={formatCompactUsd(s.volume)} labelTone={Palette.warning} />
                 <MiniStat icon="users" value={formatCompactQty(s.holders)} tone={Palette.textSecondary} />

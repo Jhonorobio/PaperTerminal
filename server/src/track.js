@@ -592,6 +592,16 @@ export function trackHealth(snaps) {
   return { health, holdersDeltaPct, flowRatio };
 }
 
+/**
+ * Snapshots with the chip as it looked AT THAT MINUTE — each computed from the
+ * prefix [0..i] only, so the timeline shows the live signal, never hindsight.
+ * The first snapshot carries no chip (nothing to compare against yet).
+ */
+export function snapshotsWithHealth(snaps) {
+  const series = Array.isArray(snaps) ? snaps : [];
+  return series.map((s, i) => ({ ...s, health: trackHealth(series.slice(0, i + 1)).health }));
+}
+
 /** Summary fields for one tracked token (the list row + the detail's header). */
 export function summarizeTrackToken(t) {
   const snaps = Array.isArray(t.snapshots) ? t.snapshots : [];
