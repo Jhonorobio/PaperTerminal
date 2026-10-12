@@ -558,7 +558,7 @@ export default function HistoryScreen() {
                                   // Tres estados, no dos: "Activo" es capturando AHORA (en la
                                   // columna), "Pausado" salió de ella y "Cortado" llegó al tope
                                   // de 50 snapshots — antes un pausado se veía verde igual.
-                                  { color: t.status !== 'active' ? Palette.textSecondary : t.visible ? Palette.green : Palette.amber },
+                                  { color: t.status !== 'active' ? Palette.textSecondary : t.visible ? Palette.green : Palette.warning },
                                 ]}>
                                 {t.status !== 'active' ? 'Cortado' : t.visible ? 'Activo' : 'Pausado'}
                               </Text>
