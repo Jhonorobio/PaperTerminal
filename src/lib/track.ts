@@ -77,6 +77,9 @@ export interface TrackTokenSummary {
   symbol: string | null;
   name: string | null;
   logo: string | null;
+  /** Last snapshot's market cap / volume — the row's "MC / VOL" line. */
+  mcap: number | null;
+  volume: number | null;
   /** 'active' = the track is still open (< 50 snapshots); 'done' = cut at 50. */
   status: 'active' | 'done';
   firstSeenAt: string;
@@ -146,4 +149,9 @@ export interface ProxyTestResult {
 /** Proves a proxy works before saving it; ''/omitted falls back to the saved one. */
 export async function testTrackProxy(base: string, proxy?: string): Promise<ProxyTestResult> {
   return call<ProxyTestResult>(base, '/api/track/proxy-test', { method: 'POST', body: JSON.stringify({ proxy }) });
+}
+
+/** Wipes every tracked token (the "Borrar" button — the config stays). */
+export async function clearTrackTokens(base: string): Promise<{ cleared: boolean }> {
+  return call<{ cleared: boolean }>(base, '/api/track', { method: 'DELETE' });
 }

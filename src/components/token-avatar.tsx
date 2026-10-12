@@ -8,6 +8,8 @@ interface Props {
   symbol?: string | null;
   chainId?: string | null;
   address?: string | null;
+  /** A known logo URL (Photon sends one with the token) — skips the lookup. */
+  logo?: string | null;
   size?: number;
   /** A round ring in the position's profit/loss tone, as the extension drew it. */
   tone?: 'profit' | 'loss' | '';
@@ -18,7 +20,7 @@ interface Props {
  * Letter avatar that swaps for the server's logo once it arrives — the same fallback order as
  * `avatar()` + `hydrateLogos()` in the extension, minus the mutation observer.
  */
-export function TokenAvatar({ symbol, chainId, address, size = 38, tone = '', style }: Props) {
+export function TokenAvatar({ symbol, chainId, address, logo: logoProp, size = 38, tone = '', style }: Props) {
   const initial = (symbol || '?').replace(/^\$/, '').slice(0, 1).toUpperCase();
   const key = chainId && address ? `${chainId}:${address}` : '';
   // Cache hit is read during render; a miss is resolved once and remembered against its key, so
@@ -26,7 +28,7 @@ export function TokenAvatar({ symbol, chainId, address, size = 38, tone = '', st
   const [fetched, setFetched] = useState<{ key: string; url: string | null | undefined }>({ key, url: undefined });
 
   useEffect(() => {
-    if (!key || peekLogo(chainId, address) !== undefined) return;
+    if (!key || logoProp || peekLogo(chainId, address) !== undefined) return;
     let live = true;
     void tokenLogo(chainId, address).then((url) => {
       if (live) setFetched({ key, url });
@@ -34,10 +36,10 @@ export function TokenAvatar({ symbol, chainId, address, size = 38, tone = '', st
     return () => {
       live = false;
     };
-  }, [key, chainId, address]);
+  }, [key, chainId, address, logoProp]);
 
   const cached = peekLogo(chainId, address);
-  const logo = cached !== undefined ? cached : fetched.key === key ? fetched.url : undefined;
+  const logo = logoProp ?? (cached !== undefined ? cached : fetched.key === key ? fetched.url : undefined);
 
   const ring = tone ? (tone === 'profit' ? 'rgba(33, 201, 94, 0.45)' : 'rgba(255, 98, 46, 0.45)') : null;
 

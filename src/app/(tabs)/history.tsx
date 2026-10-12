@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, router } from 'expo-router';
 
-import { Icon } from '@/components/icons';
+import { Icon, type IconName } from '@/components/icons';
 import { TokenAvatar } from '@/components/token-avatar';
 import { Banner, Btn, Card, DetailRow, Empty, Input, SegTabs, Skeleton } from '@/components/ui';
 import { Palette, Radius, toneTint } from '@/constants/paper';
@@ -21,7 +21,7 @@ import {
 } from '@/lib/format';
 import { api } from '@/lib/api';
 import { alertDeepLink, fetchHistory, type AlertHistoryEntry } from '@/lib/notifications';
-import { TRACK_FILTER_FIELDS, fetchTrack, fetchTrackToken, saveTrackConfig, testTrackProxy, type ProxyTestResult, type TrackConfig, type TrackState, type TrackTokenDetail } from '@/lib/track';
+import { TRACK_FILTER_FIELDS, clearTrackTokens, fetchTrack, fetchTrackToken, saveTrackConfig, testTrackProxy, type ProxyTestResult, type TrackConfig, type TrackState, type TrackTokenDetail } from '@/lib/track';
 import type { Trade } from '@/lib/types';
 import { useApp } from '@/state/app';
 
@@ -58,6 +58,7 @@ export default function HistoryScreen() {
   const [proxyTest, setProxyTest] = useState<{ busy: boolean; result: ProxyTestResult | null }>({ busy: false, result: null });
   const [trackDetail, setTrackDetail] = useState<Record<string, TrackTokenDetail>>({});
   const [expandedTrack, setExpandedTrack] = useState<string | null>(null);
+  const [clearArmed, setClearArmed] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -124,6 +125,24 @@ export default function HistoryScreen() {
     void testTrackProxy(settings.serverBase, trackDraft?.proxy || undefined)
       .then((result) => setProxyTest({ busy: false, result }))
       .catch((err) => setProxyTest({ busy: false, result: { ok: false, ms: 0, error: err instanceof Error ? err.message : String(err) } }));
+  };
+
+  // Two taps within 3s to wipe — one accidental tap shouldn't destroy the set.
+  const clearAllTrack = () => {
+    if (!clearArmed) {
+      setClearArmed(true);
+      setTimeout(() => setClearArmed(false), 3000);
+      return;
+    }
+    setClearArmed(false);
+    void clearTrackTokens(settings.serverBase)
+      .then(() => {
+        flash('ok', 'Trackeos borrados');
+        setTrack((t) => (t ? { ...t, tokens: [] } : t));
+        setTrackDetail({});
+        setExpandedTrack(null);
+      })
+      .catch((err) => flash('err', `No se borró: ${err instanceof Error ? err.message : String(err)}`));
   };
 
   const toggleTrackRow = (address: string) => {
@@ -349,6 +368,7 @@ export default function HistoryScreen() {
                 icon={trackConfigOpen ? 'check' : 'search'}
                 onPress={() => setTrackConfigOpen((v) => !v)}
               />
+              <Btn label={clearArmed ? '¿Seguro?' : 'Borrar'} variant="danger" icon="trash" onPress={clearAllTrack} />
               <View style={{ flex: 1 }} />
               <Text style={styles.rowSub}>Trackeo</Text>
               <Switch
@@ -466,12 +486,18 @@ export default function HistoryScreen() {
                       return (
                         <View key={t.address} style={styles.row}>
                           <Pressable onPress={() => toggleTrackRow(t.address)} style={styles.rowMain} accessibilityRole="button">
-                            <TokenAvatar symbol={t.symbol} chainId={t.chain === 'sol' ? 'solana' : t.chain} address={t.address} size={34} />
+                            <TokenAvatar
+                              symbol={t.symbol}
+                              chainId={t.chain === 'sol' ? 'solana' : t.chain}
+                              address={t.address}
+                              logo={t.logo}
+                              size={34}
+                            />
                             <View style={styles.rowLead}>
                               <Text style={styles.rowName}>{t.symbol ?? t.name ?? `${t.address.slice(0, 4)}…`}</Text>
                               <Text style={styles.rowSub}>
-                                {t.snapshotCount}/{track.status?.snapshotMax ?? 50} snapshots ·{' '}
-                                {t.visible ? 'en Graduated ahora' : 'esperando que vuelva'}
+                                MC {formatCompactUsd(t.mcap)} · VOL {formatCompactUsd(t.volume)} · {t.snapshotCount}/
+                                {track.status?.snapshotMax ?? 50} snaps
                               </Text>
                             </View>
                             <View style={styles.rowValue}>
@@ -522,22 +548,39 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
         .map((s) => (
           <View key={s.at} style={styles.snapRow}>
             <Text style={styles.snapTime}>{timeOf(s.at)}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.snapStat}>
-                {formatCompactUsd(s.mcap)} · vol {formatCompactUsd(s.volume)} · H {formatCompactQty(s.holders)} · C{' '}
-                {formatCompactQty(s.buys)} V {formatCompactQty(s.sells)}
-              </Text>
-              <Text style={styles.snapSub}>
-                Top {pct(s.topHoldersPct)} · Fresh {pct(s.freshPct)} ({formatCompactQty(s.freshHolders)}) · Snip {pct(s.snipersPct)} (
-                {formatCompactQty(s.snipers)}) · Bnd {pct(s.bundlePct)} ({formatCompactQty(s.bundleHolders)}) · Bots{' '}
-                {formatCompactQty(s.tpHolders)}
-              </Text>
+            <View style={{ flex: 1, gap: 3 }}>
+              <View style={styles.chipRow}>
+                <MiniStat label="MC" value={formatCompactUsd(s.mcap)} />
+                <MiniStat label="VOL" value={formatCompactUsd(s.volume)} />
+                <MiniStat icon="users" value={formatCompactQty(s.holders)} />
+                <MiniStat icon="trendUp" value={formatCompactQty(s.buys)} tone={Palette.green} />
+                <MiniStat icon="trendDown" value={formatCompactQty(s.sells)} tone={Palette.red} />
+              </View>
+              <View style={styles.chipRow}>
+                <MiniStat icon="crown" value={pct(s.topHoldersPct)} />
+                <MiniStat icon="leaf" value={pct(s.freshPct)} sub={formatCompactQty(s.freshHolders)} />
+                <MiniStat icon="crosshair" value={pct(s.snipersPct)} sub={formatCompactQty(s.snipers)} />
+                <MiniStat icon="package" value={pct(s.bundlePct)} sub={formatCompactQty(s.bundleHolders)} />
+                <MiniStat icon="cpu" value={formatCompactQty(s.tpHolders)} />
+              </View>
             </View>
           </View>
         ))}
       {snaps.length > 15 ? (
         <Text style={styles.detailHint}>…{snaps.length - 15} anteriores — el dump completo está en GET /api/track/export.</Text>
       ) : null}
+    </View>
+  );
+}
+
+/** Icon + value chip for the snapshot rows — 🍃 fresh, 🤖 bots, 👥 holders, … */
+function MiniStat({ icon, label, value, sub, tone }: { icon?: IconName; label?: string; value: string; sub?: string; tone?: string }) {
+  return (
+    <View style={styles.chip}>
+      {icon ? <Icon name={icon} size={11} color={tone ?? Palette.textTertiary} /> : null}
+      {label ? <Text style={styles.chipLabel}>{label}</Text> : null}
+      <Text style={[styles.chipValue, tone ? { color: tone } : null]}>{value}</Text>
+      {sub ? <Text style={styles.chipSub}>{sub}</Text> : null}
     </View>
   );
 }
@@ -592,6 +635,9 @@ const styles = StyleSheet.create({
   detailLine: { fontSize: 11, color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
   snapRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 4, borderTopWidth: 1, borderTopColor: Palette.line },
   snapTime: { fontSize: 11, fontWeight: '700', color: Palette.textSecondary, fontVariant: ['tabular-nums'], width: 58 },
-  snapStat: { fontSize: 12, fontWeight: '700', color: Palette.textPrimary, fontVariant: ['tabular-nums'] },
-  snapSub: { fontSize: 10, color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center' },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  chipLabel: { fontSize: 10, fontWeight: '800', color: Palette.textTertiary },
+  chipValue: { fontSize: 12, fontWeight: '700', color: Palette.textPrimary, fontVariant: ['tabular-nums'] },
+  chipSub: { fontSize: 10, color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
 });

@@ -450,18 +450,25 @@ export function getTrackStatus() {
 /** Summaries without snapshots (the list); newest activity first. */
 export function listTrackTokens() {
   return Object.values(trackTokens.getAll())
-    .map((t) => ({
-      address: t.address,
-      chain: t.chain ?? 'sol',
-      symbol: t.symbol ?? null,
-      name: t.name ?? null,
-      logo: t.logo ?? null,
-      status: t.status,
-      firstSeenAt: t.firstSeenAt,
-      lastSeenAt: t.lastSeenAt,
-      visible: Boolean(t.visible),
-      snapshotCount: Array.isArray(t.snapshots) ? t.snapshots.length : 0,
-    }))
+    .map((t) => {
+      const snaps = Array.isArray(t.snapshots) ? t.snapshots : [];
+      const last = snaps[snaps.length - 1];
+      return {
+        address: t.address,
+        chain: t.chain ?? 'sol',
+        symbol: t.symbol ?? null,
+        name: t.name ?? null,
+        logo: t.logo ?? null,
+        status: t.status,
+        firstSeenAt: t.firstSeenAt,
+        lastSeenAt: t.lastSeenAt,
+        visible: Boolean(t.visible),
+        snapshotCount: snaps.length,
+        // the row's "MC / VOL" line comes from the newest snapshot
+        mcap: last?.mcap ?? null,
+        volume: last?.volume ?? null,
+      };
+    })
     .sort((a, b) => String(b.lastSeenAt).localeCompare(String(a.lastSeenAt)));
 }
 
