@@ -1,7 +1,7 @@
 /**
  * Photon memescope filters — pure functions over the column's token list,
  * mirroring the server's FILTER_FIELDS (age, holders, tp_holders, mkt_cap, buys,
- * fresh_holding_perc, bundle_holders_count, bundle_holding_perc).
+ * fresh_holding_perc, bundle_holders_count, bundle_holding_perc, top_holders_perc).
  *
  * The server keeps the authoritative filters for its own refreshes; the app
  * filters the pushed snapshot locally so New and Graduated can carry independent
@@ -60,6 +60,7 @@ export function applyPhotonFilters(tokens: PhotonToken[], filters: PhotonFilters
       inRange(t.buysCount, filters.buys) &&
       inRange(t.freshPct, filters.freshPct) &&
       inRange(t.bundleHolders, filters.bundleHolders) &&
-      inRange(t.bundlePct, filters.bundlePct),
+      inRange(t.bundlePct, filters.bundlePct) &&
+      inRange(t.topHoldersPct, filters.topHolders),
   );
 }

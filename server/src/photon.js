@@ -39,6 +39,9 @@ export const COMMON_FILTERS =
 
 // App-side field name → Photon query parameter. Each value is a {min?,max?} pair
 // sent as `<param>_from` / `<param>_to`.
+// top_holders_perc is a PERCENTAGE: Photon clamps the bounds to 0-100 (an absurd
+// `from=999999999` reads as `from=100`), so probe scripts must not judge it by
+// "returns 0 items" — use a realistic bound and check the returned range.
 const FILTER_FIELDS = {
   age: 'age',
   holders: 'holders_count',
@@ -48,6 +51,7 @@ const FILTER_FIELDS = {
   freshPct: 'fresh_holding_perc',
   bundleHolders: 'bundle_holders_count',
   bundlePct: 'bundle_holding_perc',
+  topHolders: 'top_holders_perc',
 };
 
 // The app types market cap in thousands ("150" = $150,000) while Photon's mkt_cap

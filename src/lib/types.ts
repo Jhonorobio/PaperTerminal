@@ -242,6 +242,8 @@ export interface PhotonFilters {
   freshPct?: PhotonRange;
   bundleHolders?: PhotonRange;
   bundlePct?: PhotonRange;
+  /** % of supply held by the top holders — same as every other field: Photon applies it in the query. */
+  topHolders?: PhotonRange;
 }
 
 /** One column of the server's memescope payload. */

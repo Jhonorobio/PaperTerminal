@@ -37,6 +37,7 @@ export const TRACK_FILTER_FIELDS = [
   { key: 'freshPct', label: 'Fresh %' },
   { key: 'bundleHolders', label: 'Bundle Holders' },
   { key: 'bundlePct', label: 'Bundle %' },
+  { key: 'topHolders', label: 'Top Holders %' },
 ] as const;
 
 export type TrackFilterKey = (typeof TRACK_FILTER_FIELDS)[number]['key'];

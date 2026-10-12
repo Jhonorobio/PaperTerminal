@@ -75,6 +75,7 @@ const FILTER_FIELDS: { key: keyof PhotonFilters; label: string }[] = [
   { key: 'freshPct', label: 'Fresh %' },
   { key: 'bundleHolders', label: 'Bundle Holders' },
   { key: 'bundlePct', label: 'Bundle %' },
+  { key: 'topHolders', label: 'Top Holders %' },
 ];
 
 function PhotonRow({ token, onPress }: { token: PhotonToken; onPress: () => void }) {
