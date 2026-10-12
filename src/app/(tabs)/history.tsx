@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, router } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 
 import { Icon, type IconName } from '@/components/icons';
 import { TokenAvatar } from '@/components/token-avatar';
@@ -59,6 +60,7 @@ export default function HistoryScreen() {
   const [trackDetail, setTrackDetail] = useState<Record<string, TrackTokenDetail>>({});
   const [expandedTrack, setExpandedTrack] = useState<string | null>(null);
   const [clearArmed, setClearArmed] = useState(false);
+  const [trackSort, setTrackSort] = useState<'recent' | 'gain'>('recent');
 
   useFocusEffect(
     useCallback(() => {
@@ -476,6 +478,18 @@ export default function HistoryScreen() {
               </Text>
             ) : null}
 
+            {track && track.tokens.length > 1 ? (
+              <View style={styles.trackSort}>
+                <Text style={styles.rowSub}>Ordenar</Text>
+                <SegTabs
+                  options={[{ value: 'recent', label: 'Reciente' }, { value: 'gain', label: 'Ganancia' }]}
+                  value={trackSort}
+                  onChange={setTrackSort}
+                  style={{ flex: 1 }}
+                />
+              </View>
+            ) : null}
+
             {track === null ? (
               <View style={{ gap: 6 }}>{[0, 1, 2, 3].map((i) => <Skeleton key={i} height={56} />)}</View>
             ) : !track.tokens.length ? (
@@ -487,7 +501,10 @@ export default function HistoryScreen() {
               </Card>
             ) : (
               (['active', 'done'] as const).map((group) => {
-                const entries = track.tokens.filter((t) => t.status === group);
+                const entries = track.tokens
+                  .filter((t) => t.status === group)
+                  // server order is newest activity; "Ganancia" ranks by first→max MC
+                  .sort((a, b) => (trackSort === 'gain' ? (b.gainPct ?? -Infinity) - (a.gainPct ?? -Infinity) : 0));
                 if (!entries.length) return null;
                 return (
                   <View key={group} style={{ gap: 6 }}>
@@ -509,9 +526,27 @@ export default function HistoryScreen() {
                             <View style={styles.rowLead}>
                               <Text style={styles.rowName}>{t.symbol ?? t.name ?? `${t.address.slice(0, 4)}…`}</Text>
                               <Text style={styles.rowSub}>
-                                MC {formatCompactUsd(t.mcap)} · VOL {formatCompactUsd(t.volume)} · {t.snapshotCount}/
-                                {track.status?.snapshotMax ?? 50} snaps
+                                MC {formatCompactUsd(t.mcap)} · VOL {formatCompactUsd(t.volume)}
+                                {t.gainPct != null ? (
+                                  <Text style={{ color: t.gainPct >= 0 ? Palette.green : Palette.red }}>
+                                    {' · '}
+                                    {formatPct(t.gainPct, { sign: true })}
+                                  </Text>
+                                ) : null}
                               </Text>
+                              <View style={styles.rowAddr}>
+                                <Text style={styles.addrText} selectable>
+                                  {`${t.address.slice(0, 4)}…${t.address.slice(-4)}`}
+                                </Text>
+                                <Pressable
+                                  accessibilityRole="link"
+                                  accessibilityLabel="Ver el token en GMGN"
+                                  onPress={() => void WebBrowser.openBrowserAsync(`https://gmgn.ai/sol/token/${encodeURIComponent(t.address)}`)}
+                                  hitSlop={8}
+                                  style={styles.gmgn}>
+                                  <Text style={styles.gmgnText}>GMGN</Text>
+                                </Pressable>
+                              </View>
                             </View>
                             <View style={styles.rowValue}>
                               <Text style={[styles.rowMainValue, { color: t.status === 'active' ? Palette.green : Palette.textSecondary }]}>
@@ -665,4 +700,9 @@ const styles = StyleSheet.create({
   chipLabel: { fontSize: 10, fontWeight: '500', color: Palette.textTertiary },
   chipValue: { fontSize: 12, fontWeight: '500', color: Palette.textPrimary, fontVariant: ['tabular-nums'] },
   chipSub: { fontSize: 10, fontWeight: '400', color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
+  trackSort: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rowAddr: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
+  addrText: { fontSize: 10, color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
+  gmgn: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, backgroundColor: Palette.paperT },
+  gmgnText: { fontSize: 9, fontWeight: '800', color: Palette.paper, letterSpacing: 0.5 },
 });

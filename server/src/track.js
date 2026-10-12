@@ -474,6 +474,9 @@ export function listTrackTokens() {
     .map((t) => {
       const snaps = Array.isArray(t.snapshots) ? t.snapshots : [];
       const last = snaps[snaps.length - 1];
+      const firstMcap = snaps[0]?.mcap ?? null;
+      let maxMcap = null;
+      for (const s of snaps) if (s.mcap != null && (maxMcap == null || s.mcap > maxMcap)) maxMcap = s.mcap;
       return {
         address: t.address,
         chain: t.chain ?? 'sol',
@@ -488,6 +491,9 @@ export function listTrackTokens() {
         // the row's "MC / VOL" line comes from the newest snapshot
         mcap: last?.mcap ?? null,
         volume: last?.volume ?? null,
+        // first snapshot → the highest seen: how far it pumped while tracked
+        maxMcap,
+        gainPct: firstMcap && maxMcap != null ? (maxMcap / firstMcap - 1) * 100 : null,
       };
     })
     .sort((a, b) => String(b.lastSeenAt).localeCompare(String(a.lastSeenAt)));

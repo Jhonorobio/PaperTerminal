@@ -80,6 +80,9 @@ export interface TrackTokenSummary {
   /** Last snapshot's market cap / volume — the row's "MC / VOL" line. */
   mcap: number | null;
   volume: number | null;
+  /** Highest market cap seen while tracked, and the gain first→max (percent). */
+  maxMcap: number | null;
+  gainPct: number | null;
   /** 'active' = the track is still open (< 50 snapshots); 'done' = cut at 50. */
   status: 'active' | 'done';
   firstSeenAt: string;
