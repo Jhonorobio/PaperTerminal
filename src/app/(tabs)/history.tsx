@@ -546,18 +546,18 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
             <Text style={styles.snapTime}>{timeOf(s.at)}</Text>
             <View style={{ flex: 1, gap: 3 }}>
               <View style={styles.chipRow}>
-                <MiniStat label="MC" value={formatCompactUsd(s.mcap)} />
-                <MiniStat label="VOL" value={formatCompactUsd(s.volume)} />
-                <MiniStat icon="users" value={formatCompactQty(s.holders)} />
-                <MiniStat icon="trendUp" value={formatCompactQty(s.buys)} tone={Palette.green} />
-                <MiniStat icon="trendDown" value={formatCompactQty(s.sells)} tone={Palette.red} />
+                <MiniStat label="MC" value={formatCompactUsd(s.mcap)} labelTone={Palette.paper} />
+                <MiniStat label="VOL" value={formatCompactUsd(s.volume)} labelTone={Palette.warning} />
+                <MiniStat icon="users" value={formatCompactQty(s.holders)} tone={Palette.textSecondary} />
+                <MiniStat icon="trendUp" value={formatCompactQty(s.buys)} tone={Palette.green} valueTone={Palette.green} />
+                <MiniStat icon="trendDown" value={formatCompactQty(s.sells)} tone={Palette.red} valueTone={Palette.red} />
               </View>
               <View style={styles.chipRow}>
-                <MiniStat icon="crown" value={pct(s.topHoldersPct)} />
-                <MiniStat icon="leaf" value={pct(s.freshPct)} sub={formatCompactQty(s.freshHolders)} />
-                <MiniStat icon="crosshair" value={pct(s.snipersPct)} sub={formatCompactQty(s.snipers)} />
-                <MiniStat icon="package" value={pct(s.bundlePct)} sub={formatCompactQty(s.bundleHolders)} />
-                <MiniStat icon="cpu" value={formatCompactQty(s.tpHolders)} />
+                <MiniStat icon="crown" value={pct(s.topHoldersPct)} tone={Palette.warning} />
+                <MiniStat icon="leaf" value={pct(s.freshPct)} sub={formatCompactQty(s.freshHolders)} tone={Palette.green} />
+                <MiniStat icon="crosshair" value={pct(s.snipersPct)} sub={formatCompactQty(s.snipers)} tone={Palette.red} />
+                <MiniStat icon="package" value={pct(s.bundlePct)} sub={formatCompactQty(s.bundleHolders)} tone={Palette.paper} />
+                <MiniStat icon="cpu" value={formatCompactQty(s.tpHolders)} tone={Palette.warning} />
               </View>
             </View>
           </View>
@@ -570,12 +570,28 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
 }
 
 /** Icon + value chip for the snapshot rows — 🍃 fresh, 🤖 bots, 👥 holders, … */
-function MiniStat({ icon, label, value, sub, tone }: { icon?: IconName; label?: string; value: string; sub?: string; tone?: string }) {
+function MiniStat({
+  icon,
+  label,
+  value,
+  sub,
+  tone,
+  labelTone,
+  valueTone,
+}: {
+  icon?: IconName;
+  label?: string;
+  value: string;
+  sub?: string;
+  tone?: string;
+  labelTone?: string;
+  valueTone?: string;
+}) {
   return (
     <View style={styles.chip}>
       {icon ? <Icon name={icon} size={11} color={tone ?? Palette.textTertiary} /> : null}
-      {label ? <Text style={styles.chipLabel}>{label}</Text> : null}
-      <Text style={[styles.chipValue, tone ? { color: tone } : null]}>{value}</Text>
+      {label ? <Text style={[styles.chipLabel, labelTone ? { color: labelTone } : null]}>{label}</Text> : null}
+      <Text style={[styles.chipValue, valueTone ? { color: valueTone } : null]}>{value}</Text>
       {sub ? <Text style={styles.chipSub}>{sub}</Text> : null}
     </View>
   );
@@ -630,10 +646,10 @@ const styles = StyleSheet.create({
   detailHint: { fontSize: 11, color: Palette.textTertiary, lineHeight: 15 },
   detailLine: { fontSize: 11, color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
   snapRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 4, borderTopWidth: 1, borderTopColor: Palette.line },
-  snapTime: { fontSize: 11, fontWeight: '700', color: Palette.textSecondary, fontVariant: ['tabular-nums'], width: 58 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center' },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  chipLabel: { fontSize: 10, fontWeight: '800', color: Palette.textTertiary },
-  chipValue: { fontSize: 12, fontWeight: '700', color: Palette.textPrimary, fontVariant: ['tabular-nums'] },
-  chipSub: { fontSize: 10, color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
+  snapTime: { fontSize: 11, fontWeight: '500', color: Palette.textSecondary, fontVariant: ['tabular-nums'], width: 58 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, alignItems: 'center' },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  chipLabel: { fontSize: 10, fontWeight: '500', color: Palette.textTertiary },
+  chipValue: { fontSize: 12, fontWeight: '500', color: Palette.textPrimary, fontVariant: ['tabular-nums'] },
+  chipSub: { fontSize: 10, fontWeight: '400', color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
 });
