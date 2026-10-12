@@ -32,10 +32,19 @@ import { COMMON_FILTERS, HEADERS, SEARCH_URL, sanitizeColumnFilters } from './ph
 import { normalizeProxy } from './proxy-config.js';
 import { trackConfig, trackTokens } from './stores.js';
 
-const TICK_MS = 60_000;
+// The column is pulled as fast as Photon sustains (same cadence as the FOMO
+// watcher) so a token is caught the second it appears; the per-token snapshot
+// stays at one per minute — that cadence is the product requirement.
+const PULL_MS = 1300;
+const SNAPSHOT_MS = 60_000;
+// A miss must repeat before a token is paused: at 1.3s pulls a single
+// partial/reshuffled column response would otherwise flip the whole list.
+const TRACK_MISS_GRACE = 2;
 const FETCH_TIMEOUT_MS = 10_000;
 const PROXY_TEST_TIMEOUT_MS = 15_000;
 const RATE_LIMIT_BACKOFF_MS = 45_000;
+// Fails are usually a dead proxy answering in <1s — don't hammer it 46x/min.
+const ERROR_BACKOFF_MS = 15_000;
 export const TRACK_SNAPSHOT_MAX = 50;
 export const TRACK_TOKENS_MAX = 500;
 
@@ -185,6 +194,8 @@ export function getTrackGate() {
 let cycleTLS = null;
 let transport = 'direct';
 let poller = null;
+let trackInflight = null;
+const missCount = new Map(); // address → consecutive pulls absent (pause grace, in-memory)
 let backoffUntil = 0;
 let fetchCount = 0;
 let errorCount = 0;
@@ -369,10 +380,14 @@ async function trackTick() {
       if (address) byAddress.set(address, a);
     }
 
-    let changed = false;
+    let changed = false; // anything worth persisting + logging happened
 
     for (const [address, a] of byAddress) {
       let tracked = trackTokens.get(address);
+      // Persist only on structural changes (enter / resume / identity / snapshot):
+      // at 1.3s cadence, lastSeenAt mutates memory every pull but rewriting the
+      // whole store (up to 500 tokens × 50 snaps) 46x/min would be absurd.
+      let persist = false;
       if (!tracked) {
         // New to the column: only enters the set if it passes the track filters.
         if (!passesFilters(attrValues(a), config.filters)) continue;
@@ -388,38 +403,52 @@ async function trackTick() {
           visible: true,
           snapshots: [],
         };
-        changed = true;
+        persist = true;
       } else {
-        // Seen again: resumed (or still) capture — refresh the identity too, since
-        // the first sighting can miss the logo or the symbol.
-        tracked.visible = true;
+        if (!tracked.visible) {
+          tracked.visible = true; // resumed after a pause
+          persist = true;
+        }
         tracked.lastSeenAt = nowIso;
-        if (!tracked.symbol && a.symbol) tracked.symbol = a.symbol;
-        if (!tracked.name && a.name) tracked.name = a.name;
-        if (!tracked.logo && a.imgUrl) tracked.logo = a.imgUrl;
-        changed = true;
+        // The first sighting can miss the logo or the symbol.
+        if (!tracked.symbol && a.symbol) { tracked.symbol = a.symbol; persist = true; }
+        if (!tracked.name && a.name) { tracked.name = a.name; persist = true; }
+        if (!tracked.logo && a.imgUrl) { tracked.logo = a.imgUrl; persist = true; }
       }
 
-      // One snapshot per minute, only while the track is still open.
+      // One snapshot per minute, only while the track is still open (dense pulls
+      // make the old tick-relative slack unnecessary — due lands within 1.3s).
       if (tracked.status === 'active' && tracked.snapshots.length < TRACK_SNAPSHOT_MAX) {
         const lastAt = tracked.snapshots[tracked.snapshots.length - 1]?.at;
-        if (!lastAt || Date.now() - Date.parse(lastAt) >= TICK_MS - 5_000) {
+        if (!lastAt || Date.now() - Date.parse(lastAt) >= SNAPSHOT_MS) {
           tracked.snapshots.push(snapshotOf(a));
+          persist = true;
           if (tracked.snapshots.length >= TRACK_SNAPSHOT_MAX) tracked.status = 'done'; // 50 → se corta
         }
       }
 
-      trackTokens.set(address, tracked);
-    }
-
-    // Tracked tokens missing from this column: paused (data kept; capture resumes
-    // on the next appearance).
-    for (const [address, tracked] of Object.entries(trackTokens.getAll())) {
-      if (tracked.visible && !byAddress.has(address)) {
-        tracked.visible = false;
+      if (persist) {
         trackTokens.set(address, tracked);
         changed = true;
       }
+    }
+
+    // Tracked tokens missing from this column: paused after a couple of misses —
+    // at 1.3s pulls a single partial/reshuffled response must not flip the list.
+    // Data is kept; capture resumes on the next appearance.
+    for (const [address, tracked] of Object.entries(trackTokens.getAll())) {
+      if (byAddress.has(address)) {
+        missCount.delete(address);
+        continue;
+      }
+      if (!tracked.visible) continue;
+      const misses = (missCount.get(address) ?? 0) + 1;
+      missCount.set(address, misses);
+      if (misses < TRACK_MISS_GRACE) continue;
+      tracked.visible = false;
+      missCount.delete(address);
+      trackTokens.set(address, tracked);
+      changed = true;
     }
 
     evictOverCap();
@@ -427,7 +456,24 @@ async function trackTick() {
   } catch (err) {
     errorCount += 1;
     lastError = { message: String(err?.message || err), at: Date.now() };
+    // A dead proxy fails fast — back off so 1.3s ticks don't hammer it (or the
+    // log). The 429 path already set its longer rate-limit backoff.
+    if (!err?.rateLimited) backoffUntil = Date.now() + ERROR_BACKOFF_MS;
     console.error('[track] tick failed:', lastError.message);
+  }
+}
+
+// One pull at a time: a slow proxy holds a tick for seconds, and the interval
+// must not stack requests on top of it (same single-flight rule as photon.js).
+function pollTick() {
+  try {
+    if (Date.now() < backoffUntil) return;
+    if (trackInflight) return;
+    trackInflight = trackTick().finally(() => {
+      trackInflight = null;
+    });
+  } catch {
+    /* the timer must never crash */
   }
 }
 
@@ -436,8 +482,10 @@ export function startTrackPoller() {
   // A short delay so booting doesn't race Photon's own warm-up with a second
   // cold CycleTLS init.
   setTimeout(() => void trackTick(), 5_000);
-  poller = setInterval(() => void trackTick(), TICK_MS);
-  console.log(`[track] poller started (col3 every ${TICK_MS / 1000}s, ≤${TRACK_SNAPSHOT_MAX} snaps/token, ≤${TRACK_TOKENS_MAX} tokens)`);
+  poller = setInterval(pollTick, PULL_MS);
+  console.log(
+    `[track] poller started (col3 every ${PULL_MS}ms, 1 snap/${SNAPSHOT_MS / 1000}s per token, ≤${TRACK_SNAPSHOT_MAX} snaps/token, ≤${TRACK_TOKENS_MAX} tokens)`
+  );
 }
 
 // ── reads (the HTTP surface) ─────────────────────────────────────────────────
@@ -448,7 +496,10 @@ export function getTrackStatus() {
     running: Boolean(poller),
     enabled: getTrackConfig().enabled,
     gate: getTrackGate(),
-    tickMs: TICK_MS,
+    // Two independent cadences: pulls detect presence/identity every PULL_MS;
+    // snapshots (the stats series) stay at one per SNAPSHOT_MS per token.
+    pullMs: PULL_MS,
+    snapshotMs: SNAPSHOT_MS,
     snapshotMax: TRACK_SNAPSHOT_MAX,
     tokensMax: TRACK_TOKENS_MAX,
     lastFetchAt: lastFetchAt || null,

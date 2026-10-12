@@ -107,7 +107,10 @@ export interface TrackStatus {
   running: boolean;
   enabled: boolean;
   gate: TrackGate;
-  tickMs: number;
+  /** Column pulls (presence/identity) — the fast cadence. */
+  pullMs: number;
+  /** Per-token stats snapshots — one per minute. */
+  snapshotMs: number;
   snapshotMax: number;
   tokensMax: number;
   lastFetchAt: string | null;
