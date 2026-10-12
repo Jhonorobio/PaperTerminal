@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
@@ -41,6 +41,11 @@ const ALERT_LABELS: Record<string, string> = {
 const toneColor = (v: number | null | undefined) =>
   pnlClass(v) === 'up' ? Palette.green : pnlClass(v) === 'down' ? Palette.red : Palette.textPrimary;
 
+// How often the Track tab re-polls the server while visible. Snapshots land every
+// 60s, so 15s keeps the list honest (status flips, new tokens, snapshot counts)
+// without chatty requests.
+const TRACK_REFRESH_MS = 15_000;
+
 export default function HistoryScreen() {
   const { ready, user, banner, settings, updateSettings, flash } = useApp();
   const [trades, setTrades] = useState<Trade[] | null>(null);
@@ -59,6 +64,12 @@ export default function HistoryScreen() {
   const [proxyTest, setProxyTest] = useState<{ busy: boolean; result: ProxyTestResult | null }>({ busy: false, result: null });
   const [trackDetail, setTrackDetail] = useState<Record<string, TrackTokenDetail>>({});
   const [expandedTrack, setExpandedTrack] = useState<string | null>(null);
+  // The refresh closure must see the CURRENT open row, not the one that existed
+  // when the interval was created — a ref keeps it honest without re-subscribing.
+  const expandedTrackRef = useRef<string | null>(null);
+  useEffect(() => {
+    expandedTrackRef.current = expandedTrack;
+  }, [expandedTrack]);
   const [clearArmed, setClearArmed] = useState(false);
   const [trackSort, setTrackSort] = useState<'recent' | 'gain'>('recent');
 
@@ -81,27 +92,66 @@ export default function HistoryScreen() {
     }, [mode, settings.serverBase]),
   );
 
+  // The tracker keeps working server-side every 1.3s — the tab follows it without
+  // making the user leave and come back. Load once on focus (with the mirror
+  // self-heal), then poll the list (and the open row's snapshots) while visible;
+  // returning to the foreground refreshes instantly.
   useFocusEffect(
     useCallback(() => {
       if (mode !== 'track') return;
-      void fetchTrack(settings.serverBase)
-        .then((state) => {
-          // A restarted server comes back with an empty config store — restore the
-          // app's mirror (saved on every "Guardar") so proxy + filters survive.
-          const mirror = settings.trackConfig;
-          const serverEmpty = !state.config.proxy && !Object.keys(state.config.filters).length;
-          const adopt = (config: TrackState['config']) => {
-            setTrack({ ...state, config });
-            setTrackDraft((d) => d ?? config);
-          };
-          if (serverEmpty && mirror && (mirror.proxy || Object.keys(mirror.filters ?? {}).length)) {
-            return saveTrackConfig(settings.serverBase, mirror)
-              .then((saved) => adopt(saved))
-              .catch(() => adopt(state.config));
-          }
-          adopt(state.config);
-        })
-        .catch(() => setTrack((t) => t ?? { config: { enabled: false, proxy: '', filters: {} }, status: null, tokens: [] }));
+
+      const load = () => {
+        void fetchTrack(settings.serverBase)
+          .then((state) => {
+            // A restarted server comes back with an empty config store — restore the
+            // app's mirror (saved on every "Guardar") so proxy + filters survive.
+            const mirror = settings.trackConfig;
+            const serverEmpty = !state.config.proxy && !Object.keys(state.config.filters).length;
+            const adopt = (config: TrackState['config']) => {
+              setTrack({ ...state, config });
+              setTrackDraft((d) => d ?? config);
+            };
+            if (serverEmpty && mirror && (mirror.proxy || Object.keys(mirror.filters ?? {}).length)) {
+              return saveTrackConfig(settings.serverBase, mirror)
+                .then((saved) => adopt(saved))
+                .catch(() => adopt(state.config));
+            }
+            adopt(state.config);
+          })
+          .catch(() => setTrack((t) => t ?? { config: { enabled: false, proxy: '', filters: {} }, status: null, tokens: [] }));
+      };
+
+      const refresh = () => {
+        void fetchTrack(settings.serverBase)
+          .then((state) =>
+            setTrack((prev) => {
+              // Never blank out a config we already hold if a restart wiped the server
+              // mid-session (the mirror heals it on the next full load).
+              const serverEmpty = !state.config.proxy && !Object.keys(state.config.filters).length;
+              const keep = prev?.config;
+              const config =
+                serverEmpty && keep && (keep.proxy || Object.keys(keep.filters ?? {}).length) ? keep : state.config;
+              return { ...state, config };
+            }),
+          )
+          .catch(() => {});
+        const open = expandedTrackRef.current;
+        if (open) {
+          void fetchTrackToken(settings.serverBase, open)
+            .then((d) => setTrackDetail((all) => ({ ...all, [open]: d })))
+            .catch(() => {});
+        }
+      };
+
+      load();
+      const poll = setInterval(refresh, TRACK_REFRESH_MS);
+      const sub = AppState.addEventListener('change', (s) => {
+        if (s === 'active') refresh();
+      });
+      return () => {
+        clearInterval(poll);
+        sub.remove();
+      };
     }, [mode, settings.serverBase, settings.trackConfig]),
   );
 
