@@ -552,8 +552,15 @@ export default function HistoryScreen() {
                               </View>
                             </View>
                             <View style={styles.rowValue}>
-                              <Text style={[styles.rowMainValue, { color: t.status === 'active' ? Palette.green : Palette.textSecondary }]}>
-                                {t.status === 'active' ? 'Activo' : 'Cortado'}
+                              <Text
+                                style={[
+                                  styles.rowMainValue,
+                                  // Tres estados, no dos: "Activo" es capturando AHORA (en la
+                                  // columna), "Pausado" salió de ella y "Cortado" llegó al tope
+                                  // de 50 snapshots — antes un pausado se veía verde igual.
+                                  { color: t.status !== 'active' ? Palette.textSecondary : t.visible ? Palette.green : Palette.amber },
+                                ]}>
+                                {t.status !== 'active' ? 'Cortado' : t.visible ? 'Activo' : 'Pausado'}
                               </Text>
                               <Text style={[styles.rowSubValue, { color: Palette.textTertiary }]}>{timeOf(t.lastSeenAt)}</Text>
                             </View>
