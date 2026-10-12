@@ -5,6 +5,7 @@ import { useFocusEffect, router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 
 import { Icon, type IconName } from '@/components/icons';
+import { HEALTH_META } from '@/components/track-health-chip';
 import { TokenAvatar } from '@/components/token-avatar';
 import { Banner, Btn, Card, DetailRow, Empty, Input, SegTabs, Skeleton } from '@/components/ui';
 import { Palette, Radius, toneTint } from '@/constants/paper';
@@ -42,13 +43,8 @@ const ALERT_LABELS: Record<string, string> = {
 const toneColor = (v: number | null | undefined) =>
   pnlClass(v) === 'up' ? Palette.green : pnlClass(v) === 'down' ? Palette.red : Palette.textPrimary;
 
-// The health chip (server-computed from the snapshot series): holders growing +
-// net buying = green; holders bleeding or selling pressure = red; mixed = amber.
-const HEALTH_META: Record<'green' | 'amber' | 'red', { label: string; color: string }> = {
-  green: { label: 'Sostenible', color: Palette.green },
-  amber: { label: 'Duda', color: Palette.warning },
-  red: { label: 'Distribuye', color: Palette.red },
-};
+// The health chip (server-computed from the snapshot series) — shared with the
+// Trade/FOMO/Photon chips via `@/components/track-health-chip` (same labels).
 
 // How often the Track tab re-polls the server while visible. Snapshots land every
 // 60s, so 15s keeps the list honest (status flips, new tokens, snapshot counts)

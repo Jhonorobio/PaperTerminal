@@ -55,6 +55,9 @@ export interface TrackConfig {
 }
 
 /** One minute of the token's stats — the exact shape the server snapshots. */
+/** The server-computed health pill of a tracked token — read from its own series. */
+export type TrackHealth = 'green' | 'amber' | 'red' | null;
+
 export interface TrackSnapshot {
   at: string;
   mcap: number | null;
@@ -74,7 +77,7 @@ export interface TrackSnapshot {
    * The chip as it looked AT THAT MINUTE (server computes it from the prefix
    * [0..i] of the series — no hindsight). null on the first snapshot.
    */
-  health: 'green' | 'amber' | 'red' | null;
+  health: TrackHealth;
   /** Volume ÷ mcap at that minute — the turnover the chip watches. */
   turnover: number | null;
 }
@@ -96,7 +99,7 @@ export interface TrackTokenSummary {
    * buying · 'red' holders bleeding or selling pressure · 'amber' mixed.
    * null until there are ≥2 snapshots to judge.
    */
-  health: 'green' | 'amber' | 'red' | null;
+  health: TrackHealth;
   /** Holders first→last snapshot, percent (the strongest signal, r=0.71). */
   holdersDeltaPct: number | null;
   /** Buys/sells over the last ~3 min — ≥1 means net buying. */

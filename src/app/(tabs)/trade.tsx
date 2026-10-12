@@ -10,6 +10,7 @@ import { TokenPicker } from '@/components/token-picker';
 import { TradePanel } from '@/components/trade-panel';
 import { Palette, Radius } from '@/constants/paper';
 import { formatUsd, pnlClass } from '@/lib/format';
+import { useTrackHealth } from '@/lib/market/track-health';
 import { addRecentAsset } from '@/lib/storage';
 import type { Asset } from '@/lib/types';
 import { useApp } from '@/state/app';
@@ -46,7 +47,10 @@ function AccountStrip() {
 }
 
 export default function TradeScreen() {
-  const { ready, recents, banner, flash } = useApp();
+  const { ready, recents, banner, flash, settings } = useApp();
+  // The tracker's chip for the selected token, pushed live on its own topic —
+  // only when that token is actually being tracked (no series → no chip).
+  const trackHealth = useTrackHealth(settings.serverBase);
   // A link — a tapped alert, a token tapped in FOMO/Photon, or a clipboard copy —
   // preselects its token. Tabs reuse the mounted screen, so a NEW address arrives as
   // a params change — not a remount — and has to win over the previous selection. The
@@ -115,7 +119,11 @@ export default function TradeScreen() {
 
         {banner ? <Banner kind={banner.kind}>{banner.text}</Banner> : null}
 
-        <TokenPicker value={asset} onChange={pickAsset} />
+        <TokenPicker
+          value={asset}
+          onChange={pickAsset}
+          health={asset ? trackHealth.get(asset.address.toLowerCase()) ?? null : null}
+        />
 
         <TradePanel asset={asset} />
 

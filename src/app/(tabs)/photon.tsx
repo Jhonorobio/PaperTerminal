@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image as ExpoImage } from 'expo-image';
 
 import { Icon } from '@/components/icons';
+import { TrackHealthChip } from '@/components/track-health-chip';
 import { Btn, Card, Empty, Input, SegTabs } from '@/components/ui';
 import { Palette, Radius } from '@/constants/paper';
 import { formatCompactUsd, formatPct, pnlClass } from '@/lib/format';
@@ -18,6 +19,8 @@ import { addRecentAsset } from '@/lib/storage';
 import { serverFeed, ServerFeed } from '@/lib/market/server-feed';
 import { photonLogoUrl, setPhotonServerFilters } from '@/lib/server-base';
 import { activePhotonFilterCount, applyPhotonFilters, normalizePhotonFilters, type RawPhotonFilters } from '@/lib/market/photon-filters';
+import { useTrackHealth } from '@/lib/market/track-health';
+import type { TrackHealth } from '@/lib/track';
 import type { PhotonColumn, PhotonFilters, PhotonToken } from '@/lib/types';
 import { useApp } from '@/state/app';
 
@@ -78,7 +81,7 @@ const FILTER_FIELDS: { key: keyof PhotonFilters; label: string }[] = [
   { key: 'topHolders', label: 'Top Holders %' },
 ];
 
-function PhotonRow({ token, onPress }: { token: PhotonToken; onPress: () => void }) {
+function PhotonRow({ token, health, onPress }: { token: PhotonToken; health: TrackHealth; onPress: () => void }) {
   // Ganancia hasta el máximo histórico: (ath ÷ market cap actual − 1), mismo lugar y formato
   // que el % de FOMO. El + verde dice cuánto queda hasta el ATH (si lo superó, negativo en
   // rojo). Se mueve en cada frame porque fdv cambia y ath casi no.
@@ -95,9 +98,13 @@ function PhotonRow({ token, onPress }: { token: PhotonToken; onPress: () => void
       )}
 
       <View style={styles.rowLead}>
-        <Text numberOfLines={1} style={styles.rowSymbol}>
-          {token.symbol ?? `${token.address.slice(0, 4)}…`}
-        </Text>
+        <View style={styles.rowTitleLine}>
+          <Text numberOfLines={1} style={styles.rowSymbol}>
+            {token.symbol ?? `${token.address.slice(0, 4)}…`}
+          </Text>
+          {/* Only when this token is being TRACKED — no series, no chip. */}
+          <TrackHealthChip health={health} />
+        </View>
         <Text numberOfLines={1} style={styles.rowName}>
           {token.name ?? token.address}
         </Text>
@@ -125,6 +132,10 @@ function PhotonRow({ token, onPress }: { token: PhotonToken; onPress: () => void
 
 export default function PhotonScreen() {
   const { flash, settings, updateSettings } = useApp();
+  // Health chips of the TRACKED tokens, pushed live on their own topic. The map
+  // only changes identity when a chip actually moves; a token that isn't tracked
+  // has no chip (no series → no data).
+  const trackHealth = useTrackHealth(settings.serverBase);
   const [column, setColumn] = useState<PhotonColumn>('col1');
   // Each column keeps its own filters, persisted in settings so they survive app restarts.
   const rawByCol = useMemo(() => settings.photonFilters ?? { col1: {}, col3: {} }, [settings.photonFilters]);
@@ -236,7 +247,16 @@ export default function PhotonScreen() {
     [flash],
   );
 
-  const renderItem = useCallback(({ item }: { item: PhotonToken }) => <PhotonRow token={item} onPress={() => void openToken(item)} />, [openToken]);
+  const renderItem = useCallback(
+    ({ item }: { item: PhotonToken }) => (
+      <PhotonRow
+        token={item}
+        health={trackHealth.get(item.address.toLowerCase()) ?? null}
+        onPress={() => void openToken(item)}
+      />
+    ),
+    [openToken, trackHealth],
+  );
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -366,6 +386,7 @@ const styles = StyleSheet.create({
   rowInitial: { fontSize: 15, fontWeight: '800', color: Palette.textSecondary },
 
   rowLead: { flex: 1, gap: 1, minWidth: 0 },
+  rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   rowSymbol: { fontSize: 14, fontWeight: '800', color: Palette.textPrimary },
   rowName: { fontSize: 11, color: Palette.textSecondary },
   rowSub: { fontSize: 10, color: Palette.textTertiary },

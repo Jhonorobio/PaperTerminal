@@ -9,6 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image as ExpoImage } from 'expo-image';
 
 import { Icon } from '@/components/icons';
+import { TrackHealthChip } from '@/components/track-health-chip';
 import { Btn, Card, Empty, Field, Input, SegTabs } from '@/components/ui';
 import { Palette, Radius } from '@/constants/paper';
 import { formatCompactUsd, formatPct, pnlClass } from '@/lib/format';
@@ -16,7 +17,9 @@ import { addRecentAsset } from '@/lib/storage';
 import { serverFeed, ServerFeed } from '@/lib/market/server-feed';
 import { pulseEnrich } from '@/lib/market/pulse';
 import { activeFilterCount, ageMinutes, normalizeFilters, selectFomoTokens, type RawFilters } from '@/lib/market/fomo-filters';
+import { useTrackHealth } from '@/lib/market/track-health';
 import { setFomoServerFilters } from '@/lib/server-base';
+import type { TrackHealth } from '@/lib/track';
 import type { FomoFeedId, FomoFilters, FomoToken } from '@/lib/types';
 import { useApp } from '@/state/app';
 
@@ -45,7 +48,7 @@ function buildFilters(raw: RawFilters): FomoFilters {
  * Memoized row: FOMO updates a handful of tokens per push, so only the rows whose token object
  * actually changed re-render — the other ~88 stay untouched (their objects never change).
  */
-const FomoRow = memo(function FomoRow({ token, nowSec, onPress }: { token: FomoToken; nowSec: number; onPress: () => void }) {
+const FomoRow = memo(function FomoRow({ token, nowSec, health, onPress }: { token: FomoToken; nowSec: number; health: TrackHealth; onPress: () => void }) {
   const tone = pnlClass(token.change24);
   const age = ageLabel(ageMinutes(token, nowSec));
   const changeColor = tone === 'up' ? Palette.green : tone === 'down' ? Palette.red : Palette.textSecondary;
@@ -69,6 +72,8 @@ const FomoRow = memo(function FomoRow({ token, nowSec, onPress }: { token: FomoT
           <Text style={styles.rowSymbol}>{token.symbol ?? `${token.address.slice(0, 4)}…`}</Text>
           {token.rank != null ? <Text style={styles.rowRank}>#{token.rank + 1}</Text> : null}
           {token.launchpad ? <Text style={styles.rowBadge}>{token.launchpad}</Text> : null}
+          {/* Only when this token is being TRACKED — no series, no chip. */}
+          <TrackHealthChip health={health} />
         </View>
         <Text numberOfLines={1} style={styles.rowName}>
           {token.name ?? token.address}
@@ -104,6 +109,10 @@ export default function FomoScreen() {
   const [tick, setTick] = useState(0);
   const [status, setStatus] = useState(() => serverFeed.status());
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  // Health chips of the TRACKED tokens, pushed live on their own topic. The map
+  // only changes identity when a chip actually moves, so the memoized rows stay
+  // cheap; a token that isn't tracked simply has no chip (no series → no data).
+  const trackHealth = useTrackHealth(settings.serverBase);
 
   // One WS to the feed server carries both feeds (and alerts). The phone never
   // talks to FOMO directly anymore.
@@ -211,10 +220,15 @@ export default function FomoScreen() {
   const renderItem = useCallback(
     ({ item }: { item: FomoToken }) => (
       <View style={styles.rowWrap}>
-        <FomoRow token={item} nowSec={nowSec} onPress={() => void openToken(item)} />
+        <FomoRow
+          token={item}
+          nowSec={nowSec}
+          health={trackHealth.get(item.address.toLowerCase()) ?? null}
+          onPress={() => void openToken(item)}
+        />
       </View>
     ),
-    [nowSec, openToken],
+    [nowSec, openToken, trackHealth],
   );
 
   return (

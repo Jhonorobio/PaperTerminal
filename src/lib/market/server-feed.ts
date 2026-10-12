@@ -22,6 +22,8 @@ export const TOPICS = {
   alerts: 'alerts',
   /** Token tracker state (History → Track) — subscribed only while that tab is open. */
   track: 'track',
+  /** Health chips of the tracked tokens (Trade/FOMO/Photon) — light payload. */
+  trackHealth: 'track:health',
 } as const;
 
 type Listener = () => void;

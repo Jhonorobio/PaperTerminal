@@ -11,6 +11,8 @@
  *   fomo              — graduated tokens (snapshot + updates)
  *   fomo_trending     — trending tokens
  *   memescope         — Photon columns { col1, col3 }
+ *   track             — token tracker state (History → Track)
+ *   track:health      — health chips of the tracked tokens (Trade/FOMO/Photon)
  *   alerts:{deviceId} — matched alerts for one device (the in-app panel + push mirror)
  */
 

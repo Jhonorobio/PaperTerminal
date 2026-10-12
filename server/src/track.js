@@ -362,7 +362,8 @@ async function trackTick() {
       if (address) byAddress.set(address, a);
     }
 
-    let changed = false; // anything worth persisting + logging happened
+    let changed = false; // structural events (enter / resume / identity / pause / cut)
+    let snapshotted = false; // a token's stats series grew — its health (may) move
 
     for (const [address, a] of byAddress) {
       let tracked = trackTokens.get(address);
@@ -370,6 +371,10 @@ async function trackTick() {
       // at 1.3s cadence, lastSeenAt mutates memory every pull but rewriting the
       // whole store (up to 500 tokens × 50 snaps) 46x/min would be absurd.
       let persist = false;
+      // Broadcast flag twin of persist: the snapshot cadence is steady (one per
+      // minute per token), so counting it as "changed" would keep the full-list
+      // push pinned to its fast throttle all session.
+      let structural = false;
       if (!tracked) {
         // New in the (already Photon-filtered) column — no local re-check: what
         // Photon returns is what gets tracked, exactly like the Photon screen.
@@ -386,16 +391,18 @@ async function trackTick() {
           snapshots: [],
         };
         persist = true;
+        structural = true;
       } else {
         if (!tracked.visible) {
           tracked.visible = true; // resumed after a pause
           persist = true;
+          structural = true;
         }
         tracked.lastSeenAt = nowIso;
         // The first sighting can miss the logo or the symbol.
-        if (!tracked.symbol && a.symbol) { tracked.symbol = a.symbol; persist = true; }
-        if (!tracked.name && a.name) { tracked.name = a.name; persist = true; }
-        if (!tracked.logo && a.imgUrl) { tracked.logo = a.imgUrl; persist = true; }
+        if (!tracked.symbol && a.symbol) { tracked.symbol = a.symbol; persist = true; structural = true; }
+        if (!tracked.name && a.name) { tracked.name = a.name; persist = true; structural = true; }
+        if (!tracked.logo && a.imgUrl) { tracked.logo = a.imgUrl; persist = true; structural = true; }
       }
 
       // One snapshot per minute, only while the track is still open (dense pulls
@@ -405,13 +412,14 @@ async function trackTick() {
         if (!lastAt || Date.now() - Date.parse(lastAt) >= SNAPSHOT_MS) {
           tracked.snapshots.push(snapshotOf(a));
           persist = true;
+          snapshotted = true;
           if (tracked.snapshots.length >= TRACK_SNAPSHOT_MAX) tracked.status = 'done'; // 50 → se corta
         }
       }
 
       if (persist) {
         trackTokens.set(address, tracked);
-        changed = true;
+        if (structural) changed = true;
       }
     }
 
@@ -448,7 +456,7 @@ async function trackTick() {
 
     evictOverCap();
     if (changed) console.log(`[track] tick · ${byAddress.size} in column · ${Object.keys(trackTokens.getAll()).length} tracked`);
-    maybeBroadcast(changed);
+    maybeBroadcast(changed, snapshotted);
   } catch (err) {
     errorCount += 1;
     lastError = { message: String(err?.message || err), at: Date.now() };
@@ -479,6 +487,8 @@ export function startTrackPoller() {
   // A device that opens the Track tab subscribes and gets the current state on
   // the spot; from then on it is pushed, not polled.
   registerTopicProvider(TRACK_TOPIC, () => ({ event: 'track_updated', data: trackSnapshot() }));
+  // Trade/FOMO/Photon subscribe to the chips-only topic — same instant snapshot.
+  registerTopicProvider(TRACK_HEALTH_TOPIC, () => ({ event: 'track_health', data: { tokens: healthList() } }));
   if (poller) return;
   // A short delay so booting doesn't race Photon's own warm-up with a second
   // cold CycleTLS init.
@@ -533,26 +543,45 @@ export function trackSnapshot() {
 }
 
 const TRACK_TOPIC = 'track';
+// Trade/FOMO/Photon paint only the health chip, and they stay subscribed while
+// those tabs are open — a ~30-byte-per-token payload is what makes that cheap,
+// instead of riding the full list on every push.
+const TRACK_HEALTH_TOPIC = 'track:health';
 // The tracker mutates every 1.3s (presence) and every 60s (snapshots): pushing
 // every change would spam the phone for a list it repaints in one go anyway.
 const BROADCAST_MIN_MS = 2_000;
+// The snapshot flow is steady (one per minute per token): on that rhythm the
+// full list waits a beat — the tabs care about counts and chips, not each minute.
+const BROADCAST_DATA_MS = 15_000;
 // Silence is not freshness — with nothing moving, say so every 30s anyway, so
 // lastFetchAt / errors / gate changes still reach the tab without a poll.
 const BROADCAST_HEARTBEAT_MS = 30_000;
 
 let lastBroadcastAt = 0;
+let lastHealthBroadcastAt = 0;
+
+/** The light payload behind the chips: address + health, nothing else. */
+const healthList = () => listTrackTokens().map((t) => ({ address: t.address, health: t.health }));
 
 /**
- * Push the track state to whoever is watching. Two rules keep it cheap for the
- * wire AND for the phone: nobody subscribed → not even serialized; changed →
- * throttled to BROADCAST_MIN_MS, unchanged → heartbeat only.
+ * Push to whoever is watching. Nobody subscribed → not even serialized. Two
+ * rhythms per topic: structural events (enter/pause/cut) ride the fast lane,
+ * the snapshot flow the slow one, and silence only pushes on the heartbeat.
  */
-function maybeBroadcast(changed) {
-  if (!getSubscriptions().has(TRACK_TOPIC)) return;
+function maybeBroadcast(changed, snapshotted = false) {
   const now = Date.now();
-  if (now - lastBroadcastAt < (changed ? BROADCAST_MIN_MS : BROADCAST_HEARTBEAT_MS)) return;
-  lastBroadcastAt = now;
-  broadcast(TRACK_TOPIC, { event: 'track_updated', data: trackSnapshot() });
+  const fullDue = changed ? BROADCAST_MIN_MS : snapshotted ? BROADCAST_DATA_MS : BROADCAST_HEARTBEAT_MS;
+  if (getSubscriptions().has(TRACK_TOPIC) && now - lastBroadcastAt >= fullDue) {
+    lastBroadcastAt = now;
+    broadcast(TRACK_TOPIC, { event: 'track_updated', data: trackSnapshot() });
+  }
+  // Chips move WITH the snapshots (health reads the series), so they take the
+  // fast lane as soon as any series grew.
+  const healthDue = changed || snapshotted ? BROADCAST_MIN_MS : BROADCAST_HEARTBEAT_MS;
+  if (getSubscriptions().has(TRACK_HEALTH_TOPIC) && now - lastHealthBroadcastAt >= healthDue) {
+    lastHealthBroadcastAt = now;
+    broadcast(TRACK_HEALTH_TOPIC, { event: 'track_health', data: { tokens: healthList() } });
+  }
 }
 
 /**

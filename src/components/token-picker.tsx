@@ -7,6 +7,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { TokenAvatar } from '@/components/token-avatar';
 import { Icon } from '@/components/icons';
+import { TrackHealthChip } from '@/components/track-health-chip';
 import { Card } from '@/components/ui';
 import { Palette, Radius } from '@/constants/paper';
 import { parseManualAsset } from '@/lib/asset';
@@ -14,6 +15,7 @@ import { formatPrice } from '@/lib/format';
 import { serverFeed } from '@/lib/market/server-feed';
 import { fetchHistory, type AlertHistoryEntry } from '@/lib/notifications';
 import { addRecentAsset } from '@/lib/storage';
+import type { TrackHealth } from '@/lib/track';
 import type { Asset } from '@/lib/types';
 import { useApp } from '@/state/app';
 
@@ -36,7 +38,12 @@ function newestPerAddress(entries: AlertHistoryEntry[]): AlertHistoryEntry[] {
   return out;
 }
 
-export function TokenPicker({ value, onChange }: { value: Asset | null; onChange: (next: Asset | null) => void }) {
+/**
+ * Token field + recents/alerts chips. `health` is the tracker's chip for the
+ * SELECTED token — passed in, because only Trade knows which token is showing
+ * (and the picker has no business subscribing to the tracker itself).
+ */
+export function TokenPicker({ value, onChange, health }: { value: Asset | null; onChange: (next: Asset | null) => void; health?: TrackHealth }) {
   const { recents, flash, settings } = useApp();
   const [text, setText] = useState('');
   const [dirty, setDirty] = useState(false);
@@ -94,7 +101,11 @@ export function TokenPicker({ value, onChange }: { value: Asset | null; onChange
 
   return (
     <Card style={styles.card}>
-      <Text style={styles.label}>Token</Text>
+      <View style={styles.labelRow}>
+        <Text style={styles.label}>Token</Text>
+        {/* The tracker's verdict on the selected token — only if it's being tracked. */}
+        <TrackHealthChip health={health ?? null} />
+      </View>
 
       <View style={[styles.inputRow, error ? styles.inputRowError : null]}>
         <TextInput
@@ -189,6 +200,7 @@ export function TokenSummary({ asset, price }: { asset: Asset | null; price?: nu
 
 const styles = StyleSheet.create({
   card: { gap: 8, padding: 12 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   label: { fontSize: 12, fontWeight: '700', color: Palette.textSecondary, textTransform: 'uppercase', letterSpacing: 1 },
 
   inputRow: {
