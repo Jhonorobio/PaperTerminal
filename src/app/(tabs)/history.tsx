@@ -791,7 +791,12 @@ const TrackRow = memo(function TrackRow({
   );
 });
 
-/** Expanded track row — the token's snapshot series (newest first), minute by minute. */
+/**
+ * Expanded track row — the token's WHOLE snapshot series (newest first, minute
+ * by minute). The server caps it at 50 snapshots per token, so "all of it" is a
+ * bounded list: no pagination, no extra request (the detail endpoint already
+ * ships the full series with the per-minute health chip).
+ */
 function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
   if (!detail) return <Text style={styles.detailHint}>Cargando snapshots…</Text>;
   const snaps = detail.snapshots;
@@ -814,8 +819,9 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
           {detail.turnover != null ? ` · vol/mcap ${detail.turnover.toFixed(1)}x` : ''}
         </Text>
       ) : null}
-      {snaps
-        .slice(-15)
+      {/* Full series (≤ the 50-snapshot cap), newest first. A COPY before
+          reverse(): reversing the prop in place flips first/last on re-render. */}
+      {[...snaps]
         .reverse()
         .map((s) => (
           <View key={s.at} style={styles.snapRow}>
@@ -850,9 +856,6 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
             </View>
           </View>
         ))}
-      {snaps.length > 15 ? (
-        <Text style={styles.detailHint}>…{snaps.length - 15} anteriores — el dump completo está en GET /api/track/export.</Text>
-      ) : null}
     </View>
   );
 }
