@@ -538,10 +538,6 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
       <Text style={styles.detailLine}>
         {snaps.length} snapshots · {formatDateTime(first.at)} → {formatDateTime(last.at)}
       </Text>
-      <Text style={styles.detailLine}>
-        MC {formatCompactUsd(first.mcap)} → {formatCompactUsd(last.mcap)} · Holders {formatCompactQty(first.holders)} →{' '}
-        {formatCompactQty(last.holders)}
-      </Text>
       {snaps
         .slice(-15)
         .reverse()
