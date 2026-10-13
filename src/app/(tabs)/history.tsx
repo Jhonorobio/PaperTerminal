@@ -38,6 +38,7 @@ const ALERT_LABELS: Record<string, string> = {
   fomo_trending: 'FOMO Trend.',
   photon_new: 'Photon New',
   photon_graduated: 'Photon Grad.',
+  track_buy: 'Track COMPRAR',
 };
 
 const toneColor = (v: number | null | undefined) =>

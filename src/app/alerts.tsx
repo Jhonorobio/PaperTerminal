@@ -26,6 +26,7 @@ const CATEGORY_LABELS: Record<AlertCategory, string> = {
   fomo_trending: 'FOMO Trend.',
   photon_new: 'Photon New',
   photon_graduated: 'Photon Grad.',
+  track_buy: 'Track COMPRAR',
 };
 
 export default function AlertsScreen() {
@@ -35,6 +36,7 @@ export default function AlertsScreen() {
     fomo_trending: false,
     photon_new: false,
     photon_graduated: false,
+    track_buy: false,
   });
   const [registered, setRegistered] = useState(false);
   const [pushOk, setPushOk] = useState(true);
@@ -128,7 +130,11 @@ export default function AlertsScreen() {
             <View key={id} style={styles.row}>
               <View style={styles.rowLead}>
                 <Text style={styles.rowTitle}>{CATEGORY_LABELS[id]}</Text>
-                <Text style={styles.rowSub}>Te aviso cuando aparezca un token nuevo en ese feed.</Text>
+                <Text style={styles.rowSub}>
+                  {id === 'track_buy'
+                    ? 'Te aviso el minuto en que un token trackeado enciende la señal COMPRAR (bots<150, holders<300, snipers<1%, mcap arriba).'
+                    : 'Te aviso cuando aparezca un token nuevo en ese feed.'}
+                </Text>
               </View>
               <Switch
                 value={categories[id]}
@@ -141,7 +147,8 @@ export default function AlertsScreen() {
           {!registered ? <Text style={styles.fine}>Al activar una categoría se registra este dispositivo para push.</Text> : null}
           <Text style={styles.fine}>
             Los filtros no se configuran acá: son los de las pantallas FOMO y Photon. Se envían al server con cada cambio, y
-            la alerta se dispara con exactamente los mismos — lo que ves en la lista es lo que te avisa.
+            la alerta se dispara con exactamente los mismos — lo que ves en la lista es lo que te avisa. La señal Track
+            COMPRAR viene del análisis de los snapshots del tracker (Track → Filtros).
           </Text>
           <Text style={styles.fine}>El historial de alertas vive ahora en la pestaña History → Alertas.</Text>
         </Card>

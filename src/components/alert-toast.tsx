@@ -23,6 +23,7 @@ const LABELS: Record<string, string> = {
   fomo_trending: 'FOMO Trending',
   photon_new: 'Photon New',
   photon_graduated: 'Photon Graduated',
+  track_buy: 'Track COMPRAR',
 };
 
 export function AlertOverlay() {

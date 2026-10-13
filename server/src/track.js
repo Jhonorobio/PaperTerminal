@@ -32,6 +32,7 @@
 import initCycleTLS from 'cycletls';
 
 import { buildQuery, HEADERS, SEARCH_URL, sanitizeColumnFilters } from './photon.js';
+import { emitTrackBuy } from './notify.js';
 import { broadcast, getSubscriptions, registerTopicProvider } from './ws.js';
 import { normalizeProxy } from './proxy-config.js';
 import { trackConfig, trackTokens } from './stores.js';
@@ -415,10 +416,24 @@ async function trackTick() {
       if (tracked.status === 'active' && tracked.snapshots.length < TRACK_SNAPSHOT_MAX) {
         const lastAt = tracked.snapshots[tracked.snapshots.length - 1]?.at;
         if (!lastAt || Date.now() - Date.parse(lastAt) >= SNAPSHOT_MS) {
+          const wasBuy = trackBuySignal(tracked.snapshots);
           tracked.snapshots.push(snapshotOf(a));
           persist = true;
           snapshotted = true;
           if (tracked.snapshots.length >= TRACK_SNAPSHOT_MAX) tracked.status = 'done'; // 50 → se corta
+          // The minute the series flips to COMPRAR fires the alert (once per
+          // address — the seen-map downstream guarantees it, this is the hook).
+          if (wasBuy !== 'buy' && trackBuySignal(tracked.snapshots) === 'buy') {
+            emitTrackBuy({
+              address,
+              symbol: tracked.symbol,
+              name: tracked.name,
+              logo: tracked.logo,
+              mcap: tracked.snapshots[tracked.snapshots.length - 1]?.mcap ?? null,
+              volume: tracked.snapshots[tracked.snapshots.length - 1]?.volume ?? null,
+              holders: tracked.snapshots[tracked.snapshots.length - 1]?.holders ?? null,
+            });
+          }
         }
       }
 

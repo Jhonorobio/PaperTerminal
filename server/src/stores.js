@@ -15,5 +15,6 @@ export const fomoFilters = new JsonStore('fomo_filters');
 export const photonFilters = new JsonStore('photon_filters');
 export const fomoSeen = new JsonStore('fomo_seen');
 export const photonSeen = new JsonStore('photon_seen');
+export const trackBuySeen = new JsonStore('track_buy_seen');
 export const trackConfig = new JsonStore('track_config');
 export const trackTokens = new JsonStore('track_tokens');

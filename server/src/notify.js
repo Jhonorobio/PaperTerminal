@@ -16,7 +16,7 @@
  * Per-device filters (the old alerts-screen config) are no longer read.
  */
 
-import { notificationConfig, notificationHistory, fomoSeen, photonSeen } from './stores.js';
+import { notificationConfig, notificationHistory, fomoSeen, photonSeen, trackBuySeen } from './stores.js';
 import { getFomoFilters } from './fomo-filter-store.js';
 import { isValidPushToken, sendPush } from './push.js';
 import { sendToDevice } from './ws.js';
@@ -29,6 +29,7 @@ const LABELS = {
   fomo_trending: 'FOMO Trending',
   photon_new: 'Photon New',
   photon_graduated: 'Photon Graduated',
+  track_buy: 'Track COMPRAR',
 };
 
 /**
@@ -129,6 +130,59 @@ export function emitToken(category, token) {
         title: `${token.symbol || token.name || 'Token'} — ${LABELS[category]}`,
         body: bodyOf(token),
         data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category },
+      }).catch(() => {});
+    }
+  }
+
+  trimHistory();
+  return true;
+}
+
+/**
+ * The TRACK buy-signal alert — fired ONCE per address, the minute the tracker's
+ * series flips to 'buy' (entry profile + minute-3 momentum). Not a feed token:
+ * the signal is computed from the tracked series, so it rides its own seen-map
+ * (trackBuySeen) and its own category (`track_buy`), opt-in per device like the
+ * rest. Payload mirrors emitToken's so the app paints the same floating panel.
+ */
+export function emitTrackBuy(token) {
+  const key = token.address;
+  if (trackBuySeen.has(key)) return false;
+  trackBuySeen.set(key, { at: Date.now() });
+
+  // Keep the seen map bounded.
+  const all = trackBuySeen.getAll();
+  const keys = Object.keys(all);
+  if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) trackBuySeen.delete(k);
+
+  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.track_buy);
+  for (const device of devices) {
+    const entry = notificationHistory.add({
+      device_id: device.device_id,
+      category: 'track_buy',
+      address: token.address,
+      chain: 'sol',
+      symbol: token.symbol ?? null,
+      name: token.name ?? null,
+      logo: token.logo ?? null,
+      mcap: token.mcap ?? null,
+      liq: null,
+      vol24h: token.volume ?? null,
+      holders: token.holders ?? null,
+      kolCount: null,
+      ageMinutes: null,
+      notified_at: new Date().toISOString(),
+    });
+
+    // 1. In-app panel: private WS topic, painted by the app wherever it is.
+    sendToDevice(device.device_id, { event: 'alert', data: entry });
+
+    // 2. System push: for when the app is not in the foreground.
+    if (isValidPushToken(device.push_token)) {
+      void sendPush(device.push_token, {
+        title: `${token.symbol || token.name || 'Token'} — COMPRAR`,
+        body: `Señal de compra · MCap $${compact(token.mcap ?? 0)}`,
+        data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category: 'track_buy' },
       }).catch(() => {});
     }
   }
