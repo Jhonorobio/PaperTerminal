@@ -57,6 +57,13 @@ export interface TrackConfig {
 /** One minute of the token's stats — the exact shape the server snapshots. */
 /** The server-computed health pill of a tracked token — read from its own series. */
 export type TrackHealth = 'green' | 'amber' | 'red' | null;
+/**
+ * The server-computed BUY signal (entry profile + minute-3 momentum, validated
+ * at the minute-3 price): 'buy' all four conditions met · 'avoid' fails the
+ * entry profile (bots ≥150, holders ≥300 or snipers ≥1%) · null until there
+ * are 3 snapshots to judge.
+ */
+export type TrackBuySignal = 'buy' | 'avoid' | null;
 
 export interface TrackSnapshot {
   at: string;
@@ -80,6 +87,8 @@ export interface TrackSnapshot {
   health: TrackHealth;
   /** Volume ÷ mcap at that minute — the turnover the chip watches. */
   turnover: number | null;
+  /** The buy signal as it looked AT THAT MINUTE (prefix [0..i], no hindsight). */
+  buySignal: TrackBuySignal;
 }
 
 export interface TrackTokenSummary {
@@ -100,6 +109,13 @@ export interface TrackTokenSummary {
    * null until there are ≥2 snapshots to judge.
    */
   health: TrackHealth;
+  /**
+   * Buy signal (from the snapshot series): 'buy' = entry profile (bots <150,
+   * holders <300, snipers <1%) + mcap up at minute 3 — measured +47% median
+   * from the minute-3 price, 67% positive. 'avoid' = fails the entry profile
+   * (only 25% ended positive). null until 3 snapshots exist.
+   */
+  buySignal: TrackBuySignal;
   /** Holders first→last snapshot, percent (the strongest signal, r=0.71). */
   holdersDeltaPct: number | null;
   /** Buys/sells over the last ~3 min — ≥1 means net buying. */

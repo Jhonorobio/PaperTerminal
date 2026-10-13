@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image as ExpoImage } from 'expo-image';
 
 import { Icon } from '@/components/icons';
-import { TrackHealthChip } from '@/components/track-health-chip';
+import { TrackBuyChip, TrackHealthChip } from '@/components/track-health-chip';
 import { Btn, Card, Empty, Input, SegTabs } from '@/components/ui';
 import { Palette, Radius } from '@/constants/paper';
 import { formatCompactUsd, formatPct, pnlClass } from '@/lib/format';
@@ -19,8 +19,7 @@ import { addRecentAsset } from '@/lib/storage';
 import { serverFeed, ServerFeed } from '@/lib/market/server-feed';
 import { photonLogoUrl, setPhotonServerFilters } from '@/lib/server-base';
 import { activePhotonFilterCount, applyPhotonFilters, normalizePhotonFilters, type RawPhotonFilters } from '@/lib/market/photon-filters';
-import { useTrackHealth } from '@/lib/market/track-health';
-import type { TrackHealth } from '@/lib/track';
+import { useTrackHealth, type TrackChips } from '@/lib/market/track-health';
 import type { PhotonColumn, PhotonFilters, PhotonToken } from '@/lib/types';
 import { useApp } from '@/state/app';
 
@@ -81,7 +80,7 @@ const FILTER_FIELDS: { key: keyof PhotonFilters; label: string }[] = [
   { key: 'topHolders', label: 'Top Holders %' },
 ];
 
-function PhotonRow({ token, health, onPress }: { token: PhotonToken; health: TrackHealth; onPress: () => void }) {
+function PhotonRow({ token, chips, onPress }: { token: PhotonToken; chips: TrackChips | null; onPress: () => void }) {
   // Ganancia hasta el máximo histórico: (ath ÷ market cap actual − 1), mismo lugar y formato
   // que el % de FOMO. El + verde dice cuánto queda hasta el ATH (si lo superó, negativo en
   // rojo). Se mueve en cada frame porque fdv cambia y ath casi no.
@@ -103,7 +102,8 @@ function PhotonRow({ token, health, onPress }: { token: PhotonToken; health: Tra
             {token.symbol ?? `${token.address.slice(0, 4)}…`}
           </Text>
           {/* Only when this token is being TRACKED — no series, no chip. */}
-          <TrackHealthChip health={health} />
+          <TrackBuyChip buySignal={chips?.buySignal ?? null} />
+          <TrackHealthChip health={chips?.health ?? null} />
         </View>
         <Text numberOfLines={1} style={styles.rowName}>
           {token.name ?? token.address}
@@ -251,7 +251,7 @@ export default function PhotonScreen() {
     ({ item }: { item: PhotonToken }) => (
       <PhotonRow
         token={item}
-        health={trackHealth.get(item.address.toLowerCase()) ?? null}
+        chips={trackHealth.get(item.address.toLowerCase()) ?? null}
         onPress={() => void openToken(item)}
       />
     ),

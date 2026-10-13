@@ -16,12 +16,15 @@
 
 import { useEffect, useState } from 'react';
 
-import { fetchTrack, type TrackHealth, type TrackState } from '../track';
+import { fetchTrack, type TrackBuySignal, type TrackHealth, type TrackState } from '../track';
 import { serverFeed, ServerFeed, TOPICS } from './server-feed';
 
-type HealthPayload = { tokens?: { address?: string; health?: TrackHealth }[] };
+/** Both chips the tracker computes per address (health pill + buy signal). */
+export type TrackChips = { health: TrackHealth; buySignal: TrackBuySignal };
 
-let healthByAddress = new Map<string, TrackHealth>();
+type HealthPayload = { tokens?: { address?: string; health?: TrackHealth; buySignal?: TrackBuySignal }[] };
+
+let chipsByAddress = new Map<string, TrackChips>();
 const listeners = new Set<() => void>();
 let refs = 0;
 let offTopic: (() => void) | null = null;
@@ -33,22 +36,23 @@ const notify = () => {
 function apply(payload: HealthPayload | TrackState | null | undefined) {
   const tokens = (payload as HealthPayload | null)?.tokens;
   if (!Array.isArray(tokens)) return;
-  const next = new Map<string, TrackHealth>();
+  const next = new Map<string, TrackChips>();
   for (const t of tokens) {
     // Addresses ride as-is over the wire; lowercase is the app-wide lookup key.
-    if (t?.address) next.set(t.address.toLowerCase(), t.health ?? null);
+    if (t?.address) next.set(t.address.toLowerCase(), { health: t.health ?? null, buySignal: t.buySignal ?? null });
   }
-  let same = next.size === healthByAddress.size;
+  let same = next.size === chipsByAddress.size;
   if (same) {
-    for (const [address, health] of next) {
-      if (healthByAddress.get(address) !== health) {
+    for (const [address, chips] of next) {
+      const prev = chipsByAddress.get(address);
+      if (!prev || prev.health !== chips.health || prev.buySignal !== chips.buySignal) {
         same = false;
         break;
       }
     }
   }
   if (same) return; // identity preserved → every consumer bails out of the render
-  healthByAddress = next;
+  chipsByAddress = next;
   notify();
 }
 
@@ -80,14 +84,15 @@ function acquire(serverBase: string): () => void {
 }
 
 /**
- * Map of tracked address (lowercase) → health chip. Stable identity across
- * pushes that change nothing, so passing it to memoized rows is free.
+ * Map of tracked address (lowercase) → { health, buySignal } chips. Stable
+ * identity across pushes that change nothing, so passing it to memoized rows
+ * is free.
  */
-export function useTrackHealth(serverBase: string): Map<string, TrackHealth> {
-  const [map, setMap] = useState(healthByAddress);
+export function useTrackHealth(serverBase: string): Map<string, TrackChips> {
+  const [map, setMap] = useState(chipsByAddress);
   useEffect(() => {
     const release = acquire(serverBase);
-    const off = subscribe(() => setMap(healthByAddress));
+    const off = subscribe(() => setMap(chipsByAddress));
     return () => {
       off();
       release();

@@ -122,7 +122,7 @@ export default function TradeScreen() {
         <TokenPicker
           value={asset}
           onChange={pickAsset}
-          health={asset ? trackHealth.get(asset.address.toLowerCase()) ?? null : null}
+          chips={asset ? trackHealth.get(asset.address.toLowerCase()) ?? null : null}
         />
 
         <TradePanel asset={asset} />

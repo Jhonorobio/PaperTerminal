@@ -7,7 +7,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { TokenAvatar } from '@/components/token-avatar';
 import { Icon } from '@/components/icons';
-import { TrackHealthChip } from '@/components/track-health-chip';
+import { TrackBuyChip, TrackHealthChip } from '@/components/track-health-chip';
 import { Card } from '@/components/ui';
 import { Palette, Radius } from '@/constants/paper';
 import { parseManualAsset } from '@/lib/asset';
@@ -15,7 +15,7 @@ import { formatPrice } from '@/lib/format';
 import { serverFeed } from '@/lib/market/server-feed';
 import { fetchHistory, type AlertHistoryEntry } from '@/lib/notifications';
 import { addRecentAsset } from '@/lib/storage';
-import type { TrackHealth } from '@/lib/track';
+import type { TrackChips } from '@/lib/market/track-health';
 import type { Asset } from '@/lib/types';
 import { useApp } from '@/state/app';
 
@@ -39,11 +39,11 @@ function newestPerAddress(entries: AlertHistoryEntry[]): AlertHistoryEntry[] {
 }
 
 /**
- * Token field + recents/alerts chips. `health` is the tracker's chip for the
+ * Token field + recents/alerts chips. `chips` are the tracker's pills for the
  * SELECTED token — passed in, because only Trade knows which token is showing
  * (and the picker has no business subscribing to the tracker itself).
  */
-export function TokenPicker({ value, onChange, health }: { value: Asset | null; onChange: (next: Asset | null) => void; health?: TrackHealth }) {
+export function TokenPicker({ value, onChange, chips }: { value: Asset | null; onChange: (next: Asset | null) => void; chips?: TrackChips | null }) {
   const { recents, flash, settings } = useApp();
   const [text, setText] = useState('');
   const [dirty, setDirty] = useState(false);
@@ -104,7 +104,8 @@ export function TokenPicker({ value, onChange, health }: { value: Asset | null; 
       <View style={styles.labelRow}>
         <Text style={styles.label}>Token</Text>
         {/* The tracker's verdict on the selected token — only if it's being tracked. */}
-        <TrackHealthChip health={health ?? null} />
+        <TrackBuyChip buySignal={chips?.buySignal ?? null} />
+        <TrackHealthChip health={chips?.health ?? null} />
       </View>
 
       <View style={[styles.inputRow, error ? styles.inputRowError : null]}>

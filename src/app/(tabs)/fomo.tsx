@@ -9,7 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image as ExpoImage } from 'expo-image';
 
 import { Icon } from '@/components/icons';
-import { TrackHealthChip } from '@/components/track-health-chip';
+import { TrackBuyChip, TrackHealthChip } from '@/components/track-health-chip';
 import { Btn, Card, Empty, Field, Input, SegTabs } from '@/components/ui';
 import { Palette, Radius } from '@/constants/paper';
 import { formatCompactUsd, formatPct, pnlClass } from '@/lib/format';
@@ -17,9 +17,8 @@ import { addRecentAsset } from '@/lib/storage';
 import { serverFeed, ServerFeed } from '@/lib/market/server-feed';
 import { pulseEnrich } from '@/lib/market/pulse';
 import { activeFilterCount, ageMinutes, normalizeFilters, selectFomoTokens, type RawFilters } from '@/lib/market/fomo-filters';
-import { useTrackHealth } from '@/lib/market/track-health';
+import { useTrackHealth, type TrackChips } from '@/lib/market/track-health';
 import { setFomoServerFilters } from '@/lib/server-base';
-import type { TrackHealth } from '@/lib/track';
 import type { FomoFeedId, FomoFilters, FomoToken } from '@/lib/types';
 import { useApp } from '@/state/app';
 
@@ -48,7 +47,7 @@ function buildFilters(raw: RawFilters): FomoFilters {
  * Memoized row: FOMO updates a handful of tokens per push, so only the rows whose token object
  * actually changed re-render — the other ~88 stay untouched (their objects never change).
  */
-const FomoRow = memo(function FomoRow({ token, nowSec, health, onPress }: { token: FomoToken; nowSec: number; health: TrackHealth; onPress: () => void }) {
+const FomoRow = memo(function FomoRow({ token, nowSec, chips, onPress }: { token: FomoToken; nowSec: number; chips: TrackChips | null; onPress: () => void }) {
   const tone = pnlClass(token.change24);
   const age = ageLabel(ageMinutes(token, nowSec));
   const changeColor = tone === 'up' ? Palette.green : tone === 'down' ? Palette.red : Palette.textSecondary;
@@ -73,7 +72,8 @@ const FomoRow = memo(function FomoRow({ token, nowSec, health, onPress }: { toke
           {token.rank != null ? <Text style={styles.rowRank}>#{token.rank + 1}</Text> : null}
           {token.launchpad ? <Text style={styles.rowBadge}>{token.launchpad}</Text> : null}
           {/* Only when this token is being TRACKED — no series, no chip. */}
-          <TrackHealthChip health={health} />
+          <TrackBuyChip buySignal={chips?.buySignal ?? null} />
+          <TrackHealthChip health={chips?.health ?? null} />
         </View>
         <Text numberOfLines={1} style={styles.rowName}>
           {token.name ?? token.address}
@@ -223,7 +223,7 @@ export default function FomoScreen() {
         <FomoRow
           token={item}
           nowSec={nowSec}
-          health={trackHealth.get(item.address.toLowerCase()) ?? null}
+          chips={trackHealth.get(item.address.toLowerCase()) ?? null}
           onPress={() => void openToken(item)}
         />
       </View>

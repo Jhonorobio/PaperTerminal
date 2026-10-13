@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Palette } from '@/constants/paper';
-import type { TrackHealth } from '@/lib/track';
+import type { TrackBuySignal, TrackHealth } from '@/lib/track';
 
 /**
  * The health chip the tracker computes from a token's snapshot series — the same
@@ -14,6 +14,32 @@ export const HEALTH_META: Record<Exclude<TrackHealth, null>, { label: string; co
   amber: { label: 'Duda', color: Palette.warning },
   red: { label: 'Distribuye', color: Palette.red },
 };
+
+/**
+ * The BUY signal chip — "¿compro?" answered from the entry profile + minute-3
+ * momentum (validated at the minute-3 price, not the entry price). 'buy' renders
+ * as a solid call to act; 'avoid' as an explicit warning. null renders nothing.
+ */
+export const BUY_META: Record<Exclude<TrackBuySignal, null>, { label: string; color: string }> = {
+  buy: { label: 'COMPRAR', color: Palette.green },
+  avoid: { label: 'EVITAR', color: Palette.red },
+};
+
+export function TrackBuyChip({ buySignal }: { buySignal: TrackBuySignal }) {
+  if (!buySignal) return null;
+  const meta = BUY_META[buySignal];
+  const solid = buySignal === 'buy';
+  return (
+    <View
+      style={[
+        styles.chip,
+        { backgroundColor: solid ? meta.color : `${meta.color}22`, borderColor: meta.color },
+      ]}
+    >
+      <Text style={[styles.text, { color: solid ? Palette.bgPrimary : meta.color }]}>{meta.label}</Text>
+    </View>
+  );
+}
 
 export function TrackHealthChip({ health }: { health: TrackHealth }) {
   if (!health) return null;
