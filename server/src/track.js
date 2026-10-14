@@ -688,17 +688,19 @@ export function trackHealth(snaps) {
  * snapshot series the same prefix-safe way as the health chip (each minute
  * reads only [0..i], so the timeline shows the live signal, never hindsight).
  *
- * Validated on 132 finished tracks (entry measured at the minute-3 price, the
+ * Validated on 147 finished tracks (entry measured at the minute-3 price, the
  * earliest a human can act on it — NOT the min-0 price, which inflates
- * everything): the profile below ended +47% median / 67% positive / pico +134%
- * vs −25% / 26% for the rest. The four measured separators, winners vs traps:
- *   · bots (tpHolders) < 150   AUC 0.23 — the STRONGEST separator there is
- *   · holders < 300            AUC 0.25 — winners enter into a smaller crowd
- *   · snipers < 1%             no sniper swarm waiting to dump
+ * everything): the profile below ended +29% median / 62% positive vs −34% /
+ * 26% for the rest. The four measured separators, winners vs traps:
+ *   · bots (tpHolders) < 150   the STRONGEST separator there is
+ *   · holders < 300            winners enter into a smaller crowd
+ *   · snipers < 1%             no sniper swarm waiting to dump. Demanded WITH
+ *     data: a missing value fails too (relaxing it to "pass" doubled the
+ *     alerts but dropped precision 62% → 50% — kept strict on purpose)
  *   · mcap up at minute 3      momentum confirmed, not hoped
- * 'buy' needs all four; 'avoid' is the explicit fail of the first three (a
- * token that fails the entry profile ended below 75% of the time); null until
- * there are 3 snapshots to judge — no data, no signal, never a guess.
+ * 'buy' needs all four; 'avoid' is the explicit fail of the entry profile (a
+ * token that fails it ended below 74% of the time); null until there are 3
+ * snapshots to judge — no data, no signal, never a guess.
  */
 export function trackBuySignal(snaps) {
   if (!Array.isArray(snaps) || snaps.length < 3) return null;

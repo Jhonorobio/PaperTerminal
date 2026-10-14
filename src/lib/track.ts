@@ -111,9 +111,9 @@ export interface TrackTokenSummary {
   health: TrackHealth;
   /**
    * Buy signal (from the snapshot series): 'buy' = entry profile (bots <150,
-   * holders <300, snipers <1%) + mcap up at minute 3 — measured +47% median
-   * from the minute-3 price, 67% positive. 'avoid' = fails the entry profile
-   * (only 25% ended positive). null until 3 snapshots exist.
+   * holders <300, snipers <1%) + mcap up at minute 3 — measured 62% positive
+   * from the minute-3 price vs 26% for the rest. 'avoid' = fails the entry
+   * profile (74% ended below). null until 3 snapshots exist.
    */
   buySignal: TrackBuySignal;
   /** Holders first→last snapshot, percent (the strongest signal, r=0.71). */
