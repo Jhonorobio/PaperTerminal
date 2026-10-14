@@ -941,6 +941,23 @@ export function summarizeTrackToken(t) {
     strongBuy: trackStrongBuy(snaps),
     // chip B: verde + bundle quieto sin llegar a buy — informativo, con TP/SL
     watchSignal: trackWatchSignal(snaps),
+    // Latest Pulse + Azura readings (newest snapshot) — the list row's extra
+    // chips. null on tokens tracked before those sources existed.
+    insiderPct: last?.insiderPct ?? null,
+    smartTraderPct: last?.smartTraderPct ?? null,
+    proTraders: last?.proTraders ?? null,
+    kolCount: last?.kolCount ?? null,
+    creatorMints: last?.creatorMints ?? null,
+    creatorGraduated: last?.creatorGraduated ?? null,
+    overallSecurity: last?.overallSecurity ?? null,
+    securityFlags: last?.securityFlags ?? null,
+    volChange5m: last?.volChange5m ?? null,
+    volChange1h: last?.volChange1h ?? null,
+    buyVol5m: last?.buyVol5m ?? null,
+    sellVol5m: last?.sellVol5m ?? null,
+    buyVol1h: last?.buyVol1h ?? null,
+    sellVol1h: last?.sellVol1h ?? null,
+    proTradersAz: last?.proTradersAz ?? null,
   };
 }
 

@@ -158,6 +158,25 @@ export interface TrackTokenSummary {
    * +100%). Informational, no alert: it exists to be watched, not chased.
    */
   watchSignal: boolean;
+  /** Latest snapshot's Trenchers Pulse reading — null on older tokens. */
+  insiderPct: number | null;
+  smartTraderPct: number | null;
+  proTraders: number | null;
+  kolCount: number | null;
+  creatorMints: number | null;
+  creatorGraduated: number | null;
+  /** Latest snapshot's Azura reading — security verdict + triggered flags. */
+  overallSecurity: string | null;
+  securityFlags: string[] | null;
+  /** Latest snapshot's volume rhythm (% change) and $ buy vs sell split. */
+  volChange5m: number | null;
+  volChange1h: number | null;
+  buyVol5m: number | null;
+  sellVol5m: number | null;
+  buyVol1h: number | null;
+  sellVol1h: number | null;
+  /** Azura's own pro-trader count (different metric than Pulse's `proTraders`). */
+  proTradersAz: number | null;
   /** Holders first→last snapshot, percent (the strongest signal, r=0.71). */
   holdersDeltaPct: number | null;
   /** Buys/sells over the last ~3 min — ≥1 means net buying. */

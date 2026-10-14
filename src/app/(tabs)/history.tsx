@@ -802,6 +802,8 @@ const TrackRow = memo(function TrackRow({
               </Text>
             ) : null}
           </Text>
+          {/* Pulse + Azura del último snapshot — vacío en tokens viejos (nulls) */}
+          <SourceChips s={t} />
           <View style={styles.rowAddr}>
             <Text style={styles.addrText}>
               {t.snapshotCount}/{snapshotMax} snaps
@@ -938,6 +940,8 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
                 <MiniStat icon="package" value={pct(s.bundlePct)} sub={formatCompactQty(s.bundleHolders)} tone={Palette.paper} />
                 <MiniStat icon="cpu" value={formatCompactQty(s.tpHolders)} tone={Palette.warning} />
               </View>
+              {/* Pulse + Azura de ESA ventana — chips por minuto, como los demás */}
+              <SourceChips s={s} />
             </View>
           </View>
         ))}
@@ -970,6 +974,121 @@ function MiniStat({
       <Text style={[styles.chipValue, valueTone ? { color: valueTone } : null]}>{value}</Text>
       {sub ? <Text style={styles.chipSub}>{sub}</Text> : null}
     </View>
+  );
+}
+
+/** The two extra sources per snapshot (Trenchers Pulse + Azura getCard). */
+type SourceFields = {
+  insiderPct: number | null;
+  smartTraderPct: number | null;
+  proTraders: number | null;
+  kolCount: number | null;
+  creatorMints: number | null;
+  creatorGraduated: number | null;
+  overallSecurity: string | null;
+  securityFlags: string[] | null;
+  volChange5m: number | null;
+  volChange1h: number | null;
+  buyVol5m: number | null;
+  sellVol5m: number | null;
+  buyVol1h: number | null;
+  sellVol1h: number | null;
+  proTradersAz: number | null;
+};
+
+/** Azura verdict → colour: LOW green, WARN/MEDIUM amber, HIGH+ red. */
+const SECURITY_TONE: Record<string, string> = {
+  LOW: Palette.green,
+  MEDIUM: Palette.warning,
+  WARN: Palette.warning,
+  HIGH: Palette.red,
+  CRITICAL: Palette.red,
+};
+
+const rhythmTone = (v: number) => (v > 0 ? Palette.green : v < 0 ? Palette.red : Palette.textSecondary);
+
+/**
+ * Pulse + Azura chips (SMART/INS/PRO/KOL/DEV and SEG/volume rhythm/pro·AZ).
+ * Shared by the timeline (each minute's snapshot) and the list row (its newest
+ * snapshot via summarizeTrackToken). A token tracked before those sources
+ * existed has all-null fields → renders nothing, so old rows stay identical.
+ */
+function SourceChips({ s }: { s: SourceFields }) {
+  const hasPulse =
+    s.insiderPct != null ||
+    s.smartTraderPct != null ||
+    s.proTraders != null ||
+    s.kolCount != null ||
+    s.creatorMints != null ||
+    s.creatorGraduated != null;
+  const hasAzura =
+    s.overallSecurity != null ||
+    (s.securityFlags?.length ?? 0) > 0 ||
+    s.volChange5m != null ||
+    s.volChange1h != null ||
+    s.buyVol5m != null ||
+    s.sellVol5m != null ||
+    s.buyVol1h != null ||
+    s.sellVol1h != null ||
+    s.proTradersAz != null;
+  if (!hasPulse && !hasAzura) return null;
+  const flags = s.securityFlags?.length ?? 0;
+  return (
+    <>
+      {hasPulse ? (
+        <View style={styles.chipRow}>
+          {s.smartTraderPct != null ? (
+            <MiniStat label="SMART" value={formatPct(s.smartTraderPct, { sign: false })} valueTone={Palette.green} />
+          ) : null}
+          {s.insiderPct != null ? (
+            <MiniStat label="INS" value={formatPct(s.insiderPct, { sign: false })} valueTone={Palette.paper} />
+          ) : null}
+          {s.proTraders != null ? <MiniStat label="PRO" value={formatCompactQty(s.proTraders)} valueTone={Palette.warning} /> : null}
+          {s.kolCount != null ? <MiniStat label="KOL" value={formatCompactQty(s.kolCount)} /> : null}
+          {s.creatorMints != null || s.creatorGraduated != null ? (
+            <MiniStat
+              label="DEV"
+              value={formatCompactQty(s.creatorMints ?? 0)}
+              sub={s.creatorGraduated != null ? `→${formatCompactQty(s.creatorGraduated)}` : undefined}
+              valueTone={Palette.warning}
+            />
+          ) : null}
+        </View>
+      ) : null}
+      {hasAzura ? (
+        <View style={styles.chipRow}>
+          {s.overallSecurity != null || flags > 0 ? (
+            <MiniStat
+              label="SEG"
+              value={s.overallSecurity ?? '⚠'}
+              sub={flags > 0 ? `${flags}⚠` : undefined}
+              valueTone={flags > 0 ? Palette.red : (SECURITY_TONE[s.overallSecurity ?? ''] ?? Palette.textSecondary)}
+            />
+          ) : null}
+          {s.volChange5m != null ? (
+            <MiniStat label="V5m" value={formatPct(s.volChange5m, { sign: true })} valueTone={rhythmTone(s.volChange5m)} />
+          ) : null}
+          {s.volChange1h != null ? (
+            <MiniStat label="V1h" value={formatPct(s.volChange1h, { sign: true })} valueTone={rhythmTone(s.volChange1h)} />
+          ) : null}
+          {s.buyVol5m != null || s.sellVol5m != null ? (
+            <MiniStat
+              label="C/V5m"
+              value={`${formatCompactUsd(s.buyVol5m)}/${formatCompactUsd(s.sellVol5m)}`}
+              valueTone={(s.buyVol5m ?? 0) >= (s.sellVol5m ?? 0) ? Palette.green : Palette.red}
+            />
+          ) : null}
+          {s.buyVol1h != null || s.sellVol1h != null ? (
+            <MiniStat
+              label="C/V1h"
+              value={`${formatCompactUsd(s.buyVol1h)}/${formatCompactUsd(s.sellVol1h)}`}
+              valueTone={(s.buyVol1h ?? 0) >= (s.sellVol1h ?? 0) ? Palette.green : Palette.red}
+            />
+          ) : null}
+          {s.proTradersAz != null ? <MiniStat label="PRO·AZ" value={formatCompactQty(s.proTradersAz)} valueTone={Palette.paper} /> : null}
+        </View>
+      ) : null}
+    </>
   );
 }
 
