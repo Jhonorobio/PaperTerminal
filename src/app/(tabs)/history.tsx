@@ -1005,19 +1005,10 @@ type SourceFields = {
   proTradersAz: number | null;
 };
 
-/** Azura verdict → colour: LOW green, WARN/MEDIUM amber, HIGH+ red. */
-const SECURITY_TONE: Record<string, string> = {
-  LOW: Palette.green,
-  MEDIUM: Palette.warning,
-  WARN: Palette.warning,
-  HIGH: Palette.red,
-  CRITICAL: Palette.red,
-};
-
 const rhythmTone = (v: number) => (v > 0 ? Palette.green : v < 0 ? Palette.red : Palette.textSecondary);
 
 /**
- * Pulse + Azura chips (SMART/INS/PRO/KOL/DEV and SEG/volume rhythm/pro·AZ) as
+ * Pulse + Azura chips (SMART/INS/PRO/KOL/DEV, volume rhythm, pro·AZ) as
  * ONE flowing row, so the metrics column packs lines full instead of leaving
  * half-empty rows. Timeline only (the list card shows none of this). A token
  * tracked before those sources existed has all-null fields → renders nothing.
@@ -1030,9 +1021,9 @@ function SourceChips({ s }: { s: SourceFields }) {
     s.kolCount != null ||
     s.creatorMints != null ||
     s.creatorGraduated != null;
+  const flags = s.securityFlags?.length ?? 0;
   const hasAzura =
-    s.overallSecurity != null ||
-    (s.securityFlags?.length ?? 0) > 0 ||
+    flags > 0 ||
     s.volChange5m != null ||
     s.volChange1h != null ||
     s.buyVol5m != null ||
@@ -1041,7 +1032,6 @@ function SourceChips({ s }: { s: SourceFields }) {
     s.sellVol1h != null ||
     s.proTradersAz != null;
   if (!hasPulse && !hasAzura) return null;
-  const flags = s.securityFlags?.length ?? 0;
   return (
     <View style={styles.chipRow}>
       {s.smartTraderPct != null ? (
@@ -1060,12 +1050,15 @@ function SourceChips({ s }: { s: SourceFields }) {
           valueTone={Palette.warning}
         />
       ) : null}
-      {s.overallSecurity != null || flags > 0 ? (
+      {/* Solo si la auditoría de Azura encendió algo real (honeypot,
+          washTrading…) — el veredicto "WARN" genérico se quitó: siempre
+          decía lo mismo. */}
+      {flags > 0 ? (
         <MiniStat
-          label="SEG"
-          value={s.overallSecurity ?? '⚠'}
-          sub={flags > 0 ? `${flags}⚠` : undefined}
-          valueTone={flags > 0 ? Palette.red : (SECURITY_TONE[s.overallSecurity ?? ''] ?? Palette.textSecondary)}
+          icon="warning"
+          value={s.securityFlags?.[0] ?? '⚠'}
+          sub={flags > 1 ? `+${flags - 1}` : undefined}
+          valueTone={Palette.red}
         />
       ) : null}
       {s.volChange5m != null ? (
