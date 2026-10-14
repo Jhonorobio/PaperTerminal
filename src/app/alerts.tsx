@@ -132,7 +132,7 @@ export default function AlertsScreen() {
                 <Text style={styles.rowTitle}>{CATEGORY_LABELS[id]}</Text>
                 <Text style={styles.rowSub}>
                   {id === 'track_buy'
-                    ? 'Te aviso el minuto en que un token trackeado enciende la señal COMPRAR (bots<150, holders<300, snipers<1%, mcap arriba).'
+                    ? 'Te aviso el minuto en que un token trackeado enciende la señal COMPRAR (bots<150, holders<300, snipers<1% —o bundle quieto si no hay dato—, mcap arriba).'
                     : 'Te aviso cuando aparezca un token nuevo en ese feed.'}
                 </Text>
               </View>

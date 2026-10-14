@@ -61,6 +61,10 @@ export const TRACK_TOKENS_MAX = 500;
 const BUY_MAX_TP_HOLDERS = 150;
 const BUY_MAX_HOLDERS = 300;
 const BUY_MAX_SNIPERS_PCT = 1;
+// Bundle growth (entry → now) above this ratio = insiders stacking wallets in
+// minutes: the measured death sentence (0 of 25 tokens that grew ≥1.5x through
+// minute 3 ended above; AUC 0.06 — the strongest separator in the dataset).
+const BUY_MAX_QUIET_RATIO = 1.4;
 
 const numOrNull = (v) => {
   if (v == null || v === '') return null;
@@ -582,7 +586,7 @@ let lastHealthBroadcastAt = 0;
 
 /** The light payload behind the chips: address + health + buy, nothing else. */
 const healthList = () =>
-  listTrackTokens().map((t) => ({ address: t.address, health: t.health, buySignal: t.buySignal }));
+  listTrackTokens().map((t) => ({ address: t.address, health: t.health, buySignal: t.buySignal, strongBuy: t.strongBuy }));
 
 /**
  * Push to whoever is watching. Nobody subscribed → not even serialized. Two
@@ -684,6 +688,21 @@ export function trackHealth(snaps) {
 }
 
 /**
+ * Bundle growth from entry (first snapshot) to minute 3 — the measured
+ * insider-accretion gauge, always over the same validated 0→3 window so the
+ * verdict never drifts as the track runs longer. Winners enter with the
+ * bundle QUIET (<1.4x growth); the ones whose bundled wallets multiply in
+ * minutes die (0 of 25 that grew ≥1.5x ended above; AUC 0.06, the strongest
+ * separator ever measured here). Null when either endpoint is missing.
+ */
+function bundleQuietRatio(snaps) {
+  const first = numOrNull(snaps[0]?.bundleHolders);
+  const third = numOrNull(snaps[2]?.bundleHolders);
+  if (first == null || first <= 0 || third == null) return null;
+  return third / first;
+}
+
+/**
  * The BUY signal — the one number to answer "¿compro?" — computed from the
  * snapshot series the same prefix-safe way as the health chip (each minute
  * reads only [0..i], so the timeline shows the live signal, never hindsight).
@@ -691,12 +710,15 @@ export function trackHealth(snaps) {
  * Validated on 147 finished tracks (entry measured at the minute-3 price, the
  * earliest a human can act on it — NOT the min-0 price, which inflates
  * everything): the profile below ended +29% median / 62% positive vs −34% /
- * 26% for the rest. The four measured separators, winners vs traps:
+ * 26% for the rest. The measured separators, winners vs traps:
  *   · bots (tpHolders) < 150   the STRONGEST separator there is
  *   · holders < 300            winners enter into a smaller crowd
- *   · snipers < 1%             no sniper swarm waiting to dump. Demanded WITH
- *     data: a missing value fails too (relaxing it to "pass" doubled the
- *     alerts but dropped precision 62% → 50% — kept strict on purpose)
+ *   · snipers < 1%             no sniper swarm waiting to dump, when the value
+ *     is reported. A MISSING value neither passes for free (that relaxation
+ *     halved the precision, 62% → 50%) nor kills the signal (37% of tokens
+ *     never report it): it must be backed by a QUIET BUNDLE instead — bundle
+ *     growth <1.4x. That substitute recovered the coverage at full precision
+ *     (19 signals, 63% positive, +28% median).
  *   · mcap up at minute 3      momentum confirmed, not hoped
  * 'buy' needs all four; 'avoid' is the explicit fail of the entry profile (a
  * token that fails it ended below 74% of the time); null until there are 3
@@ -706,14 +728,30 @@ export function trackBuySignal(snaps) {
   if (!Array.isArray(snaps) || snaps.length < 3) return null;
   const first = snaps[0];
   const third = snaps[2];
-  if (numOrNull(first.tpHolders) == null || numOrNull(first.holders) == null || numOrNull(first.snipersPct) == null) return null;
-  const profile =
-    first.tpHolders < BUY_MAX_TP_HOLDERS && first.holders < BUY_MAX_HOLDERS && first.snipersPct < BUY_MAX_SNIPERS_PCT;
+  if (numOrNull(first.tpHolders) == null || numOrNull(first.holders) == null) return null;
+  const snipersOk =
+    numOrNull(first.snipersPct) != null
+      ? first.snipersPct < BUY_MAX_SNIPERS_PCT
+      : (bundleQuietRatio(snaps) ?? Infinity) < BUY_MAX_QUIET_RATIO;
+  const profile = first.tpHolders < BUY_MAX_TP_HOLDERS && first.holders < BUY_MAX_HOLDERS && snipersOk;
   if (!profile) return 'avoid';
   // Momentum is what turns the profile into a signal: the profile alone still
   // needs the first move to confirm — buying a quiet profile is timing luck.
   if (numOrNull(first.mcap) == null || numOrNull(third.mcap) == null) return null;
   return third.mcap > first.mcap ? 'buy' : null;
+}
+
+/**
+ * COMPRAR FUERTE — the buy signal PLUS a bundle that stayed quiet (<1.4x).
+ * The intersection measured 75% positive / +109% median / +236% peak from the
+ * minute-3 price, the strongest cell in the dataset — flagged experimental on
+ * purpose: the sample is still n=4, so the label stays until more tokens
+ * confirm it. Never true without the buy signal underneath.
+ */
+export function trackStrongBuy(snaps) {
+  if (trackBuySignal(snaps) !== 'buy') return false;
+  const ratio = bundleQuietRatio(snaps);
+  return ratio != null && ratio < BUY_MAX_QUIET_RATIO;
 }
 
 /**
@@ -726,7 +764,7 @@ export function snapshotsWithHealth(snaps) {
   return series.map((s, i) => {
     const prefix = series.slice(0, i + 1);
     const h = trackHealth(prefix);
-    return { ...s, health: h.health, turnover: h.turnover, buySignal: trackBuySignal(prefix) };
+    return { ...s, health: h.health, turnover: h.turnover, buySignal: trackBuySignal(prefix), strongBuy: trackStrongBuy(prefix) };
   });
 }
 
@@ -758,6 +796,8 @@ export function summarizeTrackToken(t) {
     ...trackHealth(snaps),
     // the buy signal: 'buy' / 'avoid' / null (needs the first 3 minutes)
     buySignal: trackBuySignal(snaps),
+    // buy + bundle quieto — la celda más fuerte del dataset (experimental, n=4)
+    strongBuy: trackStrongBuy(snaps),
   };
 }
 

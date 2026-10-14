@@ -72,7 +72,7 @@ const FomoRow = memo(function FomoRow({ token, nowSec, chips, onPress }: { token
           {token.rank != null ? <Text style={styles.rowRank}>#{token.rank + 1}</Text> : null}
           {token.launchpad ? <Text style={styles.rowBadge}>{token.launchpad}</Text> : null}
           {/* Only when this token is being TRACKED — no series, no chip. */}
-          <TrackBuyChip buySignal={chips?.buySignal ?? null} />
+          <TrackBuyChip buySignal={chips?.buySignal ?? null} strong={chips?.strongBuy ?? false} />
           <TrackHealthChip health={chips?.health ?? null} />
         </View>
         <Text numberOfLines={1} style={styles.rowName}>

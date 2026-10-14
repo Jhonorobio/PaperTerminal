@@ -20,9 +20,11 @@ import { fetchTrack, type TrackBuySignal, type TrackHealth, type TrackState } fr
 import { serverFeed, ServerFeed, TOPICS } from './server-feed';
 
 /** Both chips the tracker computes per address (health pill + buy signal). */
-export type TrackChips = { health: TrackHealth; buySignal: TrackBuySignal };
+export type TrackChips = { health: TrackHealth; buySignal: TrackBuySignal; strongBuy: boolean };
 
-type HealthPayload = { tokens?: { address?: string; health?: TrackHealth; buySignal?: TrackBuySignal }[] };
+type HealthPayload = {
+  tokens?: { address?: string; health?: TrackHealth; buySignal?: TrackBuySignal; strongBuy?: boolean }[];
+};
 
 let chipsByAddress = new Map<string, TrackChips>();
 const listeners = new Set<() => void>();
@@ -39,13 +41,18 @@ function apply(payload: HealthPayload | TrackState | null | undefined) {
   const next = new Map<string, TrackChips>();
   for (const t of tokens) {
     // Addresses ride as-is over the wire; lowercase is the app-wide lookup key.
-    if (t?.address) next.set(t.address.toLowerCase(), { health: t.health ?? null, buySignal: t.buySignal ?? null });
+    if (t?.address)
+      next.set(t.address.toLowerCase(), {
+        health: t.health ?? null,
+        buySignal: t.buySignal ?? null,
+        strongBuy: Boolean(t.strongBuy),
+      });
   }
   let same = next.size === chipsByAddress.size;
   if (same) {
     for (const [address, chips] of next) {
       const prev = chipsByAddress.get(address);
-      if (!prev || prev.health !== chips.health || prev.buySignal !== chips.buySignal) {
+      if (!prev || prev.health !== chips.health || prev.buySignal !== chips.buySignal || prev.strongBuy !== chips.strongBuy) {
         same = false;
         break;
       }

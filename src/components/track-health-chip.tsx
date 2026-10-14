@@ -25,10 +25,14 @@ export const BUY_META: Record<Exclude<TrackBuySignal, null>, { label: string; co
   avoid: { label: 'EVITAR', color: Palette.red },
 };
 
-export function TrackBuyChip({ buySignal }: { buySignal: TrackBuySignal }) {
+/** COMPRAR FUERTE = señal COMPRAR + bundle quieto (la celda más fuerte medida). */
+export const STRONG_BUY_LABEL = '★COMPRAR';
+
+export function TrackBuyChip({ buySignal, strong = false }: { buySignal: TrackBuySignal; strong?: boolean }) {
   if (!buySignal) return null;
   const meta = BUY_META[buySignal];
   const solid = buySignal === 'buy';
+  const label = solid && strong ? STRONG_BUY_LABEL : meta.label;
   return (
     <View
       style={[
@@ -36,7 +40,7 @@ export function TrackBuyChip({ buySignal }: { buySignal: TrackBuySignal }) {
         { backgroundColor: solid ? meta.color : `${meta.color}22`, borderColor: meta.color },
       ]}
     >
-      <Text style={[styles.text, { color: solid ? Palette.bgPrimary : meta.color }]}>{meta.label}</Text>
+      <Text style={[styles.text, { color: solid ? Palette.bgPrimary : meta.color }]}>{label}</Text>
     </View>
   );
 }

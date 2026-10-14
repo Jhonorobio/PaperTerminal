@@ -89,6 +89,8 @@ export interface TrackSnapshot {
   turnover: number | null;
   /** The buy signal as it looked AT THAT MINUTE (prefix [0..i], no hindsight). */
   buySignal: TrackBuySignal;
+  /** COMPRAR FUERTE at that minute: buy + bundle quiet (<1.4x growth). */
+  strongBuy: boolean;
 }
 
 export interface TrackTokenSummary {
@@ -111,11 +113,18 @@ export interface TrackTokenSummary {
   health: TrackHealth;
   /**
    * Buy signal (from the snapshot series): 'buy' = entry profile (bots <150,
-   * holders <300, snipers <1%) + mcap up at minute 3 — measured 62% positive
-   * from the minute-3 price vs 26% for the rest. 'avoid' = fails the entry
-   * profile (74% ended below). null until 3 snapshots exist.
+   * holders <300, snipers <1% when reported — a missing value needs a quiet
+   * bundle <1.4x instead) + mcap up at minute 3 — measured 62% positive from
+   * the minute-3 price vs 26% for the rest. 'avoid' = fails the entry profile
+   * (74% ended below). null until 3 snapshots exist.
    */
   buySignal: TrackBuySignal;
+  /**
+   * COMPRAR FUERTE: buy + bundle quiet <1.4x — the intersection measured 75%
+   * positive / +109% median / +236% peak, the strongest cell found so far
+   * (experimental: the sample is still small).
+   */
+  strongBuy: boolean;
   /** Holders first→last snapshot, percent (the strongest signal, r=0.71). */
   holdersDeltaPct: number | null;
   /** Buys/sells over the last ~3 min — ≥1 means net buying. */

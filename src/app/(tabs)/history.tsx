@@ -5,7 +5,7 @@ import { useFocusEffect, router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 
 import { Icon, type IconName } from '@/components/icons';
-import { BUY_META, HEALTH_META } from '@/components/track-health-chip';
+import { BUY_META, HEALTH_META, STRONG_BUY_LABEL } from '@/components/track-health-chip';
 import { TokenAvatar } from '@/components/token-avatar';
 import { Banner, Btn, Card, DetailRow, Empty, Input, SegTabs, Skeleton } from '@/components/ui';
 import { Palette, Radius, toneTint } from '@/constants/paper';
@@ -756,7 +756,7 @@ const TrackRow = memo(function TrackRow({
                     : { backgroundColor: `${BUY_META.avoid.color}22`, borderColor: BUY_META.avoid.color },
                 ]}>
                 <Text style={[styles.healthText, { color: t.buySignal === 'buy' ? Palette.bgPrimary : BUY_META.avoid.color }]}>
-                  {BUY_META[t.buySignal].label}
+                  {t.buySignal === 'buy' && t.strongBuy ? STRONG_BUY_LABEL : BUY_META[t.buySignal].label}
                 </Text>
               </View>
             ) : null}
@@ -834,7 +834,9 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
                     : HEALTH_META[detail.health].color,
             },
           ]}>
-          {detail.buySignal ? `${BUY_META[detail.buySignal].label} · ` : ''}
+          {detail.buySignal
+            ? `${detail.buySignal === 'buy' && detail.strongBuy ? STRONG_BUY_LABEL : BUY_META[detail.buySignal].label} · `
+            : ''}
           {HEALTH_META[detail.health].label} · holders{' '}
           {detail.holdersDeltaPct == null ? '—' : formatPct(detail.holdersDeltaPct, { sign: true })} · flujo compras/ventas{' '}
           {detail.flowRatio == null ? '—' : detail.flowRatio.toFixed(2)}
@@ -860,7 +862,7 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
                         : { backgroundColor: `${BUY_META.avoid.color}22`, borderColor: BUY_META.avoid.color },
                     ]}>
                     <Text style={[styles.healthText, { color: s.buySignal === 'buy' ? Palette.bgPrimary : BUY_META.avoid.color }]}>
-                      {BUY_META[s.buySignal].label}
+                      {s.buySignal === 'buy' && s.strongBuy ? STRONG_BUY_LABEL : BUY_META[s.buySignal].label}
                     </Text>
                   </View>
                 ) : null}
