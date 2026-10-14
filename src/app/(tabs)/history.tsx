@@ -897,10 +897,13 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
         .reverse()
         .map((s) => (
           <View key={s.at} style={styles.snapRow}>
-            {/* Hora militar (24h) como encabezado; los chips cuelgan debajo,
-                alineados a su izquierda — todo el ancho para los datos. */}
-            <Text style={styles.snapTime}>{time24(s.at)}</Text>
-            <View style={{ gap: 3 }}>
+            {/* Columna de la hora: 24h arriba + chips de Pulse/Azura debajo;
+                las métricas de Photon siguen SEPARADAS en su propia columna. */}
+            <View style={styles.snapTimeCol}>
+              <Text style={styles.snapTime}>{time24(s.at)}</Text>
+              <SourceChips s={s} />
+            </View>
+            <View style={{ flex: 1, gap: 3 }}>
               <View style={styles.chipRow}>
                 {/* el chip tal como estaba EN ESE minuto (serie prefijo 0..i) */}
                 {s.buySignal !== 'buy' && s.watchSignal ? (
@@ -944,8 +947,6 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
                 <MiniStat icon="package" value={pct(s.bundlePct)} sub={formatCompactQty(s.bundleHolders)} tone={Palette.paper} />
                 <MiniStat icon="cpu" value={formatCompactQty(s.tpHolders)} tone={Palette.warning} />
               </View>
-              {/* Pulse + Azura de ESA ventana — chips por minuto, como los demás */}
-              <SourceChips s={s} />
             </View>
           </View>
         ))}
@@ -1145,8 +1146,10 @@ const styles = StyleSheet.create({
   filterActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   detailHint: { fontSize: 11, color: Palette.textTertiary, lineHeight: 15 },
   detailLine: { fontSize: 11, color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
-  // Cada snapshot es una columna: la hora (24h) arriba y los chips debajo.
-  snapRow: { flexDirection: 'column', gap: 4, paddingVertical: 5, borderTopWidth: 1, borderTopColor: Palette.line },
+  // Cada snapshot: columna de la hora (24h + chips Pulse/Azura debajo) y, al
+  // lado, la columna de métricas de Photon como siempre.
+  snapRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 4, borderTopWidth: 1, borderTopColor: Palette.line },
+  snapTimeCol: { width: 112, gap: 4 },
   snapTime: { fontSize: 11, fontWeight: '700', color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, alignItems: 'center' },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 2 },
