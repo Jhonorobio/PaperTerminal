@@ -1017,10 +1017,10 @@ const SECURITY_TONE: Record<string, string> = {
 const rhythmTone = (v: number) => (v > 0 ? Palette.green : v < 0 ? Palette.red : Palette.textSecondary);
 
 /**
- * Pulse + Azura chips (SMART/INS/PRO/KOL/DEV and SEG/volume rhythm/pro·AZ).
- * Shared by the timeline (each minute's snapshot) and the list row (its newest
- * snapshot via summarizeTrackToken). A token tracked before those sources
- * existed has all-null fields → renders nothing, so old rows stay identical.
+ * Pulse + Azura chips (SMART/INS/PRO/KOL/DEV and SEG/volume rhythm/pro·AZ) as
+ * ONE flowing row, so the metrics column packs lines full instead of leaving
+ * half-empty rows. Timeline only (the list card shows none of this). A token
+ * tracked before those sources existed has all-null fields → renders nothing.
  */
 function SourceChips({ s }: { s: SourceFields }) {
   const hasPulse =
@@ -1043,61 +1043,53 @@ function SourceChips({ s }: { s: SourceFields }) {
   if (!hasPulse && !hasAzura) return null;
   const flags = s.securityFlags?.length ?? 0;
   return (
-    <>
-      {hasPulse ? (
-        <View style={styles.chipRow}>
-          {s.smartTraderPct != null ? (
-            <MiniStat label="SMART" value={formatPct(s.smartTraderPct, { sign: false })} valueTone={Palette.green} />
-          ) : null}
-          {s.insiderPct != null ? (
-            <MiniStat label="INS" value={formatPct(s.insiderPct, { sign: false })} valueTone={Palette.paper} />
-          ) : null}
-          {s.proTraders != null ? <MiniStat label="PRO" value={formatCompactQty(s.proTraders)} valueTone={Palette.warning} /> : null}
-          {s.kolCount != null ? <MiniStat label="KOL" value={formatCompactQty(s.kolCount)} /> : null}
-          {s.creatorMints != null || s.creatorGraduated != null ? (
-            <MiniStat
-              label="DEV"
-              value={formatCompactQty(s.creatorMints ?? 0)}
-              sub={s.creatorGraduated != null ? `→${formatCompactQty(s.creatorGraduated)}` : undefined}
-              valueTone={Palette.warning}
-            />
-          ) : null}
-        </View>
+    <View style={styles.chipRow}>
+      {s.smartTraderPct != null ? (
+        <MiniStat label="SMART" value={formatPct(s.smartTraderPct, { sign: false })} valueTone={Palette.green} />
       ) : null}
-      {hasAzura ? (
-        <View style={styles.chipRow}>
-          {s.overallSecurity != null || flags > 0 ? (
-            <MiniStat
-              label="SEG"
-              value={s.overallSecurity ?? '⚠'}
-              sub={flags > 0 ? `${flags}⚠` : undefined}
-              valueTone={flags > 0 ? Palette.red : (SECURITY_TONE[s.overallSecurity ?? ''] ?? Palette.textSecondary)}
-            />
-          ) : null}
-          {s.volChange5m != null ? (
-            <MiniStat label="V5m" value={formatPct(s.volChange5m, { sign: true })} valueTone={rhythmTone(s.volChange5m)} />
-          ) : null}
-          {s.volChange1h != null ? (
-            <MiniStat label="V1h" value={formatPct(s.volChange1h, { sign: true })} valueTone={rhythmTone(s.volChange1h)} />
-          ) : null}
-          {s.buyVol5m != null || s.sellVol5m != null ? (
-            <MiniStat
-              label="C/V5m"
-              value={`${formatCompactUsd(s.buyVol5m)}/${formatCompactUsd(s.sellVol5m)}`}
-              valueTone={(s.buyVol5m ?? 0) >= (s.sellVol5m ?? 0) ? Palette.green : Palette.red}
-            />
-          ) : null}
-          {s.buyVol1h != null || s.sellVol1h != null ? (
-            <MiniStat
-              label="C/V1h"
-              value={`${formatCompactUsd(s.buyVol1h)}/${formatCompactUsd(s.sellVol1h)}`}
-              valueTone={(s.buyVol1h ?? 0) >= (s.sellVol1h ?? 0) ? Palette.green : Palette.red}
-            />
-          ) : null}
-          {s.proTradersAz != null ? <MiniStat label="PRO·AZ" value={formatCompactQty(s.proTradersAz)} valueTone={Palette.paper} /> : null}
-        </View>
+      {s.insiderPct != null ? (
+        <MiniStat label="INS" value={formatPct(s.insiderPct, { sign: false })} valueTone={Palette.paper} />
       ) : null}
-    </>
+      {s.proTraders != null ? <MiniStat label="PRO" value={formatCompactQty(s.proTraders)} valueTone={Palette.warning} /> : null}
+      {s.kolCount != null ? <MiniStat label="KOL" value={formatCompactQty(s.kolCount)} /> : null}
+      {s.creatorMints != null || s.creatorGraduated != null ? (
+        <MiniStat
+          label="DEV"
+          value={formatCompactQty(s.creatorMints ?? 0)}
+          sub={s.creatorGraduated != null ? `→${formatCompactQty(s.creatorGraduated)}` : undefined}
+          valueTone={Palette.warning}
+        />
+      ) : null}
+      {s.overallSecurity != null || flags > 0 ? (
+        <MiniStat
+          label="SEG"
+          value={s.overallSecurity ?? '⚠'}
+          sub={flags > 0 ? `${flags}⚠` : undefined}
+          valueTone={flags > 0 ? Palette.red : (SECURITY_TONE[s.overallSecurity ?? ''] ?? Palette.textSecondary)}
+        />
+      ) : null}
+      {s.volChange5m != null ? (
+        <MiniStat label="V5m" value={formatPct(s.volChange5m, { sign: true })} valueTone={rhythmTone(s.volChange5m)} />
+      ) : null}
+      {s.volChange1h != null ? (
+        <MiniStat label="V1h" value={formatPct(s.volChange1h, { sign: true })} valueTone={rhythmTone(s.volChange1h)} />
+      ) : null}
+      {s.buyVol5m != null || s.sellVol5m != null ? (
+        <MiniStat
+          label="C/V5m"
+          value={`${formatCompactUsd(s.buyVol5m)}/${formatCompactUsd(s.sellVol5m)}`}
+          valueTone={(s.buyVol5m ?? 0) >= (s.sellVol5m ?? 0) ? Palette.green : Palette.red}
+        />
+      ) : null}
+      {s.buyVol1h != null || s.sellVol1h != null ? (
+        <MiniStat
+          label="C/V1h"
+          value={`${formatCompactUsd(s.buyVol1h)}/${formatCompactUsd(s.sellVol1h)}`}
+          valueTone={(s.buyVol1h ?? 0) >= (s.sellVol1h ?? 0) ? Palette.green : Palette.red}
+        />
+      ) : null}
+      {s.proTradersAz != null ? <MiniStat label="PRO·AZ" value={formatCompactQty(s.proTradersAz)} valueTone={Palette.paper} /> : null}
+    </View>
   );
 }
 
@@ -1152,8 +1144,10 @@ const styles = StyleSheet.create({
   detailLine: { fontSize: 11, color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
   // Cada snapshot: columna de la hora (24h + chips de señal debajo) y, al
   // lado, la columna de métricas (Photon + Pulse + Azura) como siempre.
-  snapRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 4, borderTopWidth: 1, borderTopColor: Palette.line },
-  snapTimeCol: { width: 112, gap: 4 },
+  snapRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, paddingVertical: 4, borderTopWidth: 1, borderTopColor: Palette.line },
+  // Finita: solo lo que mide el pill más ancho (SEGUIMIENTO ≈76) — el resto
+  // del ancho es para las métricas, que es donde no caben.
+  snapTimeCol: { width: 78, gap: 4 },
   snapTime: { fontSize: 11, fontWeight: '700', color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, alignItems: 'center' },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 2 },
