@@ -44,6 +44,10 @@ const ALERT_LABELS: Record<string, string> = {
 const toneColor = (v: number | null | undefined) =>
   pnlClass(v) === 'up' ? Palette.green : pnlClass(v) === 'down' ? Palette.red : Palette.textPrimary;
 
+/** Las horas de los snapshots en formato militar (24h, sin AM/PM): "14:50". */
+const time24 = (iso: string) =>
+  new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+
 // The health chip (server-computed from the snapshot series) — shared with the
 // Trade/FOMO/Photon chips via `@/components/track-health-chip` (same labels).
 
@@ -802,8 +806,6 @@ const TrackRow = memo(function TrackRow({
               </Text>
             ) : null}
           </Text>
-          {/* Pulse + Azura del último snapshot — vacío en tokens viejos (nulls) */}
-          <SourceChips s={t} />
           <View style={styles.rowAddr}>
             <Text style={styles.addrText}>
               {t.snapshotCount}/{snapshotMax} snaps
@@ -895,8 +897,10 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
         .reverse()
         .map((s) => (
           <View key={s.at} style={styles.snapRow}>
-            <Text style={styles.snapTime}>{timeOf(s.at)}</Text>
-            <View style={{ flex: 1, gap: 3 }}>
+            {/* Hora militar (24h) como encabezado; los chips cuelgan debajo,
+                alineados a su izquierda — todo el ancho para los datos. */}
+            <Text style={styles.snapTime}>{time24(s.at)}</Text>
+            <View style={{ gap: 3 }}>
               <View style={styles.chipRow}>
                 {/* el chip tal como estaba EN ESE minuto (serie prefijo 0..i) */}
                 {s.buySignal !== 'buy' && s.watchSignal ? (
@@ -1141,8 +1145,9 @@ const styles = StyleSheet.create({
   filterActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   detailHint: { fontSize: 11, color: Palette.textTertiary, lineHeight: 15 },
   detailLine: { fontSize: 11, color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
-  snapRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 4, borderTopWidth: 1, borderTopColor: Palette.line },
-  snapTime: { fontSize: 11, fontWeight: '500', color: Palette.textSecondary, fontVariant: ['tabular-nums'], width: 58 },
+  // Cada snapshot es una columna: la hora (24h) arriba y los chips debajo.
+  snapRow: { flexDirection: 'column', gap: 4, paddingVertical: 5, borderTopWidth: 1, borderTopColor: Palette.line },
+  snapTime: { fontSize: 11, fontWeight: '700', color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, alignItems: 'center' },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   chipLabel: { fontSize: 10, fontWeight: '500', color: Palette.textTertiary },
