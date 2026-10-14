@@ -80,6 +80,17 @@ export interface TrackSnapshot {
   bundlePct: number | null;
   bundleHolders: number | null;
   tpHolders: number | null;
+  /** Trenchers Pulse (fuente 2): % de wallets clasificadas como insiders. */
+  insiderPct: number | null;
+  /** Trenchers Pulse: % de traders inteligentes (rentables) dentro. */
+  smartTraderPct: number | null;
+  /** Trenchers Pulse: cantidad de pro traders. */
+  proTraders: number | null;
+  /** Trenchers Pulse: cantidad de KOLs dentro del token. */
+  kolCount: number | null;
+  /** Trenchers Pulse: historial del dev — mints que creó y cuántos graduaron. */
+  creatorMints: number | null;
+  creatorGraduated: number | null;
   /**
    * The chip as it looked AT THAT MINUTE (server computes it from the prefix
    * [0..i] of the series — no hindsight). null on the first snapshot.

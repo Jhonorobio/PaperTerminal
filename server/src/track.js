@@ -132,7 +132,7 @@ export function setTrackConfig(raw) {
 }
 
 /** One minute's worth of the stats the analysis runs on. */
-function snapshotOf(a) {
+function snapshotOf(a, pulse) {
   return {
     at: new Date().toISOString(),
     mcap: numOrNull(a.fdv),
@@ -148,7 +148,54 @@ function snapshotOf(a) {
     bundlePct: numOrNull(a.bundle_holding_perc),
     bundleHolders: numOrNull(a.bundle_holders_count),
     tpHolders: numOrNull(a.tp_holders_count),
+    // Trenchers Pulse (fuente 2, una llamada por token por minuto — probado
+    // con 20 en paralelo sin rate limit). Un fallo de esta fuente deja nulls:
+    // el snapshot de Photon NUNCA se pierde por una fuente extra caída.
+    insiderPct: pulse?.insiderPct ?? null,
+    smartTraderPct: pulse?.smartTraderPct ?? null,
+    proTraders: pulse?.proTraders ?? null,
+    kolCount: pulse?.kolCount ?? null,
+    creatorMints: pulse?.creatorMints ?? null,
+    creatorGraduated: pulse?.creatorGraduated ?? null,
   };
+}
+
+// ── Trenchers Pulse ──────────────────────────────────────────────────────────
+// The tracker's second source: Photon gives the column (holders/bots/snipers/
+// bundle/fresh), Pulse adds what no column has — insiders, smart traders, KOLs
+// and the dev's launch history. Probed: 20 parallel calls, all 200, no rate
+// limit headers, ~0.5s. A timeout keeps a slow Pulse from stalling the tick.
+const PULSE_URL = 'https://pulse-production.trenchers.ai/pulse/token/';
+const PULSE_TIMEOUT_MS = 5_000;
+
+async function fetchPulse(address) {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), PULSE_TIMEOUT_MS);
+    const res = await fetch(`${PULSE_URL}${address}`, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const j = await res.json();
+    return {
+      insiderPct: numOrNull(j.insider_pct),
+      smartTraderPct: numOrNull(j.smart_trader_pct),
+      proTraders: numOrNull(j.pro_traders_count),
+      kolCount: numOrNull(j.kol_count),
+      creatorMints: numOrNull(j.creator_stats?.mints_created),
+      creatorGraduated: numOrNull(j.creator_stats?.mints_graduated),
+    };
+  } catch {
+    return null; // caída o timeout → nulls en el snapshot, el tick sigue
+  }
+}
+
+/** ¿Le toca snapshot a este token en este tick? (la MISMA regla del loop). */
+function snapshotDue(tracked) {
+  if (!tracked) return true; // nuevo en la columna → primer snapshot ya
+  if (tracked.status !== 'active') return false;
+  if (tracked.snapshots.length >= TRACK_SNAPSHOT_MAX) return false;
+  const lastAt = tracked.snapshots[tracked.snapshots.length - 1]?.at;
+  return !lastAt || Date.now() - Date.parse(lastAt) >= SNAPSHOT_MS;
 }
 
 /**
@@ -375,6 +422,18 @@ async function trackTick() {
     let changed = false; // structural events (enter / resume / identity / pause / cut)
     let snapshotted = false; // a token's stats series grew — its health (may) move
 
+    // Pulse data for every token DUE a snapshot this tick, fetched all at once:
+    // with 5-10 active tokens that's one parallel batch per minute (probed
+    // 20-parallel clean). Done BEFORE the loop so the tick never waits inside
+    // the per-token iteration.
+    const dueAddresses = [...byAddress.keys()].filter((address) => snapshotDue(trackTokens.get(address)));
+    const pulseByAddress = new Map();
+    await Promise.all(
+      dueAddresses.map(async (address) => {
+        pulseByAddress.set(address, await fetchPulse(address));
+      }),
+    );
+
     for (const [address, a] of byAddress) {
       let tracked = trackTokens.get(address);
       // Persist only on structural changes (enter / resume / identity / snapshot):
@@ -417,27 +476,24 @@ async function trackTick() {
 
       // One snapshot per minute, only while the track is still open (dense pulls
       // make the old tick-relative slack unnecessary — due lands within 1.3s).
-      if (tracked.status === 'active' && tracked.snapshots.length < TRACK_SNAPSHOT_MAX) {
-        const lastAt = tracked.snapshots[tracked.snapshots.length - 1]?.at;
-        if (!lastAt || Date.now() - Date.parse(lastAt) >= SNAPSHOT_MS) {
-          const wasBuy = trackBuySignal(tracked.snapshots);
-          tracked.snapshots.push(snapshotOf(a));
-          persist = true;
-          snapshotted = true;
-          if (tracked.snapshots.length >= TRACK_SNAPSHOT_MAX) tracked.status = 'done'; // 50 → se corta
-          // The minute the series flips to COMPRAR fires the alert (once per
-          // address — the seen-map downstream guarantees it, this is the hook).
-          if (wasBuy !== 'buy' && trackBuySignal(tracked.snapshots) === 'buy') {
-            emitTrackBuy({
-              address,
-              symbol: tracked.symbol,
-              name: tracked.name,
-              logo: tracked.logo,
-              mcap: tracked.snapshots[tracked.snapshots.length - 1]?.mcap ?? null,
-              volume: tracked.snapshots[tracked.snapshots.length - 1]?.volume ?? null,
-              holders: tracked.snapshots[tracked.snapshots.length - 1]?.holders ?? null,
-            });
-          }
+      if (snapshotDue(tracked)) {
+        const wasBuy = trackBuySignal(tracked.snapshots);
+        tracked.snapshots.push(snapshotOf(a, pulseByAddress.get(address)));
+        persist = true;
+        snapshotted = true;
+        if (tracked.snapshots.length >= TRACK_SNAPSHOT_MAX) tracked.status = 'done'; // 50 → se corta
+        // The minute the series flips to COMPRAR fires the alert (once per
+        // address — the seen-map downstream guarantees it, this is the hook).
+        if (wasBuy !== 'buy' && trackBuySignal(tracked.snapshots) === 'buy') {
+          emitTrackBuy({
+            address,
+            symbol: tracked.symbol,
+            name: tracked.name,
+            logo: tracked.logo,
+            mcap: tracked.snapshots[tracked.snapshots.length - 1]?.mcap ?? null,
+            volume: tracked.snapshots[tracked.snapshots.length - 1]?.volume ?? null,
+            holders: tracked.snapshots[tracked.snapshots.length - 1]?.holders ?? null,
+          });
         }
       }
 
