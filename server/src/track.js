@@ -132,7 +132,7 @@ export function setTrackConfig(raw) {
 }
 
 /** One minute's worth of the stats the analysis runs on. */
-function snapshotOf(a, pulse) {
+function snapshotOf(a, pulse, card) {
   return {
     at: new Date().toISOString(),
     mcap: numOrNull(a.fdv),
@@ -157,6 +157,18 @@ function snapshotOf(a, pulse) {
     kolCount: pulse?.kolCount ?? null,
     creatorMints: pulse?.creatorMints ?? null,
     creatorGraduated: pulse?.creatorGraduated ?? null,
+    // Azura getCard (fuente 3): seguridad, ritmo del volumen y pro traders
+    // propio (NO es el mismo número que el de Pulse: 52 vs 102 en Pepper —
+    // métricas distintas, por eso van con nombre separado).
+    overallSecurity: card?.overallSecurity ?? null,
+    securityFlags: card?.securityFlags ?? null,
+    volChange5m: card?.volChange5m ?? null,
+    volChange1h: card?.volChange1h ?? null,
+    buyVol5m: card?.buyVol5m ?? null,
+    sellVol5m: card?.sellVol5m ?? null,
+    buyVol1h: card?.buyVol1h ?? null,
+    sellVol1h: card?.sellVol1h ?? null,
+    proTradersAz: card?.proTradersAz ?? null,
   };
 }
 
@@ -196,6 +208,47 @@ function snapshotDue(tracked) {
   if (tracked.snapshots.length >= TRACK_SNAPSHOT_MAX) return false;
   const lastAt = tracked.snapshots[tracked.snapshots.length - 1]?.at;
   return !lastAt || Date.now() - Date.parse(lastAt) >= SNAPSHOT_MS;
+}
+
+// ── Azura getCard (fuente 3) ─────────────────────────────────────────────────
+// Same probe profile as Pulse: 20 parallel calls, all 200, no rate limit.
+// Contributes what neither Photon nor Pulse has: the security audit (wash
+// trading / fake volume / honeypot flags), liquidity depth, the volume rhythm
+// (accelerating vs dying) and Azura's own pro-trader count.
+const AZURA_URL = 'https://gateway.azura.xyz/trpc/v2.tokens.getCard';
+const AZURA_TIMEOUT_MS = 5_000;
+
+async function fetchAzura(address) {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), AZURA_TIMEOUT_MS);
+    const input = encodeURIComponent(JSON.stringify({ json: { chainId: 1399811149, tokenAddress: address } }));
+    const res = await fetch(`${AZURA_URL}?input=${input}`, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const card = (await res.json())?.result?.data?.json;
+    if (!card) return null;
+    const flags = card.securityDetails?.flags;
+    return {
+      overallSecurity: typeof card.securityDetails?.overallSecurity === 'string' ? card.securityDetails.overallSecurity : null,
+      // Solo los flags encendidos (un array vacío = auditoría limpia): guardar
+      // los 20 niveles con su "LOW" repetido solo ensucia el snapshot.
+      securityFlags: flags
+        ? Object.entries(flags)
+            .filter(([, f]) => f?.value === true)
+            .map(([name]) => name)
+        : null,
+      volChange5m: numOrNull(card.stats?.volume?.['5m']?.change),
+      volChange1h: numOrNull(card.stats?.volume?.['1h']?.change),
+      buyVol5m: numOrNull(card.stats?.volume?.['5m']?.buyVolume),
+      sellVol5m: numOrNull(card.stats?.volume?.['5m']?.sellVolume),
+      buyVol1h: numOrNull(card.stats?.volume?.['1h']?.buyVolume),
+      sellVol1h: numOrNull(card.stats?.volume?.['1h']?.sellVolume),
+      proTradersAz: numOrNull(card.auditMetrics?.proTraders),
+    };
+  } catch {
+    return null; // caída o timeout → nulls, el tick sigue igual
+  }
 }
 
 /**
@@ -422,15 +475,18 @@ async function trackTick() {
     let changed = false; // structural events (enter / resume / identity / pause / cut)
     let snapshotted = false; // a token's stats series grew — its health (may) move
 
-    // Pulse data for every token DUE a snapshot this tick, fetched all at once:
-    // with 5-10 active tokens that's one parallel batch per minute (probed
-    // 20-parallel clean). Done BEFORE the loop so the tick never waits inside
-    // the per-token iteration.
+    // Pulse + Azura data for every token DUE a snapshot this tick, fetched all
+    // at once: with 5-10 active tokens that's one parallel batch per minute
+    // (both probed 20-parallel clean). Done BEFORE the loop so the tick never
+    // waits inside the per-token iteration.
     const dueAddresses = [...byAddress.keys()].filter((address) => snapshotDue(trackTokens.get(address)));
     const pulseByAddress = new Map();
+    const cardByAddress = new Map();
     await Promise.all(
       dueAddresses.map(async (address) => {
-        pulseByAddress.set(address, await fetchPulse(address));
+        const [pulse, card] = await Promise.all([fetchPulse(address), fetchAzura(address)]);
+        pulseByAddress.set(address, pulse);
+        cardByAddress.set(address, card);
       }),
     );
 
@@ -478,7 +534,7 @@ async function trackTick() {
       // make the old tick-relative slack unnecessary — due lands within 1.3s).
       if (snapshotDue(tracked)) {
         const wasBuy = trackBuySignal(tracked.snapshots);
-        tracked.snapshots.push(snapshotOf(a, pulseByAddress.get(address)));
+        tracked.snapshots.push(snapshotOf(a, pulseByAddress.get(address), cardByAddress.get(address)));
         persist = true;
         snapshotted = true;
         if (tracked.snapshots.length >= TRACK_SNAPSHOT_MAX) tracked.status = 'done'; // 50 → se corta

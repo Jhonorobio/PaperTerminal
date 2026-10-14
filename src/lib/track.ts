@@ -91,6 +91,20 @@ export interface TrackSnapshot {
   /** Trenchers Pulse: historial del dev — mints que creó y cuántos graduaron. */
   creatorMints: number | null;
   creatorGraduated: number | null;
+  /** Azura: veredicto de seguridad del contrato (LOW / MEDIUM / HIGH). */
+  overallSecurity: string | null;
+  /** Azura: flags de auditoría encendidos ([] = limpia; ej: "washTrading"). */
+  securityFlags: string[] | null;
+  /** Azura: cambio del volumen en % — ¿se acelera (+) o se muere (−)? */
+  volChange5m: number | null;
+  volChange1h: number | null;
+  /** Azura: volumen en $ compras vs ventas (ventanas 5m y 1h). */
+  buyVol5m: number | null;
+  sellVol5m: number | null;
+  buyVol1h: number | null;
+  sellVol1h: number | null;
+  /** Azura: pro traders de AZURA (métrica distinta a la de Pulse). */
+  proTradersAz: number | null;
   /**
    * The chip as it looked AT THAT MINUTE (server computes it from the prefix
    * [0..i] of the series — no hindsight). null on the first snapshot.
