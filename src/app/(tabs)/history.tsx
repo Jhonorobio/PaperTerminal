@@ -901,9 +901,7 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
                 las métricas de Photon siguen SEPARADAS en su propia columna. */}
             <View style={styles.snapTimeCol}>
               <Text style={styles.snapTime}>{time24(s.at)}</Text>
-              <SourceChips s={s} />
-            </View>
-            <View style={{ flex: 1, gap: 3 }}>
+              {/* Solo los chips de señal debajo de la hora — nada de métricas. */}
               <View style={styles.chipRow}>
                 {/* el chip tal como estaba EN ESE minuto (serie prefijo 0..i) */}
                 {s.buySignal !== 'buy' && s.watchSignal ? (
@@ -934,6 +932,10 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
                     </Text>
                   </View>
                 ) : null}
+              </View>
+            </View>
+            <View style={{ flex: 1, gap: 3 }}>
+              <View style={styles.chipRow}>
                 <MiniStat label="MC" value={formatCompactUsd(s.mcap)} labelTone={Palette.paper} />
                 <MiniStat label="VOL" value={formatCompactUsd(s.volume)} labelTone={Palette.warning} />
                 <MiniStat icon="users" value={formatCompactQty(s.holders)} tone={Palette.textSecondary} />
@@ -947,6 +949,8 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
                 <MiniStat icon="package" value={pct(s.bundlePct)} sub={formatCompactQty(s.bundleHolders)} tone={Palette.paper} />
                 <MiniStat icon="cpu" value={formatCompactQty(s.tpHolders)} tone={Palette.warning} />
               </View>
+              {/* Métricas Pulse + Azura — con las demás métricas, no con la hora */}
+              <SourceChips s={s} />
             </View>
           </View>
         ))}
@@ -1146,8 +1150,8 @@ const styles = StyleSheet.create({
   filterActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   detailHint: { fontSize: 11, color: Palette.textTertiary, lineHeight: 15 },
   detailLine: { fontSize: 11, color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
-  // Cada snapshot: columna de la hora (24h + chips Pulse/Azura debajo) y, al
-  // lado, la columna de métricas de Photon como siempre.
+  // Cada snapshot: columna de la hora (24h + chips de señal debajo) y, al
+  // lado, la columna de métricas (Photon + Pulse + Azura) como siempre.
   snapRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 4, borderTopWidth: 1, borderTopColor: Palette.line },
   snapTimeCol: { width: 112, gap: 4 },
   snapTime: { fontSize: 11, fontWeight: '700', color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
