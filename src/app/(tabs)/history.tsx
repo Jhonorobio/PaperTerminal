@@ -107,6 +107,7 @@ export default function HistoryScreen() {
   }, [trackDetail, flash, settings.serverBase]);
   const [clearArmed, setClearArmed] = useState(false);
   const [trackSort, setTrackSort] = useState<'recent' | 'gain'>('recent');
+  const [trackQuery, setTrackQuery] = useState('');
 
   // ONE merge path, shared by the WS push and the HTTP fallback: rows whose data
   // didn't change keep their object identity (the memoized rows skip the
@@ -262,18 +263,27 @@ export default function HistoryScreen() {
   const trackTokens = track?.tokens;
   const trackRows = useMemo<TrackRowItem[]>(() => {
     if (!trackTokens) return [];
+    // Search by symbol or name: when a query is active the group headers are
+    // dropped (a 2-row result under "Terminados · 143" reads as an error).
+    const q = trackQuery.trim().toUpperCase();
     const rows: TrackRowItem[] = [];
     for (const group of ['active', 'done'] as const) {
       const entries = trackTokens
         .filter((t) => t.status === group)
+        .filter(
+          (t) =>
+            !q ||
+            (t.symbol ?? '').toUpperCase().includes(q) ||
+            (t.name ?? '').toUpperCase().includes(q),
+        )
         // server order is newest activity; "Ganancia" ranks by first→max MC
         .sort((a, b) => (trackSort === 'gain' ? (b.gainPct ?? -Infinity) - (a.gainPct ?? -Infinity) : 0));
       if (!entries.length) continue;
-      rows.push({ kind: 'header', group, count: entries.length });
+      if (!q) rows.push({ kind: 'header', group, count: entries.length });
       for (const t of entries) rows.push({ kind: 'token', t });
     }
     return rows;
-  }, [trackTokens, trackSort]);
+  }, [trackTokens, trackSort, trackQuery]);
 
   const saveTrack = (next: TrackConfig) => {
     void saveTrackConfig(settings.serverBase, next)
@@ -475,6 +485,21 @@ export default function HistoryScreen() {
                 </Text>
               ) : null}
 
+              {track && track.tokens.length > 0 ? (
+                <View style={styles.search}>
+                  <Icon name="search" size={16} color={Palette.textTertiary} />
+                  <TextInput
+                    value={trackQuery}
+                    onChangeText={setTrackQuery}
+                    placeholder="Buscar por símbolo o nombre…"
+                    placeholderTextColor={Palette.textTertiary}
+                    autoCorrect={false}
+                    style={styles.searchInput}
+                    accessibilityLabel="Buscar tokens trackeados por símbolo o nombre"
+                  />
+                </View>
+              ) : null}
+
               {track && track.tokens.length > 1 ? (
                 <View style={styles.trackSort}>
                   <Text style={styles.rowSub}>Ordenar</Text>
@@ -491,6 +516,10 @@ export default function HistoryScreen() {
           ListEmptyComponent={
             track === null ? (
               <View style={{ gap: 6 }}>{[0, 1, 2, 3].map((i) => <Skeleton key={i} height={56} />)}</View>
+            ) : trackQuery.trim() && track.tokens.length > 0 ? (
+              <Card style={{ padding: 16 }}>
+                <Empty title="No hay tokens que coincidan" body="Probá con otro símbolo o nombre." />
+              </Card>
             ) : (
               <Card style={{ padding: 16 }}>
                 <Empty
@@ -736,17 +765,11 @@ const TrackRow = memo(function TrackRow({
           size={34}
         />
         <View style={styles.rowLead}>
-          <Text style={styles.rowName}>{t.symbol ?? t.name ?? `${t.address.slice(0, 4)}…`}</Text>
-          <Text style={styles.rowSub}>
-            MC {formatCompactUsd(t.mcap)} · VOL {formatCompactUsd(t.volume)}
-            {t.gainPct != null ? (
-              <Text style={{ color: t.gainPct >= 0 ? Palette.green : Palette.red }}>
-                {' · '}
-                {formatPct(t.gainPct, { sign: true })}
-              </Text>
-            ) : null}
-          </Text>
-          <View style={styles.rowAddr}>
+          <View style={styles.rowNameLine}>
+            <Text style={styles.rowName} numberOfLines={1}>
+              {t.symbol ?? t.name ?? `${t.address.slice(0, 4)}…`}
+            </Text>
+            {/* Los chips al lado del símbolo: lo que importa se ve sin escanear la fila entera */}
             {t.buySignal !== 'buy' && t.watchSignal ? (
               <View style={[styles.health, { backgroundColor: `${Palette.warning}22`, borderColor: Palette.warning }]}>
                 <Text style={[styles.healthText, { color: Palette.warning }]}>{WATCH_LABEL}</Text>
@@ -769,6 +792,17 @@ const TrackRow = memo(function TrackRow({
                 <Text style={[styles.healthText, { color: HEALTH_META[t.health].color }]}>{HEALTH_META[t.health].label}</Text>
               </View>
             ) : null}
+          </View>
+          <Text style={styles.rowSub}>
+            MC {formatCompactUsd(t.mcap)} · VOL {formatCompactUsd(t.volume)}
+            {t.gainPct != null ? (
+              <Text style={{ color: t.gainPct >= 0 ? Palette.green : Palette.red }}>
+                {' · '}
+                {formatPct(t.gainPct, { sign: true })}
+              </Text>
+            ) : null}
+          </Text>
+          <View style={styles.rowAddr}>
             <Text style={styles.addrText}>
               {t.snapshotCount}/{snapshotMax} snaps
             </Text>
@@ -970,6 +1004,7 @@ const styles = StyleSheet.create({
   rowMain: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10 },
   rowLead: { flex: 1, gap: 2, minWidth: 0 },
   rowName: { fontSize: 14, fontWeight: '800', color: Palette.textPrimary },
+  rowNameLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
   rowSub: { fontSize: 12, color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
   sideVerb: { fontWeight: '800' },
   rowValue: { alignItems: 'flex-end', gap: 1 },
