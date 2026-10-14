@@ -20,10 +20,21 @@ import { fetchTrack, type TrackBuySignal, type TrackHealth, type TrackState } fr
 import { serverFeed, ServerFeed, TOPICS } from './server-feed';
 
 /** Both chips the tracker computes per address (health pill + buy signal). */
-export type TrackChips = { health: TrackHealth; buySignal: TrackBuySignal; strongBuy: boolean };
+export type TrackChips = {
+  health: TrackHealth;
+  buySignal: TrackBuySignal;
+  strongBuy: boolean;
+  watchSignal: boolean;
+};
 
 type HealthPayload = {
-  tokens?: { address?: string; health?: TrackHealth; buySignal?: TrackBuySignal; strongBuy?: boolean }[];
+  tokens?: {
+    address?: string;
+    health?: TrackHealth;
+    buySignal?: TrackBuySignal;
+    strongBuy?: boolean;
+    watchSignal?: boolean;
+  }[];
 };
 
 let chipsByAddress = new Map<string, TrackChips>();
@@ -46,13 +57,20 @@ function apply(payload: HealthPayload | TrackState | null | undefined) {
         health: t.health ?? null,
         buySignal: t.buySignal ?? null,
         strongBuy: Boolean(t.strongBuy),
+        watchSignal: Boolean(t.watchSignal),
       });
   }
   let same = next.size === chipsByAddress.size;
   if (same) {
     for (const [address, chips] of next) {
       const prev = chipsByAddress.get(address);
-      if (!prev || prev.health !== chips.health || prev.buySignal !== chips.buySignal || prev.strongBuy !== chips.strongBuy) {
+      if (
+        !prev ||
+        prev.health !== chips.health ||
+        prev.buySignal !== chips.buySignal ||
+        prev.strongBuy !== chips.strongBuy ||
+        prev.watchSignal !== chips.watchSignal
+      ) {
         same = false;
         break;
       }

@@ -586,7 +586,13 @@ let lastHealthBroadcastAt = 0;
 
 /** The light payload behind the chips: address + health + buy, nothing else. */
 const healthList = () =>
-  listTrackTokens().map((t) => ({ address: t.address, health: t.health, buySignal: t.buySignal, strongBuy: t.strongBuy }));
+  listTrackTokens().map((t) => ({
+    address: t.address,
+    health: t.health,
+    buySignal: t.buySignal,
+    strongBuy: t.strongBuy,
+    watchSignal: t.watchSignal,
+  }));
 
 /**
  * Push to whoever is watching. Nobody subscribed → not even serialized. Two
@@ -755,6 +761,22 @@ export function trackStrongBuy(snaps) {
 }
 
 /**
+ * WATCH (chip B) — the group the entry profile REJECTS but that looks alive:
+ * health green + bundle quiet (<1.4x) and not already COMPRAR. Informational
+ * only, no alert: measured 50% positive / +6% median, but +106% median PEAK —
+ * 5 of 10 touched +100% (Bear +331%, sanctuary +28%/pico +1039%), so it only
+ * makes sense WITH a TP/SL discipline (median TP/SL outcome +100%). The
+ * profile's holders/bots limits stay enforced for the buy signal: the same
+ * group without the quiet bundle loses 83% of the time.
+ */
+export function trackWatchSignal(snaps) {
+  if (trackBuySignal(snaps) === 'buy') return false;
+  if (trackHealth(snaps).health !== 'green') return false;
+  const ratio = bundleQuietRatio(snaps);
+  return ratio != null && ratio < BUY_MAX_QUIET_RATIO;
+}
+
+/**
  * Snapshots with the chip as it looked AT THAT MINUTE — each computed from the
  * prefix [0..i] only, so the timeline shows the live signal, never hindsight.
  * The first snapshot carries no chip (nothing to compare against yet).
@@ -764,7 +786,14 @@ export function snapshotsWithHealth(snaps) {
   return series.map((s, i) => {
     const prefix = series.slice(0, i + 1);
     const h = trackHealth(prefix);
-    return { ...s, health: h.health, turnover: h.turnover, buySignal: trackBuySignal(prefix), strongBuy: trackStrongBuy(prefix) };
+    return {
+      ...s,
+      health: h.health,
+      turnover: h.turnover,
+      buySignal: trackBuySignal(prefix),
+      strongBuy: trackStrongBuy(prefix),
+      watchSignal: trackWatchSignal(prefix),
+    };
   });
 }
 
@@ -798,6 +827,8 @@ export function summarizeTrackToken(t) {
     buySignal: trackBuySignal(snaps),
     // buy + bundle quieto — la celda más fuerte del dataset (experimental, n=4)
     strongBuy: trackStrongBuy(snaps),
+    // chip B: verde + bundle quieto sin llegar a buy — informativo, con TP/SL
+    watchSignal: trackWatchSignal(snaps),
   };
 }
 

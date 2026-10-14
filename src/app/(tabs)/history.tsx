@@ -5,7 +5,7 @@ import { useFocusEffect, router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 
 import { Icon, type IconName } from '@/components/icons';
-import { BUY_META, HEALTH_META, STRONG_BUY_LABEL } from '@/components/track-health-chip';
+import { BUY_META, HEALTH_META, STRONG_BUY_LABEL, WATCH_LABEL } from '@/components/track-health-chip';
 import { TokenAvatar } from '@/components/token-avatar';
 import { Banner, Btn, Card, DetailRow, Empty, Input, SegTabs, Skeleton } from '@/components/ui';
 import { Palette, Radius, toneTint } from '@/constants/paper';
@@ -747,7 +747,11 @@ const TrackRow = memo(function TrackRow({
             ) : null}
           </Text>
           <View style={styles.rowAddr}>
-            {t.buySignal ? (
+            {t.buySignal !== 'buy' && t.watchSignal ? (
+              <View style={[styles.health, { backgroundColor: `${Palette.warning}22`, borderColor: Palette.warning }]}>
+                <Text style={[styles.healthText, { color: Palette.warning }]}>{WATCH_LABEL}</Text>
+              </View>
+            ) : t.buySignal ? (
               <View
                 style={[
                   styles.health,
@@ -829,14 +833,20 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
               color:
                 detail.buySignal === 'buy'
                   ? BUY_META.buy.color
-                  : detail.buySignal === 'avoid'
-                    ? BUY_META.avoid.color
-                    : HEALTH_META[detail.health].color,
+                  : detail.watchSignal
+                    ? Palette.warning
+                    : detail.buySignal === 'avoid'
+                      ? BUY_META.avoid.color
+                      : HEALTH_META[detail.health].color,
             },
           ]}>
-          {detail.buySignal
-            ? `${detail.buySignal === 'buy' && detail.strongBuy ? STRONG_BUY_LABEL : BUY_META[detail.buySignal].label} · `
-            : ''}
+          {detail.buySignal === 'buy'
+            ? `${detail.strongBuy ? STRONG_BUY_LABEL : BUY_META.buy.label} · `
+            : detail.watchSignal
+              ? `${WATCH_LABEL} · `
+              : detail.buySignal
+                ? `${BUY_META[detail.buySignal].label} · `
+                : ''}
           {HEALTH_META[detail.health].label} · holders{' '}
           {detail.holdersDeltaPct == null ? '—' : formatPct(detail.holdersDeltaPct, { sign: true })} · flujo compras/ventas{' '}
           {detail.flowRatio == null ? '—' : detail.flowRatio.toFixed(2)}
@@ -853,7 +863,11 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
             <View style={{ flex: 1, gap: 3 }}>
               <View style={styles.chipRow}>
                 {/* el chip tal como estaba EN ESE minuto (serie prefijo 0..i) */}
-                {s.buySignal ? (
+                {s.buySignal !== 'buy' && s.watchSignal ? (
+                  <View style={[styles.health, { backgroundColor: `${Palette.warning}22`, borderColor: Palette.warning }]}>
+                    <Text style={[styles.healthText, { color: Palette.warning }]}>{WATCH_LABEL}</Text>
+                  </View>
+                ) : s.buySignal ? (
                   <View
                     style={[
                       styles.health,

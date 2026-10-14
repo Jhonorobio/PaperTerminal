@@ -102,7 +102,7 @@ function PhotonRow({ token, chips, onPress }: { token: PhotonToken; chips: Track
             {token.symbol ?? `${token.address.slice(0, 4)}…`}
           </Text>
           {/* Only when this token is being TRACKED — no series, no chip. */}
-          <TrackBuyChip buySignal={chips?.buySignal ?? null} strong={chips?.strongBuy ?? false} />
+          <TrackBuyChip buySignal={chips?.buySignal ?? null} strong={chips?.strongBuy ?? false} watch={chips?.watchSignal ?? false} />
           <TrackHealthChip health={chips?.health ?? null} />
         </View>
         <Text numberOfLines={1} style={styles.rowName}>

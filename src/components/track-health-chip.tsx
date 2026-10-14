@@ -28,19 +28,33 @@ export const BUY_META: Record<Exclude<TrackBuySignal, null>, { label: string; co
 /** COMPRAR FUERTE = señal COMPRAR + bundle quieto (la celda más fuerte medida). */
 export const STRONG_BUY_LABEL = '★COMPRAR';
 
-export function TrackBuyChip({ buySignal, strong = false }: { buySignal: TrackBuySignal; strong?: boolean }) {
-  if (!buySignal) return null;
-  const meta = BUY_META[buySignal];
-  const solid = buySignal === 'buy';
-  const label = solid && strong ? STRONG_BUY_LABEL : meta.label;
+/**
+ * WATCH (chip B) — verde + bundle quieto sin llegar a COMPRAR: informativo,
+ * amarillo, SIN alerta. Replaces EVITAR when it qualifies: the token fails the
+ * entry profile but the measured group has a +106% median peak — worth
+ * watching with a TP/SL, not worth the red warning.
+ */
+export const WATCH_LABEL = 'SEGUIMIENTO';
+
+export function TrackBuyChip({
+  buySignal,
+  strong = false,
+  watch = false,
+}: {
+  buySignal: TrackBuySignal;
+  strong?: boolean;
+  watch?: boolean;
+}) {
+  if (buySignal === 'avoid' && !watch) return <BuyPill label={BUY_META.avoid.label} color={BUY_META.avoid.color} solid={false} />;
+  if (buySignal === 'buy') return <BuyPill label={strong ? STRONG_BUY_LABEL : BUY_META.buy.label} color={BUY_META.buy.color} solid />;
+  if (watch) return <BuyPill label={WATCH_LABEL} color={Palette.warning} solid={false} />;
+  return null;
+}
+
+function BuyPill({ label, color, solid }: { label: string; color: string; solid: boolean }) {
   return (
-    <View
-      style={[
-        styles.chip,
-        { backgroundColor: solid ? meta.color : `${meta.color}22`, borderColor: meta.color },
-      ]}
-    >
-      <Text style={[styles.text, { color: solid ? Palette.bgPrimary : meta.color }]}>{label}</Text>
+    <View style={[styles.chip, { backgroundColor: solid ? color : `${color}22`, borderColor: color }]}>
+      <Text style={[styles.text, { color: solid ? Palette.bgPrimary : color }]}>{label}</Text>
     </View>
   );
 }

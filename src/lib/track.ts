@@ -91,6 +91,8 @@ export interface TrackSnapshot {
   buySignal: TrackBuySignal;
   /** COMPRAR FUERTE at that minute: buy + bundle quiet (<1.4x growth). */
   strongBuy: boolean;
+  /** WATCH at that minute: green + quiet bundle, not buy (informativo). */
+  watchSignal: boolean;
 }
 
 export interface TrackTokenSummary {
@@ -125,6 +127,12 @@ export interface TrackTokenSummary {
    * (experimental: the sample is still small).
    */
   strongBuy: boolean;
+  /**
+   * WATCH (chip B): health green + bundle quiet <1.4x and not buy — 50%
+   * positive but +106% median peak (with TP+100%/SL−20 the median outcome is
+   * +100%). Informational, no alert: it exists to be watched, not chased.
+   */
+  watchSignal: boolean;
   /** Holders first→last snapshot, percent (the strongest signal, r=0.71). */
   holdersDeltaPct: number | null;
   /** Buys/sells over the last ~3 min — ≥1 means net buying. */

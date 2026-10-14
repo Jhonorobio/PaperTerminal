@@ -104,7 +104,7 @@ export function TokenPicker({ value, onChange, chips }: { value: Asset | null; o
       <View style={styles.labelRow}>
         <Text style={styles.label}>Token</Text>
         {/* The tracker's verdict on the selected token — only if it's being tracked. */}
-        <TrackBuyChip buySignal={chips?.buySignal ?? null} strong={chips?.strongBuy ?? false} />
+        <TrackBuyChip buySignal={chips?.buySignal ?? null} strong={chips?.strongBuy ?? false} watch={chips?.watchSignal ?? false} />
         <TrackHealthChip health={chips?.health ?? null} />
       </View>
 
