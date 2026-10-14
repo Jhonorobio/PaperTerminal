@@ -688,30 +688,25 @@ export function trackHealth(snaps) {
  * snapshot series the same prefix-safe way as the health chip (each minute
  * reads only [0..i], so the timeline shows the live signal, never hindsight).
  *
- * Validated on the finished tracks (entry measured at the minute-3 price, the
+ * Validated on 132 finished tracks (entry measured at the minute-3 price, the
  * earliest a human can act on it — NOT the min-0 price, which inflates
- * everything): the profile below doubled the alerts vs the strict version
- * (24 vs 13) keeping 50% positive / +9% median vs 26% / −25% for the rest.
- * The measured separators, winners vs traps:
- *   · bots (tpHolders) < 150   the STRONGEST separator there is
- *   · holders < 300            winners enter into a smaller crowd
- *   · snipers < 1%             only when Photon reports the field — a missing
- *     value PASSES (demanding it made the signal null on 37% of tokens and
- *     blocked real setups like SHH); with data present, ≥1% still fails
+ * everything): the profile below ended +47% median / 67% positive / pico +134%
+ * vs −25% / 26% for the rest. The four measured separators, winners vs traps:
+ *   · bots (tpHolders) < 150   AUC 0.23 — the STRONGEST separator there is
+ *   · holders < 300            AUC 0.25 — winners enter into a smaller crowd
+ *   · snipers < 1%             no sniper swarm waiting to dump
  *   · mcap up at minute 3      momentum confirmed, not hoped
- * 'buy' needs all four; 'avoid' is the explicit fail of the entry profile (a
- * token that fails it ended below 74% of the time); null until there are 3
- * snapshots to judge — no data, no signal, never a guess.
+ * 'buy' needs all four; 'avoid' is the explicit fail of the first three (a
+ * token that fails the entry profile ended below 75% of the time); null until
+ * there are 3 snapshots to judge — no data, no signal, never a guess.
  */
 export function trackBuySignal(snaps) {
   if (!Array.isArray(snaps) || snaps.length < 3) return null;
   const first = snaps[0];
   const third = snaps[2];
-  if (numOrNull(first.tpHolders) == null || numOrNull(first.holders) == null) return null;
+  if (numOrNull(first.tpHolders) == null || numOrNull(first.holders) == null || numOrNull(first.snipersPct) == null) return null;
   const profile =
-    first.tpHolders < BUY_MAX_TP_HOLDERS &&
-    first.holders < BUY_MAX_HOLDERS &&
-    (numOrNull(first.snipersPct) == null || first.snipersPct < BUY_MAX_SNIPERS_PCT);
+    first.tpHolders < BUY_MAX_TP_HOLDERS && first.holders < BUY_MAX_HOLDERS && first.snipersPct < BUY_MAX_SNIPERS_PCT;
   if (!profile) return 'avoid';
   // Momentum is what turns the profile into a signal: the profile alone still
   // needs the first move to confirm — buying a quiet profile is timing luck.
