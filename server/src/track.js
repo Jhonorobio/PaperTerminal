@@ -32,6 +32,7 @@
 import initCycleTLS from 'cycletls';
 
 import { buildQuery, HEADERS, SEARCH_URL, sanitizeColumnFilters } from './photon.js';
+import { getAccessToken } from './fomo.js';
 import { emitTrackBuy } from './notify.js';
 import { broadcast, getSubscriptions, registerTopicProvider } from './ws.js';
 import { normalizeProxy } from './proxy-config.js';
@@ -132,7 +133,7 @@ export function setTrackConfig(raw) {
 }
 
 /** One minute's worth of the stats the analysis runs on. */
-function snapshotOf(a, pulse, card) {
+function snapshotOf(a, pulse, card, thesis, chat, callout) {
   return {
     at: new Date().toISOString(),
     mcap: numOrNull(a.fdv),
@@ -169,6 +170,23 @@ function snapshotOf(a, pulse, card) {
     buyVol1h: card?.buyVol1h ?? null,
     sellVol1h: card?.sellVol1h ?? null,
     proTradersAz: card?.proTradersAz ?? null,
+    // FOMO thesis (fuente 4): tesis de traders con plata real adjunta, ≥$1K.
+    thesesCount: thesis?.thesesCount ?? null,
+    thesesOpen: thesis?.thesesOpen ?? null,
+    thesesUsd: thesis?.thesesUsd ?? null,
+    thesesPnlAvg: thesis?.thesesPnlAvg ?? null,
+    thesesEntryMcap: thesis?.thesesEntryMcap ?? null,
+    // GMGN chat (fuente 5): actividad del chat y plata de quienes hablan.
+    chatMsgs5m: chat?.chatMsgs5m ?? null,
+    chatHoldersUsd: chat?.chatHoldersUsd ?? null,
+    chatPnlAvg: chat?.chatPnlAvg ?? null,
+    chatKols: chat?.chatKols ?? null,
+    // Pump callout (fuente 6, solo el 1er snapshot por token).
+    calloutsTotal: callout?.calloutsTotal ?? null,
+    calloutsUsd: callout?.calloutsUsd ?? null,
+    calloutsUpPct: callout?.calloutsUpPct ?? null,
+    calloutsEntryMcap: callout?.calloutsEntryMcap ?? null,
+    calloutsVerified: callout?.calloutsVerified ?? null,
   };
 }
 
@@ -248,6 +266,216 @@ async function fetchAzura(address) {
     };
   } catch {
     return null; // caída o timeout → nulls, el tick sigue igual
+  }
+}
+
+// ── Fuentes sociales (4-6): FOMO thesis, GMGN chat, pump callout ────────────
+// Todas pasan el WAF solo con impersonación Chrome — tanto prod-api.fomo.family
+// como gmgn.ai devuelven "unauthorized"/403 a clientes que no parezcan Chrome
+// (ni siquiera a /public/prices), así que van por cycletls como Photon.
+const SOCIAL_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36';
+const SOCIAL_TIMEOUT_MS = 8_000;
+
+/** cycletls devuelve `data` ya parseado (objeto) o como string JSON según el
+ *  contenido; un error no-200 (404 Buffer, WAF) se descarta. */
+const tlsJson = (resp) => {
+  if (resp?.status !== 200) return null;
+  if (resp.data && typeof resp.data === 'object') return resp.data;
+  if (typeof resp.data !== 'string') return null;
+  try {
+    return JSON.parse(resp.data);
+  } catch {
+    return null;
+  }
+};
+
+/** cycletls no expone timeout por request — un límite externo evita colgar el tick. */
+const withTimeout = (promise, ms) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ]);
+
+// ── FOMO thesis (fuente 4) ──────────────────────────────────────────────────
+// Las "tesis" de FOMO family: cada trae la posición REAL del autor (authorTrade
+// .usdValue, PnL sin realizar, mcap al publicar). El endpoint filtra con
+// `threshold` (≥ $1K por decisión del usuario) y ventana de una hora. Requiere
+// la cookie privy-token: el mismo customer access token del refresh que ya
+// usa el feed WS (getAccessToken de fomo.js).
+const THESIS_URL = 'https://prod-api.fomo.family/feed/token/sortedThesis';
+const THESIS_MIN_USD = 1_000;
+const THESIS_WINDOW_MS = 3_600_000;
+
+export async function fetchFomoThesis(address) {
+  try {
+    const jwt = await getAccessToken();
+    const url =
+      `${THESIS_URL}?tokenAddress=${address}&networkId=1399811149` +
+      `&afterTime=${Date.now() - THESIS_WINDOW_MS}&limit=80&threshold=${THESIS_MIN_USD}`;
+    const resp = await withTimeout(
+      getCycleTLS().then((c) =>
+        c(
+          url,
+          {
+            client: 'chrome131',
+            headers: {
+              accept: '*/*',
+              'app-language': 'es',
+              'content-type': 'application/json',
+              cookie: `privy-session=privy.fomo.family; privy-token=${jwt}`,
+              origin: 'https://fomo.family',
+              referer: 'https://fomo.family/',
+              'user-agent': SOCIAL_UA,
+              'x-supported-chains': '1,56,143,4663,5042,8453,1399811149',
+            },
+          },
+          'get',
+        ),
+      ),
+      SOCIAL_TIMEOUT_MS,
+    );
+    const items = tlsJson(resp)?.responseObject?.items;
+    if (!Array.isArray(items)) return null;
+    let usd = 0;
+    let pnlSum = 0;
+    let pnlN = 0;
+    let mcapSum = 0;
+    let mcapN = 0;
+    let open = 0;
+    for (const it of items) {
+      const trade = it?.authorTrade;
+      const v = numOrNull(trade?.usdValue);
+      if (v != null) usd += v;
+      if (trade?.closedAt == null) open += 1;
+      const pnl = numOrNull(trade?.percentageUnrealizedPnl);
+      if (pnl != null) {
+        pnlSum += pnl;
+        pnlN += 1;
+      }
+      const mc = numOrNull(it?.comment?.marketCapAtCreation);
+      if (mc != null) {
+        mcapSum += mc;
+        mcapN += 1;
+      }
+    }
+    return {
+      thesesCount: items.length,
+      thesesOpen: open,
+      thesesUsd: Math.round(usd),
+      thesesPnlAvg: pnlN ? Math.round((pnlSum / pnlN) * 10) / 10 : null,
+      thesesEntryMcap: mcapN ? Math.round(mcapSum / mcapN) : null,
+    };
+  } catch {
+    return null; // sin refresh token FOMO o WAF → nulls, el tick sigue
+  }
+}
+
+// ── GMGN chat (fuente 5 — el "callout" de GMGN) ─────────────────────────────
+// El chat de la comunidad del token: cada mensaje trae la posición VIVA del
+// autor (holding USD, PnL sin realizado, KOL). Se cuentan los últimos 5 min y
+// se deduplica por wallet — un spammer no debe inflar la plata puesta.
+// Sin params de fingerprint: probado con solo `?limit=50` → 200.
+const GMGN_MSGS_URL = (address) =>
+  `https://gmgn.ai/api/v1/token/sol/${address}/community/messages?limit=50`;
+const CHAT_WINDOW_MS = 5 * 60_000;
+const GMGN_HEADERS = {
+  accept: 'application/json, text/plain, */*',
+  origin: 'https://gmgn.ai',
+  referer: 'https://gmgn.ai/',
+  'user-agent': SOCIAL_UA,
+};
+
+export async function fetchGmgnMessages(address) {
+  try {
+    const resp = await withTimeout(
+      getCycleTLS().then((c) => c(GMGN_MSGS_URL(address), { client: 'chrome131', headers: GMGN_HEADERS }, 'get')),
+      SOCIAL_TIMEOUT_MS,
+    );
+    const msgs = tlsJson(resp)?.data?.messages;
+    if (!Array.isArray(msgs)) return null;
+    const cutoff = Date.now() - CHAT_WINDOW_MS;
+    const recent = msgs.filter((m) => (Date.parse(m?.created_at ?? '') || 0) >= cutoff);
+    const byWallet = new Map();
+    for (const m of recent) {
+      if (m?.wallet_address && !byWallet.has(m.wallet_address)) byWallet.set(m.wallet_address, m);
+    }
+    let holdersUsd = 0;
+    let pnlSum = 0;
+    let pnlN = 0;
+    let kols = 0;
+    for (const m of byWallet.values()) {
+      const usd = numOrNull(m.current_holding_usd);
+      if (usd != null) holdersUsd += usd;
+      // unrealized_profit_pnl viene como FRACCIÓN (0.10 = +10%)
+      const pnl = numOrNull(m.unrealized_profit_pnl);
+      if (pnl != null) {
+        pnlSum += pnl * 100;
+        pnlN += 1;
+      }
+      if (m.is_kol) kols += 1;
+    }
+    return {
+      chatMsgs5m: recent.length,
+      chatHoldersUsd: Math.round(holdersUsd),
+      chatPnlAvg: pnlN ? Math.round((pnlSum / pnlN) * 10) / 10 : null,
+      chatKols: kols,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ── Pump callout (fuente 6 — SOLO el primer snapshot) ───────────────────────
+// Los callouts de la pump.fun sobre el token: quién lo llamó, a qué mcap
+// (called_out_at_mcap), cuánto puso (position.value_usd) y su PnL. Devuelve
+// hasta 200 items SIN ventana (~240KB/token) — por eso se pide UNA vez por
+// token, al entrar a la columna: los callouts históricos ya no cambian.
+const GMGN_CALLOUT_URL = (address) =>
+  `https://gmgn.ai/pf/api/v1/pump/callout/token?chain=sol&token=${address}`;
+const CALLOUT_WINDOW_MS = 3_600_000;
+
+export async function fetchPumpCallout(address) {
+  try {
+    const resp = await withTimeout(
+      getCycleTLS().then((c) => c(GMGN_CALLOUT_URL(address), { client: 'chrome131', headers: GMGN_HEADERS }, 'get')),
+      SOCIAL_TIMEOUT_MS,
+    );
+    const items = tlsJson(resp)?.data?.items;
+    if (!Array.isArray(items)) return null;
+    const cutoff = Date.now() - CALLOUT_WINDOW_MS;
+    const recent = items.filter((it) => (numOrNull(it?.created_at) ?? 0) >= cutoff);
+    let usd = 0;
+    let pnlSum = 0;
+    let pnlN = 0;
+    let mcapSum = 0;
+    let mcapN = 0;
+    let verified = 0;
+    for (const it of recent) {
+      if (it?.is_verified) verified += 1;
+      const pos = it?.position;
+      const v = numOrNull(pos?.value_usd);
+      if (v != null && !pos.is_exited) usd += v;
+      const pnl = numOrNull(pos?.pnl_percentage); // ya viene en %
+      if (pnl != null) {
+        pnlSum += pnl;
+        pnlN += 1;
+      }
+      const mc = numOrNull(it?.called_out_at_mcap);
+      if (mc != null) {
+        mcapSum += mc;
+        mcapN += 1;
+      }
+    }
+    return {
+      calloutsTotal: recent.length,
+      calloutsUsd: Math.round(usd),
+      calloutsUpPct: pnlN ? Math.round((pnlSum / pnlN) * 10) / 10 : null,
+      calloutsEntryMcap: mcapN ? Math.round(mcapSum / mcapN) : null,
+      calloutsVerified: verified,
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -475,18 +703,25 @@ async function trackTick() {
     let changed = false; // structural events (enter / resume / identity / pause / cut)
     let snapshotted = false; // a token's stats series grew — its health (may) move
 
-    // Pulse + Azura data for every token DUE a snapshot this tick, fetched all
-    // at once: with 5-10 active tokens that's one parallel batch per minute
-    // (both probed 20-parallel clean). Done BEFORE the loop so the tick never
-    // waits inside the per-token iteration.
+    // Extra sources (Pulse, Azura, FOMO thesis, GMGN chat) for every token DUE
+    // a snapshot this tick, fetched all at once: with 5-10 active tokens that's
+    // one parallel batch per minute (each probed 20-parallel clean). The pump
+    // callout (~240KB, unwindowed) is fetched ONLY for a token's first snapshot
+    // — historical callouts don't change. Done BEFORE the loop so the tick
+    // never waits inside the per-token iteration.
     const dueAddresses = [...byAddress.keys()].filter((address) => snapshotDue(trackTokens.get(address)));
-    const pulseByAddress = new Map();
-    const cardByAddress = new Map();
+    const extraByAddress = new Map();
     await Promise.all(
       dueAddresses.map(async (address) => {
-        const [pulse, card] = await Promise.all([fetchPulse(address), fetchAzura(address)]);
-        pulseByAddress.set(address, pulse);
-        cardByAddress.set(address, card);
+        const first = (trackTokens.get(address)?.snapshots.length ?? 0) === 0;
+        const [pulse, card, thesis, chat, callout] = await Promise.all([
+          fetchPulse(address),
+          fetchAzura(address),
+          fetchFomoThesis(address),
+          fetchGmgnMessages(address),
+          first ? fetchPumpCallout(address) : Promise.resolve(null),
+        ]);
+        extraByAddress.set(address, { pulse, card, thesis, chat, callout });
       }),
     );
 
@@ -534,7 +769,8 @@ async function trackTick() {
       // make the old tick-relative slack unnecessary — due lands within 1.3s).
       if (snapshotDue(tracked)) {
         const wasBuy = trackBuySignal(tracked.snapshots);
-        tracked.snapshots.push(snapshotOf(a, pulseByAddress.get(address), cardByAddress.get(address)));
+        const extra = extraByAddress.get(address) ?? {};
+        tracked.snapshots.push(snapshotOf(a, extra.pulse, extra.card, extra.thesis, extra.chat, extra.callout));
         persist = true;
         snapshotted = true;
         if (tracked.snapshots.length >= TRACK_SNAPSHOT_MAX) tracked.status = 'done'; // 50 → se corta
@@ -958,6 +1194,22 @@ export function summarizeTrackToken(t) {
     buyVol1h: last?.buyVol1h ?? null,
     sellVol1h: last?.sellVol1h ?? null,
     proTradersAz: last?.proTradersAz ?? null,
+    // Últimas lecturas sociales (fuentes 4-6) — la lista no las pinta, el
+    // detalle las sirve junto a los snapshots.
+    thesesCount: last?.thesesCount ?? null,
+    thesesOpen: last?.thesesOpen ?? null,
+    thesesUsd: last?.thesesUsd ?? null,
+    thesesPnlAvg: last?.thesesPnlAvg ?? null,
+    thesesEntryMcap: last?.thesesEntryMcap ?? null,
+    chatMsgs5m: last?.chatMsgs5m ?? null,
+    chatHoldersUsd: last?.chatHoldersUsd ?? null,
+    chatPnlAvg: last?.chatPnlAvg ?? null,
+    chatKols: last?.chatKols ?? null,
+    calloutsTotal: last?.calloutsTotal ?? null,
+    calloutsUsd: last?.calloutsUsd ?? null,
+    calloutsUpPct: last?.calloutsUpPct ?? null,
+    calloutsEntryMcap: last?.calloutsEntryMcap ?? null,
+    calloutsVerified: last?.calloutsVerified ?? null,
   };
 }
 

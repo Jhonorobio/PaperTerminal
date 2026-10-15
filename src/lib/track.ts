@@ -105,6 +105,34 @@ export interface TrackSnapshot {
   sellVol1h: number | null;
   /** Azura: pro traders de AZURA (métrica distinta a la de Pulse). */
   proTradersAz: number | null;
+  /** FOMO thesis (fuente 4, ≥$1K): tesis publicadas en la última hora. */
+  thesesCount: number | null;
+  /** De esas tesis, cuántas siguen con la posición abierta. */
+  thesesOpen: number | null;
+  /** USD total puesto por los autores de las tesis. */
+  thesesUsd: number | null;
+  /** PnL sin realizar promedio de los autores (%). */
+  thesesPnlAvg: number | null;
+  /** MCap promedio cuando los autores publicaron su tesis. */
+  thesesEntryMcap: number | null;
+  /** GMGN chat (fuente 5): mensajes del chat en los últimos 5 min. */
+  chatMsgs5m: number | null;
+  /** USD puestos por los wallets únicos que escribieron en la ventana. */
+  chatHoldersUsd: number | null;
+  /** PnL sin realizar promedio de esos holders (%). */
+  chatPnlAvg: number | null;
+  /** KOLs que escribieron en la ventana. */
+  chatKols: number | null;
+  /** Pump callout (fuente 6, solo 1er snapshot): callouts de la última hora. */
+  calloutsTotal: number | null;
+  /** USD aún dentro (sin salir) de los callouters. */
+  calloutsUsd: number | null;
+  /** PnL promedio de los callouters (%). */
+  calloutsUpPct: number | null;
+  /** MCap promedio al que llamaron. */
+  calloutsEntryMcap: number | null;
+  /** Callouters con verificación. */
+  calloutsVerified: number | null;
   /**
    * The chip as it looked AT THAT MINUTE (server computes it from the prefix
    * [0..i] of the series — no hindsight). null on the first snapshot.
@@ -177,6 +205,23 @@ export interface TrackTokenSummary {
   sellVol1h: number | null;
   /** Azura's own pro-trader count (different metric than Pulse's `proTraders`). */
   proTradersAz: number | null;
+  /** Latest snapshot's social readings: FOMO thesis (≥$1K, last hour). */
+  thesesCount: number | null;
+  thesesOpen: number | null;
+  thesesUsd: number | null;
+  thesesPnlAvg: number | null;
+  thesesEntryMcap: number | null;
+  /** GMGN chat (last 5 min): messages + USD of unique chatters + avg PnL. */
+  chatMsgs5m: number | null;
+  chatHoldersUsd: number | null;
+  chatPnlAvg: number | null;
+  chatKols: number | null;
+  /** Pump callouts (first snapshot only): last hour's calls + stakes. */
+  calloutsTotal: number | null;
+  calloutsUsd: number | null;
+  calloutsUpPct: number | null;
+  calloutsEntryMcap: number | null;
+  calloutsVerified: number | null;
   /** Holders first→last snapshot, percent (the strongest signal, r=0.71). */
   holdersDeltaPct: number | null;
   /** Buys/sells over the last ~3 min — ≥1 means net buying. */

@@ -986,7 +986,7 @@ function MiniStat({
   );
 }
 
-/** The two extra sources per snapshot (Trenchers Pulse + Azura getCard). */
+/** The extra sources per snapshot (Trenchers Pulse + Azura + fuentes sociales). */
 type SourceFields = {
   insiderPct: number | null;
   smartTraderPct: number | null;
@@ -1003,15 +1003,30 @@ type SourceFields = {
   buyVol1h: number | null;
   sellVol1h: number | null;
   proTradersAz: number | null;
+  thesesCount: number | null;
+  thesesOpen: number | null;
+  thesesUsd: number | null;
+  thesesPnlAvg: number | null;
+  thesesEntryMcap: number | null;
+  chatMsgs5m: number | null;
+  chatHoldersUsd: number | null;
+  chatPnlAvg: number | null;
+  chatKols: number | null;
+  calloutsTotal: number | null;
+  calloutsUsd: number | null;
+  calloutsUpPct: number | null;
+  calloutsEntryMcap: number | null;
+  calloutsVerified: number | null;
 };
 
 const rhythmTone = (v: number) => (v > 0 ? Palette.green : v < 0 ? Palette.red : Palette.textSecondary);
 
 /**
- * Pulse + Azura chips (SMART/INS/PRO/KOL/DEV, volume rhythm, pro·AZ) as
- * ONE flowing row, so the metrics column packs lines full instead of leaving
- * half-empty rows. Timeline only (the list card shows none of this). A token
- * tracked before those sources existed has all-null fields → renders nothing.
+ * Extra-source chips (SMART/INS/PRO/KOL/DEV, volume rhythm, pro·AZ, FOMO
+ * theses, GMGN chat, pump callouts) as ONE flowing row, so the metrics column
+ * packs lines full instead of leaving half-empty rows. Timeline only (the list
+ * card shows none of this). A token tracked before those sources existed has
+ * all-null fields → renders nothing.
  */
 function SourceChips({ s }: { s: SourceFields }) {
   const hasPulse =
@@ -1031,7 +1046,8 @@ function SourceChips({ s }: { s: SourceFields }) {
     s.buyVol1h != null ||
     s.sellVol1h != null ||
     s.proTradersAz != null;
-  if (!hasPulse && !hasAzura) return null;
+  const hasSocial = s.thesesCount != null || s.chatMsgs5m != null || s.calloutsTotal != null;
+  if (!hasPulse && !hasAzura && !hasSocial) return null;
   return (
     <View style={styles.chipRow}>
       {s.smartTraderPct != null ? (
@@ -1082,6 +1098,56 @@ function SourceChips({ s }: { s: SourceFields }) {
         />
       ) : null}
       {s.proTradersAz != null ? <MiniStat label="PRO·AZ" value={formatCompactQty(s.proTradersAz)} valueTone={Palette.paper} /> : null}
+      {/* FOMO thesis — tesis con plata real adjunta (≥$1K, última hora):
+          total/abiertas con el USD puesto; PnL de los autores + su entry MC */}
+      {s.thesesCount != null ? (
+        <MiniStat
+          label="TESIS"
+          value={
+            formatCompactQty(s.thesesCount) +
+            (s.thesesOpen != null ? `/${formatCompactQty(s.thesesOpen)}` : '')
+          }
+          sub={formatCompactUsd(s.thesesUsd)}
+          valueTone={Palette.paper}
+        />
+      ) : null}
+      {s.thesesPnlAvg != null ? (
+        <MiniStat
+          label="T·PNL"
+          value={formatPct(s.thesesPnlAvg, { sign: true })}
+          valueTone={rhythmTone(s.thesesPnlAvg)}
+          sub={s.thesesEntryMcap != null ? `MC ${formatCompactUsd(s.thesesEntryMcap)}` : undefined}
+        />
+      ) : null}
+      {/* GMGN chat — quién habla y con cuánta plata dentro */}
+      {s.chatMsgs5m != null ? (
+        <MiniStat
+          label="CHAT"
+          value={formatCompactQty(s.chatMsgs5m)}
+          sub={formatCompactUsd(s.chatHoldersUsd)}
+          valueTone={Palette.green}
+        />
+      ) : null}
+      {s.chatPnlAvg != null ? (
+        <MiniStat label="C·PNL" value={formatPct(s.chatPnlAvg, { sign: true })} valueTone={rhythmTone(s.chatPnlAvg)} />
+      ) : null}
+      {/* Pump callout — quién lo llamó y con cuánto (solo en el 1er snapshot) */}
+      {s.calloutsTotal != null ? (
+        <MiniStat
+          label="CALLOUT"
+          value={formatCompactQty(s.calloutsTotal)}
+          sub={formatCompactUsd(s.calloutsUsd)}
+          valueTone={Palette.warning}
+        />
+      ) : null}
+      {s.calloutsUpPct != null ? (
+        <MiniStat
+          label="CAL·PNL"
+          value={formatPct(s.calloutsUpPct, { sign: true })}
+          valueTone={rhythmTone(s.calloutsUpPct)}
+          sub={s.calloutsEntryMcap != null ? `MC ${formatCompactUsd(s.calloutsEntryMcap)}` : undefined}
+        />
+      ) : null}
     </View>
   );
 }

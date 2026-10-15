@@ -75,7 +75,7 @@ function decodeExp(jwt) {
   }
 }
 
-function getAccessToken({ force = false } = {}) {
+export function getAccessToken({ force = false } = {}) {
   if (!force && accessToken && Date.now() < accessExpMs - MIN_REMAINING_MS) return Promise.resolve(accessToken);
   if (inflight) return inflight;
   const refreshToken = getRefreshToken();
