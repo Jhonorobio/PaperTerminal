@@ -1026,13 +1026,11 @@ type SourceFields = {
   topTraderNames: string[] | null;
 };
 
-const rhythmTone = (v: number) => (v > 0 ? Palette.green : v < 0 ? Palette.red : Palette.textSecondary);
-
 /**
- * Extra-source chips (SMART/INS/PRO/KOL/DEV, volume rhythm, pro·AZ, FOMO
- * theses, GMGN chat, pump callouts) as ONE flowing row, so the metrics column
- * packs lines full instead of leaving half-empty rows. Timeline only (the list
- * card shows none of this). A token tracked before those sources existed has
+ * Extra-source chips (SMART/INS/PRO/KOL/DEV, pro·AZ, FOMO theses, GMGN chat,
+ * pump callouts, TOP traders) as ONE flowing row, so the metrics column packs
+ * lines full instead of leaving half-empty rows. Timeline only (the list card
+ * shows none of this). A token tracked before those sources existed has
  * all-null fields → renders nothing.
  */
 function SourceChips({ s }: { s: SourceFields }) {
@@ -1044,15 +1042,9 @@ function SourceChips({ s }: { s: SourceFields }) {
     s.creatorMints != null ||
     s.creatorGraduated != null;
   const flags = s.securityFlags?.length ?? 0;
-  const hasAzura =
-    flags > 0 ||
-    s.volChange5m != null ||
-    s.volChange1h != null ||
-    s.buyVol5m != null ||
-    s.sellVol5m != null ||
-    s.buyVol1h != null ||
-    s.sellVol1h != null ||
-    s.proTradersAz != null;
+  // El ritmo de volumen (V5m/V1h/C-V) ya no se pinta — solo banderas de
+  // seguridad y PRO·AZ siguen como chips de Azura.
+  const hasAzura = flags > 0 || s.proTradersAz != null;
   const hasSocial =
     s.thesesCount != null ||
     s.chatMsgs != null ||
@@ -1090,26 +1082,9 @@ function SourceChips({ s }: { s: SourceFields }) {
           valueTone={Palette.red}
         />
       ) : null}
-      {s.volChange5m != null ? (
-        <MiniStat label="V5m" value={formatPct(s.volChange5m, { sign: true })} valueTone={rhythmTone(s.volChange5m)} />
-      ) : null}
-      {s.volChange1h != null ? (
-        <MiniStat label="V1h" value={formatPct(s.volChange1h, { sign: true })} valueTone={rhythmTone(s.volChange1h)} />
-      ) : null}
-      {s.buyVol5m != null || s.sellVol5m != null ? (
-        <MiniStat
-          label="C/V5m"
-          value={`${formatCompactUsd(s.buyVol5m)}/${formatCompactUsd(s.sellVol5m)}`}
-          valueTone={(s.buyVol5m ?? 0) >= (s.sellVol5m ?? 0) ? Palette.green : Palette.red}
-        />
-      ) : null}
-      {s.buyVol1h != null || s.sellVol1h != null ? (
-        <MiniStat
-          label="C/V1h"
-          value={`${formatCompactUsd(s.buyVol1h)}/${formatCompactUsd(s.sellVol1h)}`}
-          valueTone={(s.buyVol1h ?? 0) >= (s.sellVol1h ?? 0) ? Palette.green : Palette.red}
-        />
-      ) : null}
+      {/* Ritmo de volumen (V5m/V1h/C-V5m/C-V1h): quitado de la UI por
+          decisión del usuario — los campos siguen en el snapshot para el
+          análisis, solo no se pintan. */}
       {s.proTradersAz != null ? <MiniStat label="PRO·AZ" value={formatCompactQty(s.proTradersAz)} valueTone={Palette.paper} /> : null}
       {/* Fuentes sociales — en la UI SOLO el conteo. El resto (USD, PnL,
           entry MC, verificados…) se guarda en el snapshot para el análisis,
@@ -1127,15 +1102,16 @@ function SourceChips({ s }: { s: SourceFields }) {
       ) : null}
       {/* Callouts de pump.fun partido por plata metida: ≥$100 (con dinero
           real) vs <$100. TOP = top traders del leaderboard pump (top-50
-          diario y semanal) con posición en el token — solo si hay alguno. */}
+          diario y semanal) con posición en el token — visible siempre que
+          exista la métrica (0 = ninguno). */}
       {s.callout100 != null ? (
         <MiniStat label="CAL100" value={formatCompactQty(s.callout100)} valueTone={Palette.warning} />
       ) : null}
       {s.calloutLt100 != null ? (
         <MiniStat label="CAL<$100" value={formatCompactQty(s.calloutLt100)} valueTone={Palette.textSecondary} />
       ) : null}
-      {(s.topTraders ?? 0) > 0 ? (
-        <MiniStat label="TOP" value={formatCompactQty(s.topTraders ?? 0)} valueTone={Palette.paper} />
+      {s.topTraders != null ? (
+        <MiniStat label="TOP" value={formatCompactQty(s.topTraders)} valueTone={Palette.paper} />
       ) : null}
     </View>
   );
