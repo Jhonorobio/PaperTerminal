@@ -33,6 +33,7 @@ import initCycleTLS from 'cycletls';
 
 import { buildQuery, HEADERS, SEARCH_URL, sanitizeColumnFilters } from './photon.js';
 import { getAccessToken } from './fomo.js';
+import { getEffectiveProxy } from './proxy-config.js';
 import { emitTrackBuy } from './notify.js';
 import { broadcast, getSubscriptions, registerTopicProvider } from './ws.js';
 import { normalizeProxy } from './proxy-config.js';
@@ -307,34 +308,47 @@ const THESIS_URL = 'https://prod-api.fomo.family/feed/token/sortedThesis';
 const THESIS_MIN_USD = 1_000;
 const THESIS_WINDOW_MS = 3_600_000;
 
+/**
+ * GET de FOMO con conmutación de transporte: en producción la IP de Railway
+ * recibe 432 del WAF (por eso el WS del feed sale por el proxy compartido) —
+ * se intenta por proxy primero y se cae a directo (en local no hay proxy y
+ * la IP de casa pasa el WAF directa).
+ */
+async function fomoThesisGet(url, headers) {
+  const attempts = [];
+  const proxyUrl = getEffectiveProxy();
+  if (proxyUrl) attempts.push({ proxy: proxyUrl });
+  attempts.push({}); // directo
+  for (const opts of attempts) {
+    try {
+      const resp = await withTimeout(
+        getCycleTLS().then((c) => c(url, { client: 'chrome131', headers, ...opts }, 'get')),
+        SOCIAL_TIMEOUT_MS,
+      );
+      if (resp?.status === 200) return resp;
+    } catch {
+      // transporte caído o timeout → siguiente intento
+    }
+  }
+  return null;
+}
+
 export async function fetchFomoThesis(address) {
   try {
     const jwt = await getAccessToken();
     const url =
       `${THESIS_URL}?tokenAddress=${address}&networkId=1399811149` +
       `&afterTime=${Date.now() - THESIS_WINDOW_MS}&limit=80&threshold=${THESIS_MIN_USD}`;
-    const resp = await withTimeout(
-      getCycleTLS().then((c) =>
-        c(
-          url,
-          {
-            client: 'chrome131',
-            headers: {
-              accept: '*/*',
-              'app-language': 'es',
-              'content-type': 'application/json',
-              cookie: `privy-session=privy.fomo.family; privy-token=${jwt}`,
-              origin: 'https://fomo.family',
-              referer: 'https://fomo.family/',
-              'user-agent': SOCIAL_UA,
-              'x-supported-chains': '1,56,143,4663,5042,8453,1399811149',
-            },
-          },
-          'get',
-        ),
-      ),
-      SOCIAL_TIMEOUT_MS,
-    );
+    const resp = await fomoThesisGet(url, {
+      accept: '*/*',
+      'app-language': 'es',
+      'content-type': 'application/json',
+      cookie: `privy-session=privy.fomo.family; privy-token=${jwt}`,
+      origin: 'https://fomo.family',
+      referer: 'https://fomo.family/',
+      'user-agent': SOCIAL_UA,
+      'x-supported-chains': '1,56,143,4663,5042,8453,1399811149',
+    });
     const items = tlsJson(resp)?.responseObject?.items;
     if (!Array.isArray(items)) return null;
     let usd = 0;
