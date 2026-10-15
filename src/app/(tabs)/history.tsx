@@ -1017,6 +1017,12 @@ type SourceFields = {
   calloutsUpPct: number | null;
   calloutsEntryMcap: number | null;
   calloutsVerified: number | null;
+  posHolders: number | null;
+  posHoldersTotal: number | null;
+  callout100: number | null;
+  calloutLt100: number | null;
+  topTraders: number | null;
+  topTraderNames: string[] | null;
 };
 
 const rhythmTone = (v: number) => (v > 0 ? Palette.green : v < 0 ? Palette.red : Palette.textSecondary);
@@ -1046,7 +1052,13 @@ function SourceChips({ s }: { s: SourceFields }) {
     s.buyVol1h != null ||
     s.sellVol1h != null ||
     s.proTradersAz != null;
-  const hasSocial = s.thesesCount != null || s.chatMsgs5m != null || s.calloutsTotal != null;
+  const hasSocial =
+    s.thesesCount != null ||
+    s.chatMsgs5m != null ||
+    s.calloutsTotal != null ||
+    s.callout100 != null ||
+    s.calloutLt100 != null ||
+    s.topTraders != null;
   if (!hasPulse && !hasAzura && !hasSocial) return null;
   return (
     <View style={styles.chipRow}>
@@ -1103,7 +1115,18 @@ function SourceChips({ s }: { s: SourceFields }) {
           pero no se pinta: menos ruido por fila. */}
       {s.thesesCount != null ? <MiniStat label="TESIS" value={formatCompactQty(s.thesesCount)} valueTone={Palette.paper} /> : null}
       {s.chatMsgs5m != null ? <MiniStat label="CHAT" value={formatCompactQty(s.chatMsgs5m)} valueTone={Palette.green} /> : null}
-      {s.calloutsTotal != null ? <MiniStat label="CALLOUT" value={formatCompactQty(s.calloutsTotal)} valueTone={Palette.warning} /> : null}
+      {/* Callouts de pump.fun partido por plata metida: ≥$100 (con dinero
+          real) vs <$100. TOP = top traders del leaderboard pump (24h/7d/30d)
+          con posición en el token — solo se pinta si hay alguno. */}
+      {s.callout100 != null ? (
+        <MiniStat label="CAL100" value={formatCompactQty(s.callout100)} valueTone={Palette.warning} />
+      ) : null}
+      {s.calloutLt100 != null ? (
+        <MiniStat label="CAL<$100" value={formatCompactQty(s.calloutLt100)} valueTone={Palette.textSecondary} />
+      ) : null}
+      {(s.topTraders ?? 0) > 0 ? (
+        <MiniStat label="TOP" value={formatCompactQty(s.topTraders ?? 0)} valueTone={Palette.paper} />
+      ) : null}
     </View>
   );
 }

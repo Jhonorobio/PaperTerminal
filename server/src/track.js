@@ -134,7 +134,7 @@ export function setTrackConfig(raw) {
 }
 
 /** One minute's worth of the stats the analysis runs on. */
-function snapshotOf(a, pulse, card, thesis, chat, callout) {
+function snapshotOf(a, pulse, card, thesis, chat, callout, pos, top) {
   return {
     at: new Date().toISOString(),
     mcap: numOrNull(a.fdv),
@@ -189,6 +189,17 @@ function snapshotOf(a, pulse, card, thesis, chat, callout) {
     calloutsUpPct: callout?.calloutsUpPct ?? null,
     calloutsEntryMcap: callout?.calloutsEntryMcap ?? null,
     calloutsVerified: callout?.calloutsVerified ?? null,
+    // Pump positions (fuente 7, VIVA — se lee en cada snapshot): holders
+    // visibles y sus callouts separados por plata metida (≥$100 vs <$100).
+    posHolders: pos?.holders ?? null,
+    posHoldersTotal: pos?.holdersTotal ?? null,
+    callout100: pos?.callout100 ?? null,
+    calloutLt100: pos?.calloutLt100 ?? null,
+    // Top traders de pump.fun (fuente 8, leaderboard horario): cuántos de los
+    // top 24h/7d/30d tienen posición en el token (intersección por mint) y
+    // quiénes son — así "¿tiene top traders?" se resuelve solo, sin buscar.
+    topTraders: top?.topTraders ?? null,
+    topTraderNames: top?.topTraderNames ?? null,
   };
 }
 
@@ -495,6 +506,120 @@ export async function fetchPumpCallout(address) {
   }
 }
 
+// ── Pump positions (fuente 7) + PnL leaderboard (fuente 8) ──────────────────
+// mint-positions de frontend-api-v3.pump.fun: los holders del token con su
+// callout embebido (thesis, entry mcap, views) y SU PLATA metida
+// (amountBoughtUsd). Sondeo: 200 directo (sin WAF, a diferencia de FOMO/GMGN),
+// 20/20 en paralelo a ~26 ms/req, respuestas de 1.3-70KB. Se lee VIVA en cada
+// snapshot (la lista cambia minuto a minuto; totalCount decae al cerrarse
+// posiciones). El primer parámetro filtra con `withThesis=true`, que trae el
+// callout de cada holder — la métrica del usuario: callouts con ≥$100 metidos
+// separados de los que pusieron <$100.
+const PUMP_POS_URL = (address) =>
+  `https://frontend-api-v3.pump.fun/mint-positions/${address}?sortBy=TOP&withThesis=true&pageSize=50`;
+const PUMP_POS_TOP_USD = 100; // barra "con plata" del callout
+const PUMP_HEADERS = {
+  accept: 'application/json, text/plain, */*',
+  origin: 'https://pump.fun',
+  referer: 'https://pump.fun/',
+  'user-agent': SOCIAL_UA,
+};
+
+/** GET a pump.fun: directo primero (pasa el WAF), cycletls chrome131 de respaldo. */
+async function pumpGet(url) {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), SOCIAL_TIMEOUT_MS);
+    const res = await fetch(url, { headers: { accept: 'application/json' }, signal: ctrl.signal });
+    clearTimeout(timer);
+    if (res.ok) return await res.json();
+  } catch {
+    // directo bloqueado o caído → se intenta con cycletls
+  }
+  try {
+    const resp = await withTimeout(
+      getCycleTLS().then((c) => c(url, { client: 'chrome131', headers: PUMP_HEADERS }, 'get')),
+      SOCIAL_TIMEOUT_MS,
+    );
+    return tlsJson(resp);
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchPumpPositions(address) {
+  const j = await pumpGet(PUMP_POS_URL(address));
+  const positions = j?.positions;
+  if (!Array.isArray(positions)) return null;
+  let callout100 = 0;
+  let calloutLt100 = 0;
+  for (const p of positions) {
+    if (!p?.callout) continue; // solo holders que además dejaron su callout público
+    if ((numOrNull(p.amountBoughtUsd) ?? 0) >= PUMP_POS_TOP_USD) callout100 += 1;
+    else calloutLt100 += 1; // <$100 o monto desconocido
+  }
+  return {
+    holders: positions.length, // visibles en la página (hasta 50)
+    holdersTotal: numOrNull(j.totalCount),
+    callout100,
+    calloutLt100,
+  };
+}
+
+// El leaderboard diario/semanal/mensual de PnL de pump.fun trae en cada entry
+// sus `topPositions` (los mints en los que está positionado) — intersectar esa
+// lista con el mint del token es COMO SE SABE si un token tiene top traders de
+// pump.fun. 3 requests/hora (~170KB, limit=100 tope real del endpoint) y vive
+// en memoria: un reinicio lo refresca en el primer tick del track.
+const LEADERBOARD_MS = 3_600_000;
+const LEADERBOARD_PERIODS = ['daily', 'weekly', 'monthly'];
+const lbUrl = (period) => `https://frontend-api-v3.pump.fun/pnl-leaderboard?period=${period}&sort=combined&limit=100`;
+
+let lb = { at: 0, inflight: null, byWallet: new Map() };
+
+async function fetchLbEntries(period) {
+  const j = await pumpGet(lbUrl(period));
+  const entries = j?.entries;
+  return Array.isArray(entries) ? entries.filter((e) => e?.walletAddress) : null;
+}
+
+/** Refresca el leaderboard cuando pasó la hora (concurso único: sin doble fetch). */
+export async function refreshPumpLeaderboard() {
+  if (lb.inflight || Date.now() - lb.at < LEADERBOARD_MS) return;
+  lb.inflight = (async () => {
+    try {
+      const boards = await Promise.all(LEADERBOARD_PERIODS.map(fetchLbEntries));
+      const byWallet = new Map();
+      boards.forEach((entries, i) => {
+        for (const e of entries ?? []) {
+          let row = byWallet.get(e.walletAddress);
+          if (!row) {
+            row = { username: null, pnlUsd: 0, ranks: {}, mints: new Set() };
+            byWallet.set(e.walletAddress, row);
+          }
+          if (e.username) row.username = e.username;
+          row.ranks[LEADERBOARD_PERIODS[i]] = numOrNull(e.rank);
+          row.pnlUsd = Math.max(row.pnlUsd, numOrNull(e.pnlUsd) ?? 0);
+          for (const t of e.topPositions ?? []) if (t?.mint) row.mints.add(t.mint); // chains mezcladas; el match es por string exacto
+        }
+      });
+      lb = { at: Date.now(), inflight: null, byWallet };
+      console.log(`[track] leaderboard pump: ${byWallet.size} top traders (${LEADERBOARD_PERIODS.join('/')})`);
+    } catch {
+      lb = { at: lb.at, inflight: null, byWallet: lb.byWallet }; // reintenta en el próximo tick
+    }
+  })();
+  return lb.inflight;
+}
+
+/** Top traders de pump.fun con posición en este token (del último leaderboard). */
+export function topTradersOf(address) {
+  if (!lb.byWallet.size) return { topTraders: null, topTraderNames: null }; // aún sin refrescar
+  const names = [];
+  for (const row of lb.byWallet.values()) if (row.mints.has(address)) names.push(row.username ?? 'anónimo');
+  return { topTraders: names.length, topTraderNames: names.length ? names.slice(0, 10) : null };
+}
+
 /**
  * Hard gate: the tracker idles until its OWN proxy is saved (never the
  * FOMO/Photon one — the track doesn't egress without its own) and the filter
@@ -719,14 +844,16 @@ async function trackTick() {
     let changed = false; // structural events (enter / resume / identity / pause / cut)
     let snapshotted = false; // a token's stats series grew — its health (may) move
 
-    // Extra sources (Pulse, Azura, FOMO thesis, GMGN chat) for every token DUE
-    // a snapshot this tick, fetched all at once: with 5-10 active tokens that's
-    // one parallel batch per minute (each probed 20-parallel clean). The pump
-    // callout (~240KB) is fetched ONCE per token — guarded by `tracked.callouts`
-    // and stored on the token itself, since historical callouts don't change.
-    // Tokens that predate the field get a per-tick backfill cap so ~90 × 240KB
-    // never fire in one parallel batch. Done BEFORE the loop so the tick never
-    // waits inside the per-token iteration.
+    // Extra sources (Pulse, Azura, FOMO thesis, GMGN chat, pump positions) for
+    // every token DUE a snapshot this tick, fetched all at once: with 5-10
+    // active tokens that's one parallel batch per minute (each probed 20-parallel
+    // clean). The pump callout (~240KB) is fetched ONCE per token — guarded by
+    // `tracked.callouts` and stored on the token itself, since historical
+    // callouts don't change. Tokens that predate the field get a per-tick
+    // backfill cap so ~90 × 240KB never fire in one parallel batch. The pump
+    // leaderboard (fuente 8) refreshes once an hour, OUTSIDE the per-token cost.
+    // Done BEFORE the loop so the tick never waits inside the per-token iteration.
+    await refreshPumpLeaderboard(); // 1ª vez o pasó la hora → ~600ms, una sola vez
     const dueAddresses = [...byAddress.keys()].filter((address) => snapshotDue(trackTokens.get(address)));
     const extraByAddress = new Map();
     let backfillLeft = CALLOUT_BACKFILL_PER_TICK;
@@ -739,14 +866,15 @@ async function trackTick() {
           if (backfillLeft > 0) backfillLeft -= 1;
           else wantCallout = false;
         }
-        const [pulse, card, thesis, chat, callout] = await Promise.all([
+        const [pulse, card, thesis, chat, callout, positions] = await Promise.all([
           fetchPulse(address),
           fetchAzura(address),
           fetchFomoThesis(address),
           fetchGmgnMessages(address),
           wantCallout ? fetchPumpCallout(address) : Promise.resolve(null),
+          fetchPumpPositions(address),
         ]);
-        extraByAddress.set(address, { pulse, card, thesis, chat, callout });
+        extraByAddress.set(address, { pulse, card, thesis, chat, callout, positions });
       }),
     );
 
@@ -796,7 +924,12 @@ async function trackTick() {
         const wasBuy = trackBuySignal(tracked.snapshots);
         const extra = extraByAddress.get(address) ?? {};
         if (extra.callout) tracked.callouts = extra.callout; // 1ª vez → queda en el token
-        tracked.snapshots.push(snapshotOf(a, extra.pulse, extra.card, extra.thesis, extra.chat, tracked.callouts ?? null));
+        tracked.snapshots.push(
+          snapshotOf(
+            a, extra.pulse, extra.card, extra.thesis, extra.chat,
+            tracked.callouts ?? null, extra.positions ?? null, topTradersOf(address),
+          ),
+        );
         persist = true;
         snapshotted = true;
         if (tracked.snapshots.length >= TRACK_SNAPSHOT_MAX) tracked.status = 'done'; // 50 → se corta
@@ -1236,6 +1369,12 @@ export function summarizeTrackToken(t) {
     calloutsUpPct: last?.calloutsUpPct ?? null,
     calloutsEntryMcap: last?.calloutsEntryMcap ?? null,
     calloutsVerified: last?.calloutsVerified ?? null,
+    posHolders: last?.posHolders ?? null,
+    posHoldersTotal: last?.posHoldersTotal ?? null,
+    callout100: last?.callout100 ?? null,
+    calloutLt100: last?.calloutLt100 ?? null,
+    topTraders: last?.topTraders ?? null,
+    topTraderNames: last?.topTraderNames ?? null,
   };
 }
 

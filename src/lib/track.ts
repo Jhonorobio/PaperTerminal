@@ -133,6 +133,18 @@ export interface TrackSnapshot {
   calloutsEntryMcap: number | null;
   /** Callouters con verificación. */
   calloutsVerified: number | null;
+  /** Pump positions (fuente 7, viva): holders visibles en la página (≤50). */
+  posHolders: number | null;
+  /** Total de holders con posición en el token (totalCount del endpoint). */
+  posHoldersTotal: number | null;
+  /** Callouts públicos con ≥$100 metidos (amountBoughtUsd). */
+  callout100: number | null;
+  /** Callouts públicos con <$100 metidos. */
+  calloutLt100: number | null;
+  /** Top traders de pump.fun (leaderboard 24h/7d/30d) con posición en el token. */
+  topTraders: number | null;
+  /** Sus usernames (hasta 10) — para el detalle, no para la lista. */
+  topTraderNames: string[] | null;
   /**
    * The chip as it looked AT THAT MINUTE (server computes it from the prefix
    * [0..i] of the series — no hindsight). null on the first snapshot.
@@ -222,6 +234,15 @@ export interface TrackTokenSummary {
   calloutsUpPct: number | null;
   calloutsEntryMcap: number | null;
   calloutsVerified: number | null;
+  /** Pump positions (fuente 7, viva): holders visibles y total en el token. */
+  posHolders: number | null;
+  posHoldersTotal: number | null;
+  /** Callouts con ≥$100 metidos vs los de <$100. */
+  callout100: number | null;
+  calloutLt100: number | null;
+  /** Top traders de pump.fun (leaderboard horario) con posición en el token. */
+  topTraders: number | null;
+  topTraderNames: string[] | null;
   /** Holders first→last snapshot, percent (the strongest signal, r=0.71). */
   holdersDeltaPct: number | null;
   /** Buys/sells over the last ~3 min — ≥1 means net buying. */
