@@ -196,8 +196,8 @@ function snapshotOf(a, pulse, card, thesis, chat, callout, pos, top) {
     callout100: pos?.callout100 ?? null,
     calloutLt100: pos?.calloutLt100 ?? null,
     // Top traders de pump.fun (fuente 8, leaderboard horario): cuántos de los
-    // top 24h/7d/30d tienen posición en el token (intersección por mint) y
-    // quiénes son — así "¿tiene top traders?" se resuelve solo, sin buscar.
+    // top 50 del día y de la semana tienen posición en el token (intersección
+    // por mint) y quiénes son — así "¿tiene top traders?" se resuelve solo.
     topTraders: top?.topTraders ?? null,
     topTraderNames: top?.topTraderNames ?? null,
   };
@@ -566,14 +566,15 @@ export async function fetchPumpPositions(address) {
   };
 }
 
-// El leaderboard diario/semanal/mensual de PnL de pump.fun trae en cada entry
-// sus `topPositions` (los mints en los que está positionado) — intersectar esa
+// El leaderboard diario/semanal de PnL de pump.fun trae en cada entry sus
+// `topPositions` (los mints en los que está positionado) — intersectar esa
 // lista con el mint del token es COMO SE SABE si un token tiene top traders de
-// pump.fun. 3 requests/hora (~170KB, limit=100 tope real del endpoint) y vive
-// en memoria: un reinicio lo refresca en el primer tick del track.
+// pump.fun. Por decisión del usuario: SOLO daily y weekly, top 50 cada uno.
+// 2 requests/hora (~110KB) y vive en memoria: un reinicio lo refresca en el
+// primer tick del track.
 const LEADERBOARD_MS = 3_600_000;
-const LEADERBOARD_PERIODS = ['daily', 'weekly', 'monthly'];
-const lbUrl = (period) => `https://frontend-api-v3.pump.fun/pnl-leaderboard?period=${period}&sort=combined&limit=100`;
+const LEADERBOARD_PERIODS = ['daily', 'weekly'];
+const lbUrl = (period) => `https://frontend-api-v3.pump.fun/pnl-leaderboard?period=${period}&sort=combined&limit=50`;
 
 let lb = { at: 0, inflight: null, byWallet: new Map() };
 

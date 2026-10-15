@@ -141,7 +141,7 @@ export interface TrackSnapshot {
   callout100: number | null;
   /** Callouts públicos con <$100 metidos. */
   calloutLt100: number | null;
-  /** Top traders de pump.fun (leaderboard 24h/7d/30d) con posición en el token. */
+  /** Top traders de pump.fun (leaderboard top-50 diario y semanal) con posición en el token. */
   topTraders: number | null;
   /** Sus usernames (hasta 10) — para el detalle, no para la lista. */
   topTraderNames: string[] | null;

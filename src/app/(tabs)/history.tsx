@@ -1116,8 +1116,8 @@ function SourceChips({ s }: { s: SourceFields }) {
       {s.thesesCount != null ? <MiniStat label="TESIS" value={formatCompactQty(s.thesesCount)} valueTone={Palette.paper} /> : null}
       {s.chatMsgs5m != null ? <MiniStat label="CHAT" value={formatCompactQty(s.chatMsgs5m)} valueTone={Palette.green} /> : null}
       {/* Callouts de pump.fun partido por plata metida: ≥$100 (con dinero
-          real) vs <$100. TOP = top traders del leaderboard pump (24h/7d/30d)
-          con posición en el token — solo se pinta si hay alguno. */}
+          real) vs <$100. TOP = top traders del leaderboard pump (top-50
+          diario y semanal) con posición en el token — solo si hay alguno. */}
       {s.callout100 != null ? (
         <MiniStat label="CAL100" value={formatCompactQty(s.callout100)} valueTone={Palette.warning} />
       ) : null}
