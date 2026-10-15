@@ -1098,56 +1098,12 @@ function SourceChips({ s }: { s: SourceFields }) {
         />
       ) : null}
       {s.proTradersAz != null ? <MiniStat label="PRO·AZ" value={formatCompactQty(s.proTradersAz)} valueTone={Palette.paper} /> : null}
-      {/* FOMO thesis — tesis con plata real adjunta (≥$1K, última hora):
-          total/abiertas con el USD puesto; PnL de los autores + su entry MC */}
-      {s.thesesCount != null ? (
-        <MiniStat
-          label="TESIS"
-          value={
-            formatCompactQty(s.thesesCount) +
-            (s.thesesOpen != null ? `/${formatCompactQty(s.thesesOpen)}` : '')
-          }
-          sub={formatCompactUsd(s.thesesUsd)}
-          valueTone={Palette.paper}
-        />
-      ) : null}
-      {s.thesesPnlAvg != null ? (
-        <MiniStat
-          label="T·PNL"
-          value={formatPct(s.thesesPnlAvg, { sign: true })}
-          valueTone={rhythmTone(s.thesesPnlAvg)}
-          sub={s.thesesEntryMcap != null ? `MC ${formatCompactUsd(s.thesesEntryMcap)}` : undefined}
-        />
-      ) : null}
-      {/* GMGN chat — quién habla y con cuánta plata dentro */}
-      {s.chatMsgs5m != null ? (
-        <MiniStat
-          label="CHAT"
-          value={formatCompactQty(s.chatMsgs5m)}
-          sub={formatCompactUsd(s.chatHoldersUsd)}
-          valueTone={Palette.green}
-        />
-      ) : null}
-      {s.chatPnlAvg != null ? (
-        <MiniStat label="C·PNL" value={formatPct(s.chatPnlAvg, { sign: true })} valueTone={rhythmTone(s.chatPnlAvg)} />
-      ) : null}
-      {/* Pump callout — quién lo llamó y con cuánto (solo en el 1er snapshot) */}
-      {s.calloutsTotal != null ? (
-        <MiniStat
-          label="CALLOUT"
-          value={formatCompactQty(s.calloutsTotal)}
-          sub={formatCompactUsd(s.calloutsUsd)}
-          valueTone={Palette.warning}
-        />
-      ) : null}
-      {s.calloutsUpPct != null ? (
-        <MiniStat
-          label="CAL·PNL"
-          value={formatPct(s.calloutsUpPct, { sign: true })}
-          valueTone={rhythmTone(s.calloutsUpPct)}
-          sub={s.calloutsEntryMcap != null ? `MC ${formatCompactUsd(s.calloutsEntryMcap)}` : undefined}
-        />
-      ) : null}
+      {/* Fuentes sociales — en la UI SOLO el conteo. El resto (USD, PnL,
+          entry MC, verificados…) se guarda en el snapshot para el análisis,
+          pero no se pinta: menos ruido por fila. */}
+      {s.thesesCount != null ? <MiniStat label="TESIS" value={formatCompactQty(s.thesesCount)} valueTone={Palette.paper} /> : null}
+      {s.chatMsgs5m != null ? <MiniStat label="CHAT" value={formatCompactQty(s.chatMsgs5m)} valueTone={Palette.green} /> : null}
+      {s.calloutsTotal != null ? <MiniStat label="CALLOUT" value={formatCompactQty(s.calloutsTotal)} valueTone={Palette.warning} /> : null}
     </View>
   );
 }
