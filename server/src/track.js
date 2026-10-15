@@ -177,8 +177,10 @@ function snapshotOf(a, pulse, card, thesis, chat, callout, pos, top) {
     thesesUsd: thesis?.thesesUsd ?? null,
     thesesPnlAvg: thesis?.thesesPnlAvg ?? null,
     thesesEntryMcap: thesis?.thesesEntryMcap ?? null,
-    // GMGN chat (fuente 5): actividad del chat y plata de quienes hablan.
-    chatMsgs5m: chat?.chatMsgs5m ?? null,
+    // GMGN chat (fuente 5): ACUMULATIVO desde la entrada al track — mensajes
+    // totales vistos, wallets únicas que hablaron, su plata y su PnL.
+    chatMsgs: chat?.chatMsgs ?? null,
+    chatWallets: chat?.chatWallets ?? null,
     chatHoldersUsd: chat?.chatHoldersUsd ?? null,
     chatPnlAvg: chat?.chatPnlAvg ?? null,
     chatKols: chat?.chatKols ?? null,
@@ -404,7 +406,6 @@ export async function fetchFomoThesis(address) {
 // Sin params de fingerprint: probado con solo `?limit=50` → 200.
 const GMGN_MSGS_URL = (address) =>
   `https://gmgn.ai/api/v1/token/sol/${address}/community/messages?limit=50`;
-const CHAT_WINDOW_MS = 5 * 60_000;
 const GMGN_HEADERS = {
   accept: 'application/json, text/plain, */*',
   origin: 'https://gmgn.ai',
@@ -412,7 +413,16 @@ const GMGN_HEADERS = {
   'user-agent': SOCIAL_UA,
 };
 
-export async function fetchGmgnMessages(address) {
+/**
+ * ACUMULATIVO (decisión del usuario): cada snapshot pide los últimos 50
+ * mensajes y los vuelca en el acumulador del token (`tracked.chatAcc`,
+ * persistido con él) deduplicando por `id` — chatMsgs cuenta TODO lo visto
+ * desde que el token entró al track, no una ventana. Los agregados
+ * (USD/PnL/KOLs) se recalculan sobre las wallets ÚNICAS acumuladas.
+ * Tope práctico: si el chat emite >50 mensajes/min se pierde la cola vieja
+ * entre fetch y fetch (50/min es lo que el endpoint expone por página).
+ */
+export async function fetchGmgnMessages(address, acc) {
   try {
     const resp = await withTimeout(
       getCycleTLS().then((c) => c(GMGN_MSGS_URL(address), { client: 'chrome131', headers: GMGN_HEADERS }, 'get')),
@@ -420,29 +430,36 @@ export async function fetchGmgnMessages(address) {
     );
     const msgs = tlsJson(resp)?.data?.messages;
     if (!Array.isArray(msgs)) return null;
-    const cutoff = Date.now() - CHAT_WINDOW_MS;
-    const recent = msgs.filter((m) => (Date.parse(m?.created_at ?? '') || 0) >= cutoff);
-    const byWallet = new Map();
-    for (const m of recent) {
-      if (m?.wallet_address && !byWallet.has(m.wallet_address)) byWallet.set(m.wallet_address, m);
+    for (const m of msgs) {
+      const key = m?.id;
+      if (!key || acc.seen[key]) continue; // ya contado en un minuto anterior
+      acc.seen[key] = 1;
+      acc.msgs += 1;
+      const w = m.wallet_address;
+      if (w && acc.wallets[w] == null) {
+        const pnl = numOrNull(m.unrealized_profit_pnl); // FRACCIÓN → %
+        acc.wallets[w] = {
+          usd: numOrNull(m.current_holding_usd),
+          pnl: pnl != null ? pnl * 100 : null,
+          kol: Boolean(m.is_kol),
+        };
+      }
     }
     let holdersUsd = 0;
     let pnlSum = 0;
     let pnlN = 0;
     let kols = 0;
-    for (const m of byWallet.values()) {
-      const usd = numOrNull(m.current_holding_usd);
-      if (usd != null) holdersUsd += usd;
-      // unrealized_profit_pnl viene como FRACCIÓN (0.10 = +10%)
-      const pnl = numOrNull(m.unrealized_profit_pnl);
-      if (pnl != null) {
-        pnlSum += pnl * 100;
+    for (const w of Object.values(acc.wallets)) {
+      if (w.usd != null) holdersUsd += w.usd;
+      if (w.pnl != null) {
+        pnlSum += w.pnl;
         pnlN += 1;
       }
-      if (m.is_kol) kols += 1;
+      if (w.kol) kols += 1;
     }
     return {
-      chatMsgs5m: recent.length,
+      chatMsgs: acc.msgs,
+      chatWallets: Object.keys(acc.wallets).length,
       chatHoldersUsd: Math.round(holdersUsd),
       chatPnlAvg: pnlN ? Math.round((pnlSum / pnlN) * 10) / 10 : null,
       chatKols: kols,
@@ -867,15 +884,18 @@ async function trackTick() {
           if (backfillLeft > 0) backfillLeft -= 1;
           else wantCallout = false;
         }
+        // El chat es ACUMULATIVO: el acumulador viaja con el token y este fetch
+        // lo alimenta (dedup por id) antes de que el loop lo vuelva a persistir.
+        const chatAcc = tracked0?.chatAcc ?? { msgs: 0, seen: {}, wallets: {} };
         const [pulse, card, thesis, chat, callout, positions] = await Promise.all([
           fetchPulse(address),
           fetchAzura(address),
           fetchFomoThesis(address),
-          fetchGmgnMessages(address),
+          fetchGmgnMessages(address, chatAcc),
           wantCallout ? fetchPumpCallout(address) : Promise.resolve(null),
           fetchPumpPositions(address),
         ]);
-        extraByAddress.set(address, { pulse, card, thesis, chat, callout, positions });
+        extraByAddress.set(address, { pulse, card, thesis, chat, chatAcc, callout, positions });
       }),
     );
 
@@ -925,6 +945,7 @@ async function trackTick() {
         const wasBuy = trackBuySignal(tracked.snapshots);
         const extra = extraByAddress.get(address) ?? {};
         if (extra.callout) tracked.callouts = extra.callout; // 1ª vez → queda en el token
+        if (extra.chat) tracked.chatAcc = extra.chatAcc; // acumulador del chat acumulativo
         tracked.snapshots.push(
           snapshotOf(
             a, extra.pulse, extra.card, extra.thesis, extra.chat,
@@ -1361,7 +1382,8 @@ export function summarizeTrackToken(t) {
     thesesUsd: last?.thesesUsd ?? null,
     thesesPnlAvg: last?.thesesPnlAvg ?? null,
     thesesEntryMcap: last?.thesesEntryMcap ?? null,
-    chatMsgs5m: last?.chatMsgs5m ?? null,
+    chatMsgs: last?.chatMsgs ?? null,
+    chatWallets: last?.chatWallets ?? null,
     chatHoldersUsd: last?.chatHoldersUsd ?? null,
     chatPnlAvg: last?.chatPnlAvg ?? null,
     chatKols: last?.chatKols ?? null,

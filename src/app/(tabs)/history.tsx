@@ -1008,7 +1008,8 @@ type SourceFields = {
   thesesUsd: number | null;
   thesesPnlAvg: number | null;
   thesesEntryMcap: number | null;
-  chatMsgs5m: number | null;
+  chatMsgs: number | null;
+  chatWallets: number | null;
   chatHoldersUsd: number | null;
   chatPnlAvg: number | null;
   chatKols: number | null;
@@ -1054,7 +1055,7 @@ function SourceChips({ s }: { s: SourceFields }) {
     s.proTradersAz != null;
   const hasSocial =
     s.thesesCount != null ||
-    s.chatMsgs5m != null ||
+    s.chatMsgs != null ||
     s.calloutsTotal != null ||
     s.callout100 != null ||
     s.calloutLt100 != null ||
@@ -1114,7 +1115,16 @@ function SourceChips({ s }: { s: SourceFields }) {
           entry MC, verificados…) se guarda en el snapshot para el análisis,
           pero no se pinta: menos ruido por fila. */}
       {s.thesesCount != null ? <MiniStat label="TESIS" value={formatCompactQty(s.thesesCount)} valueTone={Palette.paper} /> : null}
-      {s.chatMsgs5m != null ? <MiniStat label="CHAT" value={formatCompactQty(s.chatMsgs5m)} valueTone={Palette.green} /> : null}
+      {/* CHAT = mensajes acumulados desde la entrada al track; el sub-badge
+          cuenta las wallets únicas que escribieron. */}
+      {s.chatMsgs != null ? (
+        <MiniStat
+          label="CHAT"
+          value={formatCompactQty(s.chatMsgs)}
+          sub={s.chatWallets != null ? `${formatCompactQty(s.chatWallets)}w` : undefined}
+          valueTone={Palette.green}
+        />
+      ) : null}
       {/* Callouts de pump.fun partido por plata metida: ≥$100 (con dinero
           real) vs <$100. TOP = top traders del leaderboard pump (top-50
           diario y semanal) con posición en el token — solo si hay alguno. */}

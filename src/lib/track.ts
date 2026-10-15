@@ -115,13 +115,15 @@ export interface TrackSnapshot {
   thesesPnlAvg: number | null;
   /** MCap promedio cuando los autores publicaron su tesis. */
   thesesEntryMcap: number | null;
-  /** GMGN chat (fuente 5): mensajes del chat en los últimos 5 min. */
-  chatMsgs5m: number | null;
-  /** USD puestos por los wallets únicos que escribieron en la ventana. */
+  /** GMGN chat (fuente 5, ACUMULATIVO): mensajes totales desde la entrada. */
+  chatMsgs: number | null;
+  /** Wallets únicas que escribieron (acumuladas). */
+  chatWallets: number | null;
+  /** USD puestos por esas wallets únicas. */
   chatHoldersUsd: number | null;
-  /** PnL sin realizar promedio de esos holders (%). */
+  /** PnL sin realizar promedio de esas wallets (%). */
   chatPnlAvg: number | null;
-  /** KOLs que escribieron en la ventana. */
+  /** KOLs únicos que escribieron (acumulados). */
   chatKols: number | null;
   /** Pump callout (fuente 6, solo 1er snapshot): callouts de la última hora. */
   calloutsTotal: number | null;
@@ -223,8 +225,9 @@ export interface TrackTokenSummary {
   thesesUsd: number | null;
   thesesPnlAvg: number | null;
   thesesEntryMcap: number | null;
-  /** GMGN chat (last 5 min): messages + USD of unique chatters + avg PnL. */
-  chatMsgs5m: number | null;
+  /** GMGN chat (cumulative since tracking start): msgs + unique chatters. */
+  chatMsgs: number | null;
+  chatWallets: number | null;
   chatHoldersUsd: number | null;
   chatPnlAvg: number | null;
   chatKols: number | null;
