@@ -182,7 +182,8 @@ function snapshotOf(a, pulse, card, thesis, chat, callout) {
     chatHoldersUsd: chat?.chatHoldersUsd ?? null,
     chatPnlAvg: chat?.chatPnlAvg ?? null,
     chatKols: chat?.chatKols ?? null,
-    // Pump callout (fuente 6, solo el 1er snapshot por token).
+    // Pump callout (fuente 6): una sola petición por token, guardada en el token
+    // y volcada en cada snapshot (los callouts históricos no cambian).
     calloutsTotal: callout?.calloutsTotal ?? null,
     calloutsUsd: callout?.calloutsUsd ?? null,
     calloutsUpPct: callout?.calloutsUpPct ?? null,
@@ -448,6 +449,7 @@ export async function fetchGmgnMessages(address) {
 const GMGN_CALLOUT_URL = (address) =>
   `https://gmgn.ai/pf/api/v1/pump/callout/token?chain=sol&token=${address}`;
 const CALLOUT_WINDOW_MS = 3_600_000;
+const CALLOUT_BACKFILL_PER_TICK = 20; // tope de relleno por tick (~240KB c/u)
 
 export async function fetchPumpCallout(address) {
   try {
@@ -720,20 +722,29 @@ async function trackTick() {
     // Extra sources (Pulse, Azura, FOMO thesis, GMGN chat) for every token DUE
     // a snapshot this tick, fetched all at once: with 5-10 active tokens that's
     // one parallel batch per minute (each probed 20-parallel clean). The pump
-    // callout (~240KB, unwindowed) is fetched ONLY for a token's first snapshot
-    // — historical callouts don't change. Done BEFORE the loop so the tick
-    // never waits inside the per-token iteration.
+    // callout (~240KB) is fetched ONCE per token — guarded by `tracked.callouts`
+    // and stored on the token itself, since historical callouts don't change.
+    // Tokens that predate the field get a per-tick backfill cap so ~90 × 240KB
+    // never fire in one parallel batch. Done BEFORE the loop so the tick never
+    // waits inside the per-token iteration.
     const dueAddresses = [...byAddress.keys()].filter((address) => snapshotDue(trackTokens.get(address)));
     const extraByAddress = new Map();
+    let backfillLeft = CALLOUT_BACKFILL_PER_TICK;
     await Promise.all(
       dueAddresses.map(async (address) => {
-        const first = (trackTokens.get(address)?.snapshots.length ?? 0) === 0;
+        const tracked0 = trackTokens.get(address);
+        const isNew = (tracked0?.snapshots.length ?? 0) === 0;
+        let wantCallout = !tracked0?.callouts;
+        if (wantCallout && !isNew) {
+          if (backfillLeft > 0) backfillLeft -= 1;
+          else wantCallout = false;
+        }
         const [pulse, card, thesis, chat, callout] = await Promise.all([
           fetchPulse(address),
           fetchAzura(address),
           fetchFomoThesis(address),
           fetchGmgnMessages(address),
-          first ? fetchPumpCallout(address) : Promise.resolve(null),
+          wantCallout ? fetchPumpCallout(address) : Promise.resolve(null),
         ]);
         extraByAddress.set(address, { pulse, card, thesis, chat, callout });
       }),
@@ -784,7 +795,8 @@ async function trackTick() {
       if (snapshotDue(tracked)) {
         const wasBuy = trackBuySignal(tracked.snapshots);
         const extra = extraByAddress.get(address) ?? {};
-        tracked.snapshots.push(snapshotOf(a, extra.pulse, extra.card, extra.thesis, extra.chat, extra.callout));
+        if (extra.callout) tracked.callouts = extra.callout; // 1ª vez → queda en el token
+        tracked.snapshots.push(snapshotOf(a, extra.pulse, extra.card, extra.thesis, extra.chat, tracked.callouts ?? null));
         persist = true;
         snapshotted = true;
         if (tracked.snapshots.length >= TRACK_SNAPSHOT_MAX) tracked.status = 'done'; // 50 → se corta
