@@ -197,10 +197,12 @@ function snapshotOf(a, pulse, card, thesis, chat, callout, pos, top) {
     posHoldersTotal: pos?.holdersTotal ?? null,
     callout100: pos?.callout100 ?? null,
     calloutLt100: pos?.calloutLt100 ?? null,
-    // Top traders de pump.fun (fuente 8, leaderboard horario): cuántos de los
-    // top 50 del día y de la semana tienen posición en el token (intersección
-    // por mint) y quiénes son — así "¿tiene top traders?" se resuelve solo.
-    topTraders: top?.topTraders ?? null,
+    // Top traders del token (fuente 9): el ranking propio de pump.fun por
+    // token — traders con rank ≤50 y ≥$100 comprados, separados por board
+    // (daily / weekly / monthly) + sus usernames.
+    topDaily: top?.topDaily ?? null,
+    topWeekly: top?.topWeekly ?? null,
+    topMonthly: top?.topMonthly ?? null,
     topTraderNames: top?.topTraderNames ?? null,
   };
 }
@@ -583,59 +585,53 @@ export async function fetchPumpPositions(address) {
   };
 }
 
-// El leaderboard diario/semanal de PnL de pump.fun trae en cada entry sus
-// `topPositions` (los mints en los que está positionado) — intersectar esa
-// lista con el mint del token es COMO SE SABE si un token tiene top traders de
-// pump.fun. Por decisión del usuario: SOLO daily y weekly, top 50 cada uno.
-// 2 requests/hora (~110KB) y vive en memoria: un reinicio lo refresca en el
-// primer tick del track.
-const LEADERBOARD_MS = 3_600_000;
-const LEADERBOARD_PERIODS = ['daily', 'weekly'];
-const lbUrl = (period) => `https://frontend-api-v3.pump.fun/pnl-leaderboard?period=${period}&sort=combined&limit=50`;
+// ── Top traders del token (fuente 9) ─────────────────────────────────────────
+// El endpoint top-trader-trades del propio ranking de pump.fun devuelve, POR
+// TOKEN, sus top traders (username, verificado, bestRank, boards donde rankea)
+// y TODOS sus trades (isBuy/amountUsd). Reemplaza al cruce viejo
+// leaderboard × topPositions —que solo veía las ~5 posiciones más grandes de
+// cada trader y daba TOP 0 casi siempre—. Por decisión del usuario:
+//   · solo traders con rank ≤ 50 en al menos un board;
+//   · solo si compraron ≥ $100 (acumulado de sus compras, contando todas sus
+//     tradingWallets);
+//   · las 3 métricas van separadas: daily / weekly / monthly.
+// 8-34KB por token, directo (sin WAF, sin auth) — se lee en cada snapshot.
+const PUMP_TOP_URL = (address) =>
+  `https://frontend-api-v3.pump.fun/pnl-leaderboard/top-trader-trades/${address}`;
+const PUMP_TOP_MAX_RANK = 50;
+const PUMP_TOP_MIN_USD = 100;
 
-let lb = { at: 0, inflight: null, byWallet: new Map() };
-
-async function fetchLbEntries(period) {
-  const j = await pumpGet(lbUrl(period));
-  const entries = j?.entries;
-  return Array.isArray(entries) ? entries.filter((e) => e?.walletAddress) : null;
-}
-
-/** Refresca el leaderboard cuando pasó la hora (concurso único: sin doble fetch). */
-export async function refreshPumpLeaderboard() {
-  if (lb.inflight || Date.now() - lb.at < LEADERBOARD_MS) return;
-  lb.inflight = (async () => {
-    try {
-      const boards = await Promise.all(LEADERBOARD_PERIODS.map(fetchLbEntries));
-      const byWallet = new Map();
-      boards.forEach((entries, i) => {
-        for (const e of entries ?? []) {
-          let row = byWallet.get(e.walletAddress);
-          if (!row) {
-            row = { username: null, pnlUsd: 0, ranks: {}, mints: new Set() };
-            byWallet.set(e.walletAddress, row);
-          }
-          if (e.username) row.username = e.username;
-          row.ranks[LEADERBOARD_PERIODS[i]] = numOrNull(e.rank);
-          row.pnlUsd = Math.max(row.pnlUsd, numOrNull(e.pnlUsd) ?? 0);
-          for (const t of e.topPositions ?? []) if (t?.mint) row.mints.add(t.mint); // chains mezcladas; el match es por string exacto
-        }
-      });
-      lb = { at: Date.now(), inflight: null, byWallet };
-      console.log(`[track] leaderboard pump: ${byWallet.size} top traders (${LEADERBOARD_PERIODS.join('/')})`);
-    } catch {
-      lb = { at: lb.at, inflight: null, byWallet: lb.byWallet }; // reintenta en el próximo tick
-    }
-  })();
-  return lb.inflight;
-}
-
-/** Top traders de pump.fun con posición en este token (del último leaderboard). */
-export function topTradersOf(address) {
-  if (!lb.byWallet.size) return { topTraders: null, topTraderNames: null }; // aún sin refrescar
+export async function fetchPumpTopTraders(address) {
+  const j = await pumpGet(PUMP_TOP_URL(address));
+  const traders = j?.traders;
+  if (!Array.isArray(traders)) return null;
+  const trades = Array.isArray(j?.trades) ? j.trades : [];
+  let topDaily = 0;
+  let topWeekly = 0;
+  let topMonthly = 0;
   const names = [];
-  for (const row of lb.byWallet.values()) if (row.mints.has(address)) names.push(row.username ?? 'anónimo');
-  return { topTraders: names.length, topTraderNames: names.length ? names.slice(0, 10) : null };
+  for (const tr of traders) {
+    const rank = numOrNull(tr.bestRank);
+    if (rank == null || rank > PUMP_TOP_MAX_RANK) continue; // fuera del top 50
+    // El trader puede operar con varias wallets — las compras se suman todas.
+    const wallets = new Set([tr.walletAddress, ...(Array.isArray(tr.tradingWallets) ? tr.tradingWallets : [])]);
+    let boughtUsd = 0;
+    for (const t of trades) {
+      if (t?.isBuy && wallets.has(t.walletAddress)) boughtUsd += numOrNull(t.amountUsd) ?? 0;
+    }
+    if (boughtUsd < PUMP_TOP_MIN_USD) continue; // sin plata real adjunta
+    const periods = Array.isArray(tr.periods) ? tr.periods : [];
+    if (periods.includes('daily')) topDaily += 1;
+    if (periods.includes('weekly')) topWeekly += 1;
+    if (periods.includes('monthly')) topMonthly += 1;
+    if (tr.username) names.push(tr.username);
+  }
+  return {
+    topDaily,
+    topWeekly,
+    topMonthly,
+    topTraderNames: names.length ? names.slice(0, 10) : null,
+  };
 }
 
 /**
@@ -862,16 +858,14 @@ async function trackTick() {
     let changed = false; // structural events (enter / resume / identity / pause / cut)
     let snapshotted = false; // a token's stats series grew — its health (may) move
 
-    // Extra sources (Pulse, Azura, FOMO thesis, GMGN chat, pump positions) for
-    // every token DUE a snapshot this tick, fetched all at once: with 5-10
-    // active tokens that's one parallel batch per minute (each probed 20-parallel
-    // clean). The pump callout (~240KB) is fetched ONCE per token — guarded by
-    // `tracked.callouts` and stored on the token itself, since historical
-    // callouts don't change. Tokens that predate the field get a per-tick
-    // backfill cap so ~90 × 240KB never fire in one parallel batch. The pump
-    // leaderboard (fuente 8) refreshes once an hour, OUTSIDE the per-token cost.
+    // Extra sources (Pulse, Azura, FOMO thesis, GMGN chat, pump positions,
+    // pump top-traders) for every token DUE a snapshot this tick, fetched all at
+    // once: with 5-10 active tokens that's one parallel batch per minute (each
+    // probed 20-parallel clean). The pump callout (~240KB) is fetched ONCE per
+    // token — guarded by `tracked.callouts` and stored on the token itself,
+    // since historical callouts don't change. Tokens that predate the field get
+    // a per-tick backfill cap so ~90 × 240KB never fire in one parallel batch.
     // Done BEFORE the loop so the tick never waits inside the per-token iteration.
-    await refreshPumpLeaderboard(); // 1ª vez o pasó la hora → ~600ms, una sola vez
     const dueAddresses = [...byAddress.keys()].filter((address) => snapshotDue(trackTokens.get(address)));
     const extraByAddress = new Map();
     let backfillLeft = CALLOUT_BACKFILL_PER_TICK;
@@ -887,15 +881,16 @@ async function trackTick() {
         // El chat es ACUMULATIVO: el acumulador viaja con el token y este fetch
         // lo alimenta (dedup por id) antes de que el loop lo vuelva a persistir.
         const chatAcc = tracked0?.chatAcc ?? { msgs: 0, seen: {}, wallets: {} };
-        const [pulse, card, thesis, chat, callout, positions] = await Promise.all([
+        const [pulse, card, thesis, chat, callout, positions, top] = await Promise.all([
           fetchPulse(address),
           fetchAzura(address),
           fetchFomoThesis(address),
           fetchGmgnMessages(address, chatAcc),
           wantCallout ? fetchPumpCallout(address) : Promise.resolve(null),
           fetchPumpPositions(address),
+          fetchPumpTopTraders(address),
         ]);
-        extraByAddress.set(address, { pulse, card, thesis, chat, chatAcc, callout, positions });
+        extraByAddress.set(address, { pulse, card, thesis, chat, chatAcc, callout, positions, top });
       }),
     );
 
@@ -949,7 +944,7 @@ async function trackTick() {
         tracked.snapshots.push(
           snapshotOf(
             a, extra.pulse, extra.card, extra.thesis, extra.chat,
-            tracked.callouts ?? null, extra.positions ?? null, topTradersOf(address),
+            tracked.callouts ?? null, extra.positions ?? null, extra.top ?? null,
           ),
         );
         persist = true;
@@ -1396,7 +1391,9 @@ export function summarizeTrackToken(t) {
     posHoldersTotal: last?.posHoldersTotal ?? null,
     callout100: last?.callout100 ?? null,
     calloutLt100: last?.calloutLt100 ?? null,
-    topTraders: last?.topTraders ?? null,
+    topDaily: last?.topDaily ?? null,
+    topWeekly: last?.topWeekly ?? null,
+    topMonthly: last?.topMonthly ?? null,
     topTraderNames: last?.topTraderNames ?? null,
   };
 }

@@ -143,8 +143,10 @@ export interface TrackSnapshot {
   callout100: number | null;
   /** Callouts públicos con <$100 metidos. */
   calloutLt100: number | null;
-  /** Top traders de pump.fun (leaderboard top-50 diario y semanal) con posición en el token. */
-  topTraders: number | null;
+  /** Top traders del token (ranking propio pump.fun): rank ≤50 y ≥$100 comprados. */
+  topDaily: number | null;
+  topWeekly: number | null;
+  topMonthly: number | null;
   /** Sus usernames (hasta 10) — para el detalle, no para la lista. */
   topTraderNames: string[] | null;
   /**
@@ -243,8 +245,10 @@ export interface TrackTokenSummary {
   /** Callouts con ≥$100 metidos vs los de <$100. */
   callout100: number | null;
   calloutLt100: number | null;
-  /** Top traders de pump.fun (leaderboard horario) con posición en el token. */
-  topTraders: number | null;
+  /** Top traders del token (pump.fun por-token): rank ≤50 y ≥$100 comprados. */
+  topDaily: number | null;
+  topWeekly: number | null;
+  topMonthly: number | null;
   topTraderNames: string[] | null;
   /** Holders first→last snapshot, percent (the strongest signal, r=0.71). */
   holdersDeltaPct: number | null;

@@ -1022,7 +1022,9 @@ type SourceFields = {
   posHoldersTotal: number | null;
   callout100: number | null;
   calloutLt100: number | null;
-  topTraders: number | null;
+  topDaily: number | null;
+  topWeekly: number | null;
+  topMonthly: number | null;
   topTraderNames: string[] | null;
 };
 
@@ -1051,7 +1053,9 @@ function SourceChips({ s }: { s: SourceFields }) {
     s.calloutsTotal != null ||
     s.callout100 != null ||
     s.calloutLt100 != null ||
-    s.topTraders != null;
+    s.topDaily != null ||
+    s.topWeekly != null ||
+    s.topMonthly != null;
   if (!hasPulse && !hasAzura && !hasSocial) return null;
   return (
     <View style={styles.chipRow}>
@@ -1101,17 +1105,23 @@ function SourceChips({ s }: { s: SourceFields }) {
         />
       ) : null}
       {/* Callouts de pump.fun partido por plata metida: ≥$100 (con dinero
-          real) vs <$100. TOP = top traders del leaderboard pump (top-50
-          diario y semanal) con posición en el token — visible siempre que
-          exista la métrica (0 = ninguno). */}
+          real) vs <$100. TOP·D/W/M = top traders del token en el ranking
+          propio de pump.fun (rank ≤50 y ≥$100 comprados), separado por
+          board — visible siempre que exista la métrica (0 = ninguno). */}
       {s.callout100 != null ? (
         <MiniStat label="CAL100" value={formatCompactQty(s.callout100)} valueTone={Palette.warning} />
       ) : null}
       {s.calloutLt100 != null ? (
         <MiniStat label="CAL<$100" value={formatCompactQty(s.calloutLt100)} valueTone={Palette.textSecondary} />
       ) : null}
-      {s.topTraders != null ? (
-        <MiniStat label="TOP" value={formatCompactQty(s.topTraders)} valueTone={Palette.paper} />
+      {s.topDaily != null ? (
+        <MiniStat label="TOP·D" value={formatCompactQty(s.topDaily)} valueTone={Palette.green} />
+      ) : null}
+      {s.topWeekly != null ? (
+        <MiniStat label="TOP·W" value={formatCompactQty(s.topWeekly)} valueTone={Palette.paper} />
+      ) : null}
+      {s.topMonthly != null ? (
+        <MiniStat label="TOP·M" value={formatCompactQty(s.topMonthly)} valueTone={Palette.warning} />
       ) : null}
     </View>
   );
