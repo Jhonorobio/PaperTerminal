@@ -976,7 +976,7 @@ function scoreTone(score: number) {
 
 /**
  * Extra-source chips (SMART/INS/DEV, SCORE, FOMO theses, GMGN chat,
- * pump callouts + POS, TOP traders) as ONE flowing row, so the metrics
+ * pump callouts, TOP traders) as ONE flowing row, so the metrics
  * column packs lines full instead of leaving half-empty rows. Timeline
  * only (the list card shows none of this). A token tracked before those
  * sources existed has all-null fields → renders nothing.
@@ -993,7 +993,6 @@ function SourceChips({ s }: { s: SourceFields }) {
     s.calloutsTotal != null ||
     s.callout100 != null ||
     s.calloutLt100 != null ||
-    s.posHoldersTotal != null ||
     s.buyScore != null ||
     s.topDaily != null ||
     s.topWeekly != null ||
@@ -1040,14 +1039,10 @@ function SourceChips({ s }: { s: SourceFields }) {
           valueTone={Palette.green}
         />
       ) : null}
-      {/* POS = holders con posición publicada en el token (≤102 → 55% x2;
-          parte del score). CAL100/CAL<$100 = callouts por tamaño de plata.
-          TOP·D/W/M = top traders del ranking propio de pump.fun (rank ≤50
-          y ≥$100 comprados), separado por board — visible siempre que
-          exista la métrica (0 = ninguno). */}
-      {s.posHoldersTotal != null ? (
-        <MiniStat label="POS" value={formatCompactQty(s.posHoldersTotal)} valueTone={Palette.paper} />
-      ) : null}
+      {/* Callouts de pump.fun partido por plata metida: ≥$100 (con dinero
+          real) vs <$100. TOP·D/W/M = top traders del ranking propio de
+          pump.fun (rank ≤50 y ≥$100 comprados), separado por board —
+          visible siempre que exista la métrica (0 = ninguno). */}
       {s.callout100 != null ? (
         <MiniStat label="CAL100" value={formatCompactQty(s.callout100)} valueTone={Palette.warning} />
       ) : null}
