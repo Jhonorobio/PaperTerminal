@@ -883,8 +883,9 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
               </View>
               <View style={styles.chipRow}>
                 <MiniStat icon="crown" value={pct(s.topHoldersPct)} tone={Palette.warning} />
-                <MiniStat icon="leaf" value={pct(s.freshPct)} sub={formatCompactQty(s.freshHolders)} tone={Palette.green} />
-                <MiniStat icon="crosshair" value={pct(s.snipersPct)} sub={formatCompactQty(s.snipers)} tone={Palette.red} />
+                {/* fresh% y snipers% quitados: muertos en el análisis
+                   (snipers ρ≈0 / mejor regla lift 1.1; fresh 45% con n=11).
+                   Los campos siguen en el snapshot. */}
                 <MiniStat icon="package" value={pct(s.bundlePct)} sub={formatCompactQty(s.bundleHolders)} tone={Palette.paper} />
                 <MiniStat icon="cpu" value={formatCompactQty(s.tpHolders)} tone={Palette.warning} />
               </View>
@@ -897,7 +898,7 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
   );
 }
 
-/** Icon + value chip for the snapshot rows — 🍃 fresh, 🤖 bots, 👥 holders, … */
+/** Icon + value chip for the snapshot rows — 🖥 bots, 👥 holders, … */
 function MiniStat({
   icon,
   label,
@@ -974,35 +975,30 @@ function scoreTone(score: number) {
 }
 
 /**
- * Extra-source chips (SMART/INS/PRO/KOL/DEV, pro·AZ, FOMO theses, GMGN chat,
- * pump callouts, TOP traders) as ONE flowing row, so the metrics column packs
- * lines full instead of leaving half-empty rows. Timeline only (the list card
- * shows none of this). A token tracked before those sources existed has
- * all-null fields → renders nothing.
+ * Extra-source chips (SMART/INS/DEV, SCORE, FOMO theses, GMGN chat,
+ * pump callouts + POS, TOP traders) as ONE flowing row, so the metrics
+ * column packs lines full instead of leaving half-empty rows. Timeline
+ * only (the list card shows none of this). A token tracked before those
+ * sources existed has all-null fields → renders nothing.
  */
 function SourceChips({ s }: { s: SourceFields }) {
   const hasPulse =
     s.insiderPct != null ||
     s.smartTraderPct != null ||
-    s.proTraders != null ||
-    s.kolCount != null ||
     s.creatorMints != null ||
     s.creatorGraduated != null;
-  const flags = s.securityFlags?.length ?? 0;
-  // El ritmo de volumen (V5m/V1h/C-V) ya no se pinta — solo banderas de
-  // seguridad y PRO·AZ siguen como chips de Azura.
-  const hasAzura = flags > 0 || s.proTradersAz != null;
   const hasSocial =
     s.thesesCount != null ||
     s.chatMsgs != null ||
     s.calloutsTotal != null ||
     s.callout100 != null ||
     s.calloutLt100 != null ||
+    s.posHoldersTotal != null ||
     s.buyScore != null ||
     s.topDaily != null ||
     s.topWeekly != null ||
     s.topMonthly != null;
-  if (!hasPulse && !hasAzura && !hasSocial) return null;
+  if (!hasPulse && !hasSocial) return null;
   return (
     <View style={styles.chipRow}>
       {s.smartTraderPct != null ? (
@@ -1011,8 +1007,8 @@ function SourceChips({ s }: { s: SourceFields }) {
       {s.insiderPct != null ? (
         <MiniStat label="INS" value={formatPct(s.insiderPct, { sign: false })} valueTone={Palette.paper} />
       ) : null}
-      {s.proTraders != null ? <MiniStat label="PRO" value={formatCompactQty(s.proTraders)} valueTone={Palette.warning} /> : null}
-      {s.kolCount != null ? <MiniStat label="KOL" value={formatCompactQty(s.kolCount)} /> : null}
+      {/* PRO (Pulse) quitado: redundante con 🖥 bots (ρ 0.93) y débil (40%,
+          lift 1.3). KOL quitado: muerto (36%, lift 1.2). */}
       {s.creatorMints != null || s.creatorGraduated != null ? (
         <MiniStat
           label="DEV"
@@ -1021,21 +1017,10 @@ function SourceChips({ s }: { s: SourceFields }) {
           valueTone={Palette.warning}
         />
       ) : null}
-      {/* Solo si la auditoría de Azura encendió algo real (honeypot,
-          washTrading…) — el veredicto "WARN" genérico se quitó: siempre
-          decía lo mismo. */}
-      {flags > 0 ? (
-        <MiniStat
-          icon="warning"
-          value={s.securityFlags?.[0] ?? '⚠'}
-          sub={flags > 1 ? `+${flags - 1}` : undefined}
-          valueTone={Palette.red}
-        />
-      ) : null}
-      {/* Ritmo de volumen (V5m/V1h/C-V5m/C-V1h): quitado de la UI por
-          decisión del usuario — los campos siguen en el snapshot para el
-          análisis, solo no se pintan. */}
-      {s.proTradersAz != null ? <MiniStat label="PRO·AZ" value={formatCompactQty(s.proTradersAz)} valueTone={Palette.paper} /> : null}
+      {/* Quitados de la UI tras el análisis de 53h/223 tokens: V5m/V1h/C-V
+          (ritmo de volumen), ⚠ flags de seguridad (31%, lift 1.0), PRO·AZ
+          (40%, no correlaciona), PRO, KOL, fresh%, snipers%. Los campos
+          siguen en el snapshot para el análisis, solo no se pintan. */}
       {/* Fuentes sociales — en la UI SOLO el conteo. El resto (USD, PnL,
           entry MC, verificados…) se guarda en el snapshot para el análisis,
           pero no se pinta: menos ruido por fila. */}
@@ -1055,10 +1040,14 @@ function SourceChips({ s }: { s: SourceFields }) {
           valueTone={Palette.green}
         />
       ) : null}
-      {/* Callouts de pump.fun partido por plata metida: ≥$100 (con dinero
-          real) vs <$100. TOP·D/W/M = top traders del token en el ranking
-          propio de pump.fun (rank ≤50 y ≥$100 comprados), separado por
-          board — visible siempre que exista la métrica (0 = ninguno). */}
+      {/* POS = holders con posición publicada en el token (≤102 → 55% x2;
+          parte del score). CAL100/CAL<$100 = callouts por tamaño de plata.
+          TOP·D/W/M = top traders del ranking propio de pump.fun (rank ≤50
+          y ≥$100 comprados), separado por board — visible siempre que
+          exista la métrica (0 = ninguno). */}
+      {s.posHoldersTotal != null ? (
+        <MiniStat label="POS" value={formatCompactQty(s.posHoldersTotal)} valueTone={Palette.paper} />
+      ) : null}
       {s.callout100 != null ? (
         <MiniStat label="CAL100" value={formatCompactQty(s.callout100)} valueTone={Palette.warning} />
       ) : null}
