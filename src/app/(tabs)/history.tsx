@@ -1007,6 +1007,7 @@ function SourceChips({ s }: { s: SourceFields }) {
   const hasSocial =
     s.thesesCount != null ||
     s.chatMsgs != null ||
+    s.chatWallets != null ||
     s.calloutsTotal != null ||
     s.callout100 != null ||
     s.calloutLt100 != null ||
@@ -1051,16 +1052,10 @@ function SourceChips({ s }: { s: SourceFields }) {
       {s.thesesCount != null ? (
         <MiniStat img={TESIS_ICON} value={formatCompactQty(s.thesesCount)} valueTone={Palette.paper} />
       ) : null}
-      {/* CHAT: SOLO el icono (gmgn-community-tab, sin texto — decisión del
-          usuario). El valor = mensajes desde la entrada al track; el
-          sub-badge cuenta las wallets únicas que escribieron. */}
-      {s.chatMsgs != null ? (
-        <MiniStat
-          img={CHAT_ICON}
-          value={formatCompactQty(s.chatMsgs)}
-          sub={s.chatWallets != null ? `${formatCompactQty(s.chatWallets)}w` : undefined}
-          valueTone={Palette.green}
-        />
+      {/* CHAT: SOLO el icono + wallets únicas que escribieron (sin texto y
+          sin conteo de mensajes — decisión del usuario). */}
+      {s.chatWallets != null ? (
+        <MiniStat img={CHAT_ICON} value={formatCompactQty(s.chatWallets)} valueTone={Palette.green} />
       ) : null}
       {/* Callouts de pump.fun partido por plata metida: ≥$100 (con dinero
           real) vs <$100. TOP·D/W/M = top traders del ranking propio de
