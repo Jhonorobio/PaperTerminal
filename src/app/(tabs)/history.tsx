@@ -5,7 +5,6 @@ import { useFocusEffect, router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 
 import { Icon, type IconName } from '@/components/icons';
-import { BUY_META, HEALTH_META, STRONG_BUY_LABEL, WATCH_LABEL } from '@/components/track-health-chip';
 import { TokenAvatar } from '@/components/token-avatar';
 import { Banner, Btn, Card, DetailRow, Empty, Input, SegTabs, Skeleton } from '@/components/ui';
 import { Palette, Radius, toneTint } from '@/constants/paper';
@@ -773,27 +772,12 @@ const TrackRow = memo(function TrackRow({
             <Text style={styles.rowName} numberOfLines={1}>
               {t.symbol ?? t.name ?? `${t.address.slice(0, 4)}…`}
             </Text>
-            {/* Los chips al lado del símbolo: lo que importa se ve sin escanear la fila entera */}
-            {t.buySignal !== 'buy' && t.watchSignal ? (
-              <View style={[styles.health, { backgroundColor: `${Palette.warning}22`, borderColor: Palette.warning }]}>
-                <Text style={[styles.healthText, { color: Palette.warning }]}>{WATCH_LABEL}</Text>
-              </View>
-            ) : t.buySignal ? (
-              <View
-                style={[
-                  styles.health,
-                  t.buySignal === 'buy'
-                    ? { backgroundColor: BUY_META.buy.color, borderColor: BUY_META.buy.color }
-                    : { backgroundColor: `${BUY_META.avoid.color}22`, borderColor: BUY_META.avoid.color },
-                ]}>
-                <Text style={[styles.healthText, { color: t.buySignal === 'buy' ? Palette.bgPrimary : BUY_META.avoid.color }]}>
-                  {t.buySignal === 'buy' && t.strongBuy ? STRONG_BUY_LABEL : BUY_META[t.buySignal].label}
-                </Text>
-              </View>
-            ) : null}
-            {t.health ? (
-              <View style={[styles.health, { backgroundColor: `${HEALTH_META[t.health].color}22`, borderColor: HEALTH_META[t.health].color }]}>
-                <Text style={[styles.healthText, { color: HEALTH_META[t.health].color }]}>{HEALTH_META[t.health].label}</Text>
+            {/* SCORE chico-y-tranquilo al lado del símbolo — reemplazó a las
+                señales viejas (COMPRAR/EVITAR/health): esas no discriminaban
+                (verde cerraba peor que rojo en 145 tokens). */}
+            {t.buyScore != null ? (
+              <View style={[styles.health, { backgroundColor: `${scoreTone(t.buyScore)}22`, borderColor: scoreTone(t.buyScore) }]}>
+                <Text style={[styles.healthText, { color: scoreTone(t.buyScore) }]}>SCORE {t.buyScore}</Text>
               </View>
             ) : null}
           </View>
@@ -863,34 +847,17 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
       <Text style={styles.detailLine}>
         {snaps.length} snapshots · {formatDateTime(first.at)} → {formatDateTime(last.at)}
       </Text>
-      {detail.health ? (
-        <Text
-          style={[
-            styles.detailLine,
-            {
-              color:
-                detail.buySignal === 'buy'
-                  ? BUY_META.buy.color
-                  : detail.watchSignal
-                    ? Palette.warning
-                    : detail.buySignal === 'avoid'
-                      ? BUY_META.avoid.color
-                      : HEALTH_META[detail.health].color,
-            },
-          ]}>
-          {detail.buySignal === 'buy'
-            ? `${detail.strongBuy ? STRONG_BUY_LABEL : BUY_META.buy.label} · `
-            : detail.watchSignal
-              ? `${WATCH_LABEL} · `
-              : detail.buySignal
-                ? `${BUY_META[detail.buySignal].label} · `
-                : ''}
-          {HEALTH_META[detail.health].label} · holders{' '}
-          {detail.holdersDeltaPct == null ? '—' : formatPct(detail.holdersDeltaPct, { sign: true })} · flujo compras/ventas{' '}
-          {detail.flowRatio == null ? '—' : detail.flowRatio.toFixed(2)}
-          {detail.turnover != null ? ` · vol/mcap ${detail.turnover.toFixed(1)}x` : ''}
-        </Text>
-      ) : null}
+      {/* La línea de estado: SCORE manda; los stats del detalle siguen igual. */}
+      <Text
+        style={[
+          styles.detailLine,
+          { color: detail.buyScore != null ? scoreTone(detail.buyScore) : Palette.textSecondary },
+        ]}>
+        {detail.buyScore != null ? `SCORE ${detail.buyScore}/6 · ` : ''}holders{' '}
+        {detail.holdersDeltaPct == null ? '—' : formatPct(detail.holdersDeltaPct, { sign: true })} · flujo compras/ventas{' '}
+        {detail.flowRatio == null ? '—' : detail.flowRatio.toFixed(2)}
+        {detail.turnover != null ? ` · vol/mcap ${detail.turnover.toFixed(1)}x` : ''}
+      </Text>
       {/* Full series (≤ the 50-snapshot cap), newest first. A COPY before
           reverse(): reversing the prop in place flips first/last on re-render. */}
       {[...snaps]
@@ -901,38 +868,9 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
                 las métricas de Photon siguen SEPARADAS en su propia columna. */}
             <View style={styles.snapTimeCol}>
               <Text style={styles.snapTime}>{time24(s.at)}</Text>
-              {/* Solo los chips de señal debajo de la hora — nada de métricas. */}
-              <View style={styles.chipRow}>
-                {/* el chip tal como estaba EN ESE minuto (serie prefijo 0..i) */}
-                {s.buySignal !== 'buy' && s.watchSignal ? (
-                  <View style={[styles.health, { backgroundColor: `${Palette.warning}22`, borderColor: Palette.warning }]}>
-                    <Text style={[styles.healthText, { color: Palette.warning }]}>{WATCH_LABEL}</Text>
-                  </View>
-                ) : s.buySignal ? (
-                  <View
-                    style={[
-                      styles.health,
-                      s.buySignal === 'buy'
-                        ? { backgroundColor: BUY_META.buy.color, borderColor: BUY_META.buy.color }
-                        : { backgroundColor: `${BUY_META.avoid.color}22`, borderColor: BUY_META.avoid.color },
-                    ]}>
-                    <Text style={[styles.healthText, { color: s.buySignal === 'buy' ? Palette.bgPrimary : BUY_META.avoid.color }]}>
-                      {s.buySignal === 'buy' && s.strongBuy ? STRONG_BUY_LABEL : BUY_META[s.buySignal].label}
-                    </Text>
-                  </View>
-                ) : null}
-                {s.health ? (
-                  <View
-                    style={[
-                      styles.health,
-                      { backgroundColor: `${HEALTH_META[s.health].color}22`, borderColor: HEALTH_META[s.health].color },
-                    ]}>
-                    <Text style={[styles.healthText, { color: HEALTH_META[s.health].color }]}>
-                      {HEALTH_META[s.health].label}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
+              {/* Los chips de señal/health del minuto se quitaron: con 145
+                  tokens no discriminaban (verde cerraba peor que rojo). El
+                  SCORE de cada minuto vive en la fila de fuentes. */}
             </View>
             <View style={{ flex: 1, gap: 3 }}>
               <View style={styles.chipRow}>
@@ -1026,7 +964,13 @@ type SourceFields = {
   topWeekly: number | null;
   topMonthly: number | null;
   topTraderNames: string[] | null;
+  buyScore: number | null;
 };
+
+/** Verde ≥3 · ámbar 2 · rojo ≤1 — el score chico-y-tranquilo del snapshot. */
+function scoreTone(score: number) {
+  return score >= 3 ? Palette.green : score === 2 ? Palette.warning : Palette.red;
+}
 
 /**
  * Extra-source chips (SMART/INS/PRO/KOL/DEV, pro·AZ, FOMO theses, GMGN chat,
@@ -1053,6 +997,7 @@ function SourceChips({ s }: { s: SourceFields }) {
     s.calloutsTotal != null ||
     s.callout100 != null ||
     s.calloutLt100 != null ||
+    s.buyScore != null ||
     s.topDaily != null ||
     s.topWeekly != null ||
     s.topMonthly != null;
@@ -1093,6 +1038,11 @@ function SourceChips({ s }: { s: SourceFields }) {
       {/* Fuentes sociales — en la UI SOLO el conteo. El resto (USD, PnL,
           entry MC, verificados…) se guarda en el snapshot para el análisis,
           pero no se pinta: menos ruido por fila. */}
+      {/* SCORE 0-6 chico-y-tranquilo — la señal de compra (x2 monótono:
+          0→21%, ≥2→68%, ≥3→73% sobre 145 tokens). */}
+      {s.buyScore != null ? (
+        <MiniStat label="SCORE" value={String(s.buyScore)} valueTone={scoreTone(s.buyScore)} />
+      ) : null}
       {s.thesesCount != null ? <MiniStat label="TESIS" value={formatCompactQty(s.thesesCount)} valueTone={Palette.paper} /> : null}
       {/* CHAT = mensajes acumulados desde la entrada al track; el sub-badge
           cuenta las wallets únicas que escribieron. */}

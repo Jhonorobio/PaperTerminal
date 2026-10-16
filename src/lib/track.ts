@@ -150,6 +150,12 @@ export interface TrackSnapshot {
   /** Sus usernames (hasta 10) — para el detalle, no para la lista. */
   topTraderNames: string[] | null;
   /**
+   * Score "chico-y-tranquilo" 0-6 (mcap≤33k, holders≤300, posTot≤100,
+   * callUsd≤240, CAL100≤1, tesis≥2). Predictor más fuerto del dataset:
+   * x2 monótono 21%→41%→68%→73% (base 30%). Nulo si falta algún dato.
+   */
+  buyScore: number | null;
+  /**
    * The chip as it looked AT THAT MINUTE (server computes it from the prefix
    * [0..i] of the series — no hindsight). null on the first snapshot.
    */
@@ -250,6 +256,8 @@ export interface TrackTokenSummary {
   topWeekly: number | null;
   topMonthly: number | null;
   topTraderNames: string[] | null;
+  /** Score "chico-y-tranquilo" 0-6 del último snapshot (ver TrackSnapshot). */
+  buyScore: number | null;
   /** Holders first→last snapshot, percent (the strongest signal, r=0.71). */
   holdersDeltaPct: number | null;
   /** Buys/sells over the last ~3 min — ≥1 means net buying. */

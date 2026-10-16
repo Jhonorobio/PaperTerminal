@@ -134,14 +134,42 @@ export function setTrackConfig(raw) {
 }
 
 /** One minute's worth of the stats the analysis runs on. */
+// ── Score "chico-y-tranquilo" (0-6) ─────────────────────────────────────────
+// Validado el 15/oct sobre 145 tokens (33h del 14-16/oct): la probabilidad de
+// un pico ≥x2 sube monótona con el score — 0 → 21%, ≥1 → 41%, ≥2 → 68%,
+// ≥3 → 73% (base 30%). Cuenta cuántas de estas 6 condiciones cumple el token
+// en el minuto del snapshot. Nulo si falta algún dato: un "sin dato" NO se
+// cuenta como "no cumple" (eso diluiría el score de los tokens con fuente caída).
+const SCORE_MCAP_MAX = 33_000; // mcap de entrada barato
+const SCORE_HOLDERS_MAX = 300; // pocos holders todavía
+const SCORE_POS_TOTAL_MAX = 100; // positions: poca gente con posición abierta
+const SCORE_CALLUSD_MAX = 240; // callouts con poca plata metida
+const SCORE_CAL100_MAX = 1; // casi nadie con ≥$100 callouteado
+const SCORE_TESIS_MIN = 2; // FOMO: ≥2 tesis con plata real
+
 function snapshotOf(a, pulse, card, thesis, chat, callout, pos, top) {
+  const mcap = numOrNull(a.fdv);
+  const holders = numOrNull(a.holders_count);
+  const posTotal = pos?.holdersTotal ?? null;
+  const callUsd = callout?.calloutsUsd ?? null;
+  const cal100 = pos?.callout100 ?? null;
+  const tesisN = thesis?.thesesCount ?? null;
+  const buyScore =
+    mcap != null && holders != null && posTotal != null && callUsd != null && cal100 != null && tesisN != null
+      ? (mcap <= SCORE_MCAP_MAX ? 1 : 0) +
+        (holders <= SCORE_HOLDERS_MAX ? 1 : 0) +
+        (posTotal <= SCORE_POS_TOTAL_MAX ? 1 : 0) +
+        (callUsd <= SCORE_CALLUSD_MAX ? 1 : 0) +
+        (cal100 <= SCORE_CAL100_MAX ? 1 : 0) +
+        (tesisN >= SCORE_TESIS_MIN ? 1 : 0)
+      : null;
   return {
     at: new Date().toISOString(),
-    mcap: numOrNull(a.fdv),
+    mcap,
     volume: numOrNull(a.volume),
     buys: numOrNull(a.buys_count),
     sells: numOrNull(a.sells_count),
-    holders: numOrNull(a.holders_count),
+    holders,
     topHoldersPct: numOrNull(a.audit?.top_holders_perc),
     freshPct: numOrNull(a.fresh_holding_perc),
     freshHolders: numOrNull(a.fresh_holders_count),
@@ -204,6 +232,9 @@ function snapshotOf(a, pulse, card, thesis, chat, callout, pos, top) {
     topWeekly: top?.topWeekly ?? null,
     topMonthly: top?.topMonthly ?? null,
     topTraderNames: top?.topTraderNames ?? null,
+    // Score "chico-y-tranquilo" (0-6): el predictor más fuerte del dataset
+    // (ver arriba). Va en el snapshot desde el minuto 1 cuando hay datos.
+    buyScore,
   };
 }
 
@@ -1395,6 +1426,7 @@ export function summarizeTrackToken(t) {
     topWeekly: last?.topWeekly ?? null,
     topMonthly: last?.topMonthly ?? null,
     topTraderNames: last?.topTraderNames ?? null,
+    buyScore: last?.buyScore ?? null,
   };
 }
 
