@@ -994,6 +994,13 @@ const TESIS_ICON = require('@/assets/images/tesis-gmgn.png');
 const CHAT_ICON = require('@/assets/images/chat-gmgn.png');
 
 /**
+ * Iconos de los chips de rangos CAL: las cápsulas "lab" de GMGN — verde para
+ * [$100,$500) (pumplab) y dorada para ≥$500 (pumplabamm). También sin texto.
+ */
+const CAL100_ICON = require('@/assets/images/cal100-gmgn.png');
+const CAL500_ICON = require('@/assets/images/cal500-gmgn.png');
+
+/**
  * Extra-source chips (SMART/INS/DEV, SCORE, FOMO theses, GMGN chat,
  * pump callouts, TOP traders) as ONE flowing row, so the metrics
  * column packs lines full instead of leaving half-empty rows. Timeline
@@ -1060,17 +1067,18 @@ function SourceChips({ s }: { s: SourceFields }) {
       {s.chatWallets != null ? (
         <MiniStat img={CHAT_ICON} value={formatCompactQty(s.chatWallets)} valueTone={Palette.green} />
       ) : null}
-      {/* Callouts de pump.fun por RANGO de plata metida (decisión del
-          usuario): [$100,$500) y ≥$500 — reemplazan en la UI a "≥$100" y
-          "<$100" (los campos viejos siguen en el snapshot para análisis).
-          TOP·D/W/M = top traders del ranking propio de pump.fun (rank ≤50
-          y ≥$100 comprados), separado por board — visible siempre que
-          exista la métrica (0 = ninguno). */}
+      {/* Callouts de pump.fun por RANGO de plata metida: solo los iconos
+          (cápsulas GMGN verde/dorada) + conteo, sin texto — y AMBOS números
+          en amarillo (decisión del usuario). [$100,$500) y ≥$500 reemplazan
+          en la UI a "≥$100" y "<$100" (los campos viejos siguen en el
+          snapshot para análisis). TOP·D/W/M = top traders del ranking
+          propio de pump.fun (rank ≤50 y ≥$100 comprados), separado por
+          board — visible siempre que exista la métrica (0 = ninguno). */}
       {s.callout100to500 != null ? (
-        <MiniStat label="CAL100-500" value={formatCompactQty(s.callout100to500)} valueTone={Palette.warning} />
+        <MiniStat img={CAL100_ICON} value={formatCompactQty(s.callout100to500)} valueTone={Palette.warning} />
       ) : null}
       {s.callout500 != null ? (
-        <MiniStat label="CAL500+" value={formatCompactQty(s.callout500)} valueTone={Palette.textSecondary} />
+        <MiniStat img={CAL500_ICON} value={formatCompactQty(s.callout500)} valueTone={Palette.warning} />
       ) : null}
       {s.topDaily != null ? (
         <MiniStat label="TOP·D" value={formatCompactQty(s.topDaily)} valueTone={Palette.green} />
