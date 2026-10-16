@@ -848,15 +848,15 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
       <Text style={styles.detailLine}>
         {snaps.length} snapshots · {formatDateTime(first.at)} → {formatDateTime(last.at)}
       </Text>
-      {/* La línea de estado: SCORE manda; los stats del detalle siguen igual. */}
+      {/* La línea de estado: SCORE manda; el "flujo compras/ventas" se quitó
+          a petición (débil en el análisis) — queda holdersΔ + vol/mcap. */}
       <Text
         style={[
           styles.detailLine,
           { color: detail.buyScore != null ? scoreTone(detail.buyScore) : Palette.textSecondary },
         ]}>
         {detail.buyScore != null ? `SCORE ${detail.buyScore}/6 · ` : ''}holders{' '}
-        {detail.holdersDeltaPct == null ? '—' : formatPct(detail.holdersDeltaPct, { sign: true })} · flujo compras/ventas{' '}
-        {detail.flowRatio == null ? '—' : detail.flowRatio.toFixed(2)}
+        {detail.holdersDeltaPct == null ? '—' : formatPct(detail.holdersDeltaPct, { sign: true })}
         {detail.turnover != null ? ` · vol/mcap ${detail.turnover.toFixed(1)}x` : ''}
       </Text>
       {/* Full series (≤ the 50-snapshot cap), newest first. A COPY before
@@ -878,8 +878,8 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
                 <MiniStat label="MC" value={formatCompactUsd(s.mcap)} labelTone={Palette.paper} />
                 <MiniStat label="VOL" value={formatCompactUsd(s.volume)} labelTone={Palette.warning} />
                 <MiniStat icon="users" value={formatCompactQty(s.holders)} tone={Palette.textSecondary} />
-                <MiniStat icon="trendUp" value={formatCompactQty(s.buys)} tone={Palette.green} valueTone={Palette.green} />
-                <MiniStat icon="trendDown" value={formatCompactQty(s.sells)} tone={Palette.red} valueTone={Palette.red} />
+                {/* ↑ compras / ↓ ventas quitadas a petición: solo contexto,
+                    no discriminaban en el análisis. Siguen en el snapshot. */}
               </View>
               <View style={styles.chipRow}>
                 <MiniStat icon="crown" value={pct(s.topHoldersPct)} tone={Palette.warning} />
