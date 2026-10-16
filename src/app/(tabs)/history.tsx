@@ -986,6 +986,12 @@ function scoreTone(score: number) {
 const TESIS_ICON = require('@/assets/images/tesis-gmgn.png');
 
 /**
+ * Icono del chip CHAT: "gmgn-community-tab.png" de GMGN (pixel-art 32×32).
+ * También sin texto — el icono identifica la métrica.
+ */
+const CHAT_ICON = require('@/assets/images/chat-gmgn.png');
+
+/**
  * Extra-source chips (SMART/INS/DEV, SCORE, FOMO theses, GMGN chat,
  * pump callouts, TOP traders) as ONE flowing row, so the metrics
  * column packs lines full instead of leaving half-empty rows. Timeline
@@ -1045,11 +1051,12 @@ function SourceChips({ s }: { s: SourceFields }) {
       {s.thesesCount != null ? (
         <MiniStat img={TESIS_ICON} value={formatCompactQty(s.thesesCount)} valueTone={Palette.paper} />
       ) : null}
-      {/* CHAT = mensajes acumulados desde la entrada al track; el sub-badge
-          cuenta las wallets únicas que escribieron. */}
+      {/* CHAT: SOLO el icono (gmgn-community-tab, sin texto — decisión del
+          usuario). El valor = mensajes desde la entrada al track; el
+          sub-badge cuenta las wallets únicas que escribieron. */}
       {s.chatMsgs != null ? (
         <MiniStat
-          label="CHAT"
+          img={CHAT_ICON}
           value={formatCompactQty(s.chatMsgs)}
           sub={s.chatWallets != null ? `${formatCompactQty(s.chatWallets)}w` : undefined}
           valueTone={Palette.green}
