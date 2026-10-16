@@ -3,6 +3,7 @@ import { AppState, FlatList, Pressable, ScrollView, StyleSheet, Switch, Text, Te
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
+import { Image as ExpoImage, type ImageSource } from 'expo-image';
 
 import { Icon, type IconName } from '@/components/icons';
 import { TokenAvatar } from '@/components/token-avatar';
@@ -901,6 +902,7 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
 /** Icon + value chip for the snapshot rows — 🖥 bots, 👥 holders, … */
 function MiniStat({
   icon,
+  img,
   label,
   value,
   sub,
@@ -909,6 +911,7 @@ function MiniStat({
   valueTone,
 }: {
   icon?: IconName;
+  img?: ImageSource;
   label?: string;
   value: string;
   sub?: string;
@@ -918,6 +921,7 @@ function MiniStat({
 }) {
   return (
     <View style={styles.chip}>
+      {img ? <ExpoImage source={img} style={styles.chipImg} contentFit="cover" /> : null}
       {icon ? <Icon name={icon} size={11} color={tone ?? Palette.textTertiary} /> : null}
       {label ? <Text style={[styles.chipLabel, labelTone ? { color: labelTone } : null]}>{label}</Text> : null}
       <Text style={[styles.chipValue, valueTone ? { color: valueTone } : null]}>{value}</Text>
@@ -975,6 +979,13 @@ function scoreTone(score: number) {
 }
 
 /**
+ * Icono del chip TESIS: el "top call" por defecto de GMGN (el tile oscuro con
+ * su logo). La URL original (gmgn.ai/static/img/fomo_top_call_default.webp)
+ * está tras Cloudflare y devuelve 403 al app, así que el PNG vive en el repo.
+ */
+const TESIS_ICON = require('@/assets/images/tesis-gmgn.png');
+
+/**
  * Extra-source chips (SMART/INS/DEV, SCORE, FOMO theses, GMGN chat,
  * pump callouts, TOP traders) as ONE flowing row, so the metrics
  * column packs lines full instead of leaving half-empty rows. Timeline
@@ -1028,7 +1039,11 @@ function SourceChips({ s }: { s: SourceFields }) {
       {s.buyScore != null ? (
         <MiniStat label="SCORE" value={String(s.buyScore)} valueTone={scoreTone(s.buyScore)} />
       ) : null}
-      {s.thesesCount != null ? <MiniStat label="TESIS" value={formatCompactQty(s.thesesCount)} valueTone={Palette.paper} /> : null}
+      {/* TESIS con el icono "top call" de GMGN (asset local, la URL original
+          está tras Cloudflare). */}
+      {s.thesesCount != null ? (
+        <MiniStat label="TESIS" img={TESIS_ICON} value={formatCompactQty(s.thesesCount)} valueTone={Palette.paper} />
+      ) : null}
       {/* CHAT = mensajes acumulados desde la entrada al track; el sub-badge
           cuenta las wallets únicas que escribieron. */}
       {s.chatMsgs != null ? (
@@ -1120,6 +1135,7 @@ const styles = StyleSheet.create({
   snapTime: { fontSize: 11, fontWeight: '700', color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, alignItems: 'center' },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  chipImg: { width: 12, height: 12, borderRadius: 3 },
   chipLabel: { fontSize: 10, fontWeight: '500', color: Palette.textTertiary },
   chipValue: { fontSize: 12, fontWeight: '500', color: Palette.textPrimary, fontVariant: ['tabular-nums'] },
   chipSub: { fontSize: 10, fontWeight: '400', color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
