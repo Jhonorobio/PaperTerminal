@@ -220,11 +220,14 @@ function snapshotOf(a, pulse, card, thesis, chat, callout, pos, top) {
     calloutsEntryMcap: callout?.calloutsEntryMcap ?? null,
     calloutsVerified: callout?.calloutsVerified ?? null,
     // Pump positions (fuente 7, VIVA — se lee en cada snapshot): holders
-    // visibles y sus callouts separados por plata metida (≥$100 vs <$100).
+    // visibles y sus callouts separados por plata metida (≥$100 vs <$100,
+    // más los rangos que pinta la UI: [$100,$500) y ≥$500).
     posHolders: pos?.holders ?? null,
     posHoldersTotal: pos?.holdersTotal ?? null,
     callout100: pos?.callout100 ?? null,
     calloutLt100: pos?.calloutLt100 ?? null,
+    callout100to500: pos?.callout100to500 ?? null,
+    callout500: pos?.callout500 ?? null,
     // Top traders del token (fuente 9): el ranking propio de pump.fun por
     // token — traders con rank ≤50 y ≥$100 comprados, separados por board
     // (daily / weekly / monthly) + sus usernames.
@@ -568,6 +571,7 @@ export async function fetchPumpCallout(address) {
 const PUMP_POS_URL = (address) =>
   `https://frontend-api-v3.pump.fun/mint-positions/${address}?sortBy=TOP&withThesis=true&pageSize=50`;
 const PUMP_POS_TOP_USD = 100; // barra "con plata" del callout
+const PUMP_POS_MID_USD = 500; // barra del rango alto que pinta la UI
 const PUMP_HEADERS = {
   accept: 'application/json, text/plain, */*',
   origin: 'https://pump.fun',
@@ -603,16 +607,25 @@ export async function fetchPumpPositions(address) {
   if (!Array.isArray(positions)) return null;
   let callout100 = 0;
   let calloutLt100 = 0;
+  // Rangos que pinta la UI (por decisión del usuario): [$100, $500) y ≥$500.
+  // callout100 (≥$100) se conserva igual — es la métrica validada en análisis.
+  let callout100to500 = 0;
+  let callout500 = 0;
   for (const p of positions) {
     if (!p?.callout) continue; // solo holders que además dejaron su callout público
-    if ((numOrNull(p.amountBoughtUsd) ?? 0) >= PUMP_POS_TOP_USD) callout100 += 1;
+    const usd = numOrNull(p.amountBoughtUsd) ?? 0;
+    if (usd >= PUMP_POS_TOP_USD) callout100 += 1;
     else calloutLt100 += 1; // <$100 o monto desconocido
+    if (usd >= PUMP_POS_MID_USD) callout500 += 1;
+    else if (usd >= PUMP_POS_TOP_USD) callout100to500 += 1;
   }
   return {
     holders: positions.length, // visibles en la página (hasta 50)
     holdersTotal: numOrNull(j.totalCount),
     callout100,
     calloutLt100,
+    callout100to500,
+    callout500,
   };
 }
 
@@ -1443,6 +1456,8 @@ export function summarizeTrackToken(t) {
     posHoldersTotal: last?.posHoldersTotal ?? null,
     callout100: last?.callout100 ?? null,
     calloutLt100: last?.calloutLt100 ?? null,
+    callout100to500: last?.callout100to500 ?? null,
+    callout500: last?.callout500 ?? null,
     topDaily: last?.topDaily ?? null,
     topWeekly: last?.topWeekly ?? null,
     topMonthly: last?.topMonthly ?? null,

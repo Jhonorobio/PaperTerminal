@@ -143,6 +143,10 @@ export interface TrackSnapshot {
   callout100: number | null;
   /** Callouts públicos con <$100 metidos. */
   calloutLt100: number | null;
+  /** Rangos que pinta la UI: callouts con [$100, $500) metidos. */
+  callout100to500: number | null;
+  /** Callouts con ≥$500 metidos. */
+  callout500: number | null;
   /** Top traders del token (ranking propio pump.fun): rank ≤50 y ≥$100 comprados. */
   topDaily: number | null;
   topWeekly: number | null;
@@ -251,6 +255,9 @@ export interface TrackTokenSummary {
   /** Callouts con ≥$100 metidos vs los de <$100. */
   callout100: number | null;
   calloutLt100: number | null;
+  /** Rangos que pinta la UI: callouts [$100, $500) y ≥$500. */
+  callout100to500: number | null;
+  callout500: number | null;
   /** Top traders del token (pump.fun por-token): rank ≤50 y ≥$100 comprados. */
   topDaily: number | null;
   topWeekly: number | null;

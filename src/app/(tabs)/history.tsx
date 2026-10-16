@@ -966,6 +966,8 @@ type SourceFields = {
   posHoldersTotal: number | null;
   callout100: number | null;
   calloutLt100: number | null;
+  callout100to500: number | null;
+  callout500: number | null;
   topDaily: number | null;
   topWeekly: number | null;
   topMonthly: number | null;
@@ -1010,7 +1012,8 @@ function SourceChips({ s }: { s: SourceFields }) {
     s.chatWallets != null ||
     s.calloutsTotal != null ||
     s.callout100 != null ||
-    s.calloutLt100 != null ||
+    s.callout100to500 != null ||
+    s.callout500 != null ||
     s.buyScore != null ||
     s.topDaily != null ||
     s.topWeekly != null ||
@@ -1057,15 +1060,17 @@ function SourceChips({ s }: { s: SourceFields }) {
       {s.chatWallets != null ? (
         <MiniStat img={CHAT_ICON} value={formatCompactQty(s.chatWallets)} valueTone={Palette.green} />
       ) : null}
-      {/* Callouts de pump.fun partido por plata metida: ≥$100 (con dinero
-          real) vs <$100. TOP·D/W/M = top traders del ranking propio de
-          pump.fun (rank ≤50 y ≥$100 comprados), separado por board —
-          visible siempre que exista la métrica (0 = ninguno). */}
-      {s.callout100 != null ? (
-        <MiniStat label="CAL100" value={formatCompactQty(s.callout100)} valueTone={Palette.warning} />
+      {/* Callouts de pump.fun por RANGO de plata metida (decisión del
+          usuario): [$100,$500) y ≥$500 — reemplazan en la UI a "≥$100" y
+          "<$100" (los campos viejos siguen en el snapshot para análisis).
+          TOP·D/W/M = top traders del ranking propio de pump.fun (rank ≤50
+          y ≥$100 comprados), separado por board — visible siempre que
+          exista la métrica (0 = ninguno). */}
+      {s.callout100to500 != null ? (
+        <MiniStat label="CAL100-500" value={formatCompactQty(s.callout100to500)} valueTone={Palette.warning} />
       ) : null}
-      {s.calloutLt100 != null ? (
-        <MiniStat label="CAL<$100" value={formatCompactQty(s.calloutLt100)} valueTone={Palette.textSecondary} />
+      {s.callout500 != null ? (
+        <MiniStat label="CAL500+" value={formatCompactQty(s.callout500)} valueTone={Palette.textSecondary} />
       ) : null}
       {s.topDaily != null ? (
         <MiniStat label="TOP·D" value={formatCompactQty(s.topDaily)} valueTone={Palette.green} />
