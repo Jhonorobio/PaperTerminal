@@ -1039,10 +1039,11 @@ function SourceChips({ s }: { s: SourceFields }) {
       {s.buyScore != null ? (
         <MiniStat label="SCORE" value={String(s.buyScore)} valueTone={scoreTone(s.buyScore)} />
       ) : null}
-      {/* TESIS con el icono "top trade" azul de GMGN (asset local, la URL
-          original está tras Cloudflare). */}
+      {/* TESIS: SOLO el icono "top trade" azul de GMGN + conteo (sin texto
+          — decisión del usuario; reconoce el icono). La URL original de GMGN
+          está tras Cloudflare, por eso vive en el repo. */}
       {s.thesesCount != null ? (
-        <MiniStat label="TESIS" img={TESIS_ICON} value={formatCompactQty(s.thesesCount)} valueTone={Palette.paper} />
+        <MiniStat img={TESIS_ICON} value={formatCompactQty(s.thesesCount)} valueTone={Palette.paper} />
       ) : null}
       {/* CHAT = mensajes acumulados desde la entrada al track; el sub-badge
           cuenta las wallets únicas que escribieron. */}
