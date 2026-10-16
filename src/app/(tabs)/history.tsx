@@ -979,8 +979,8 @@ function scoreTone(score: number) {
 }
 
 /**
- * Icono del chip TESIS: el "top call" por defecto de GMGN (el tile oscuro con
- * su logo). La URL original (gmgn.ai/static/img/fomo_top_call_default.webp)
+ * Icono del chip TESIS: el "top trade" por defecto de GMGN (el tile azul con
+ * su logo). La URL original (gmgn.ai/static/img/fomo_top_trade_default.webp)
  * está tras Cloudflare y devuelve 403 al app, así que el PNG vive en el repo.
  */
 const TESIS_ICON = require('@/assets/images/tesis-gmgn.png');
@@ -1039,8 +1039,8 @@ function SourceChips({ s }: { s: SourceFields }) {
       {s.buyScore != null ? (
         <MiniStat label="SCORE" value={String(s.buyScore)} valueTone={scoreTone(s.buyScore)} />
       ) : null}
-      {/* TESIS con el icono "top call" de GMGN (asset local, la URL original
-          está tras Cloudflare). */}
+      {/* TESIS con el icono "top trade" azul de GMGN (asset local, la URL
+          original está tras Cloudflare). */}
       {s.thesesCount != null ? (
         <MiniStat label="TESIS" img={TESIS_ICON} value={formatCompactQty(s.thesesCount)} valueTone={Palette.paper} />
       ) : null}
