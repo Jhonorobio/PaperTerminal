@@ -34,7 +34,7 @@ import initCycleTLS from 'cycletls';
 import { buildQuery, HEADERS, SEARCH_URL, sanitizeColumnFilters } from './photon.js';
 import { getAccessToken } from './fomo.js';
 import { getEffectiveProxy } from './proxy-config.js';
-import { emitTrackBuy } from './notify.js';
+import { emitTrackBuy, emitTrackTopTesis } from './notify.js';
 import { broadcast, getSubscriptions, registerTopicProvider } from './ws.js';
 import { normalizeProxy } from './proxy-config.js';
 import { trackConfig, trackTokens } from './stores.js';
@@ -992,6 +992,27 @@ async function trackTick() {
             mcap: tracked.snapshots[tracked.snapshots.length - 1]?.mcap ?? null,
             volume: tracked.snapshots[tracked.snapshots.length - 1]?.volume ?? null,
             holders: tracked.snapshots[tracked.snapshots.length - 1]?.holders ?? null,
+          });
+        }
+        // El patrón "1 tesis + 1 top D/W/M" (validado el 16/oct sobre 51
+        // disparos: 92% sube después, pico mediano +58% a los ~10min) — se
+        // dispara UNA vez por token, el primer minuto en que coinciden. El
+        // seen-map de notify garantiza el "una sola vez"; esto es el gancho.
+        const snapNow = tracked.snapshots[tracked.snapshots.length - 1];
+        const topsNow = [snapNow.topDaily, snapNow.topWeekly, snapNow.topMonthly].filter((v) => (v ?? 0) >= 1).length;
+        if ((snapNow.thesesCount ?? 0) >= 1 && topsNow > 0) {
+          const ageMin = tracked.snapshots.length - 1; // 1 snapshot por minuto
+          emitTrackTopTesis({
+            address,
+            symbol: tracked.symbol,
+            name: tracked.name,
+            logo: tracked.logo,
+            mcap: snapNow.mcap,
+            volume: snapNow.volume,
+            holders: snapNow.holders,
+            // La mejor rebanada de los datos: temprano (min 1-3) y chico
+            // (≤$50k) → 45% x2, 73% toca +50%, cierre mediano +5%.
+            note: ageMin <= 3 && (snapNow.mcap ?? Infinity) <= 50_000 ? '⭐ temprano y chico' : `min ${ageMin}`,
           });
         }
       }

@@ -27,6 +27,7 @@ const CATEGORY_LABELS: Record<AlertCategory, string> = {
   photon_new: 'Photon New',
   photon_graduated: 'Photon Grad.',
   track_buy: 'Track COMPRAR',
+  track_top_tesis: 'Track TOP+TESIS',
 };
 
 export default function AlertsScreen() {
@@ -37,6 +38,7 @@ export default function AlertsScreen() {
     photon_new: false,
     photon_graduated: false,
     track_buy: false,
+    track_top_tesis: false,
   });
   const [registered, setRegistered] = useState(false);
   const [pushOk, setPushOk] = useState(true);
@@ -133,7 +135,9 @@ export default function AlertsScreen() {
                 <Text style={styles.rowSub}>
                   {id === 'track_buy'
                     ? 'Te aviso el minuto en que un token trackeado enciende la señal COMPRAR (bots<150, holders<300, snipers<1% —o bundle quieto si no hay dato—, mcap arriba).'
-                    : 'Te aviso cuando aparezca un token nuevo en ese feed.'}
+                    : id === 'track_top_tesis'
+                      ? 'Patrón validado 16/oct: el primer minuto en que un token trackeado tiene ≥1 tesis Y ≥1 top trader D/W/M. 92% sube después (pico +58% mediano a los ~10min) — venta al alza, no hold.'
+                      : 'Te aviso cuando aparezca un token nuevo en ese feed.'}
                 </Text>
               </View>
               <Switch

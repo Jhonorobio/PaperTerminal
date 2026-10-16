@@ -16,7 +16,7 @@
  * Per-device filters (the old alerts-screen config) are no longer read.
  */
 
-import { notificationConfig, notificationHistory, fomoSeen, photonSeen, trackBuySeen } from './stores.js';
+import { notificationConfig, notificationHistory, fomoSeen, photonSeen, trackBuySeen, trackTopTesisSeen } from './stores.js';
 import { getFomoFilters } from './fomo-filter-store.js';
 import { isValidPushToken, sendPush } from './push.js';
 import { sendToDevice } from './ws.js';
@@ -30,6 +30,7 @@ const LABELS = {
   photon_new: 'Photon New',
   photon_graduated: 'Photon Graduated',
   track_buy: 'Track COMPRAR',
+  track_top_tesis: 'Track TOP+TESIS',
 };
 
 /**
@@ -183,6 +184,60 @@ export function emitTrackBuy(token) {
         title: `${token.symbol || token.name || 'Token'} — COMPRAR`,
         body: `Señal de compra · MCap $${compact(token.mcap ?? 0)}`,
         data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category: 'track_buy' },
+      }).catch(() => {});
+    }
+  }
+
+  trimHistory();
+  return true;
+}
+
+/**
+ * The TRACK "TOP+TESIS" alert — fired ONCE per address, the first minute a
+ * tracked token has ≥1 FOMO thesis AND ≥1 pump.fun top trader (D/W/M) at the
+ * same time. Validated 16/oct on 51 triggers: 92% rise afterwards, median peak
+ * +58% ~10min after the trigger (75% touch +25%, 55% touch +50%) — the play is
+ * scalp-into-strength with a stop, never a hold. Same payload shape as
+ * emitTrackBuy; `note` marks the best slice (early minute + small mcap).
+ */
+export function emitTrackTopTesis(token) {
+  const key = token.address;
+  if (trackTopTesisSeen.has(key)) return false;
+  trackTopTesisSeen.set(key, { at: Date.now() });
+
+  // Keep the seen map bounded.
+  const all = trackTopTesisSeen.getAll();
+  const keys = Object.keys(all);
+  if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) trackTopTesisSeen.delete(k);
+
+  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.track_top_tesis);
+  for (const device of devices) {
+    const entry = notificationHistory.add({
+      device_id: device.device_id,
+      category: 'track_top_tesis',
+      address: token.address,
+      chain: 'sol',
+      symbol: token.symbol ?? null,
+      name: token.name ?? null,
+      logo: token.logo ?? null,
+      mcap: token.mcap ?? null,
+      liq: null,
+      vol24h: token.volume ?? null,
+      holders: token.holders ?? null,
+      kolCount: null,
+      ageMinutes: null,
+      notified_at: new Date().toISOString(),
+    });
+
+    // 1. In-app panel: private WS topic, painted by the app wherever it is.
+    sendToDevice(device.device_id, { event: 'alert', data: entry });
+
+    // 2. System push: for when the app is not in the foreground.
+    if (isValidPushToken(device.push_token)) {
+      void sendPush(device.push_token, {
+        title: `${token.symbol || token.name || 'Token'} — TOP+TESIS`,
+        body: `Top + tesis · MCap $${compact(token.mcap ?? 0)}${token.note ? ` · ${token.note}` : ''}`,
+        data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category: 'track_top_tesis' },
       }).catch(() => {});
     }
   }

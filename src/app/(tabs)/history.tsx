@@ -38,6 +38,7 @@ const ALERT_LABELS: Record<string, string> = {
   photon_new: 'Photon New',
   photon_graduated: 'Photon Grad.',
   track_buy: 'Track COMPRAR',
+  track_top_tesis: 'Track TOP+TES',
 };
 
 const toneColor = (v: number | null | undefined) =>
