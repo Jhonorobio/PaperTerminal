@@ -3,7 +3,12 @@
  * per-category toggles in sync.
  *
  * Categories (the server's alert taxonomy):
- *   fomo_graduated · fomo_trending · photon_new · photon_graduated
+ *   fomo_graduated · fomo_trending · pump_trending · photon_new · photon_graduated
+ *   track_cal_chat · track_core · track_chat_tesis · track_chat · track_tesis · track_top
+ *
+ * The track_* categories are the Track's ENTRY alerts: they fire at the token's
+ * first snapshot (see TRACK_RULES in server/src/notify.js) and the chat/tesis/top
+ * thresholds are per device (AlertParams, edited on the Notifications screen).
  *
  * There is no filter configuration here anymore: the feed screens own the filters
  * (FOMO pushes both tabs, Photon pushes its columns) and the server gates the
@@ -42,8 +47,47 @@ async function notifications() {
  * Android throws at import — "remote notifications removed from Expo Go").
  */
 
-export const ALERT_CATEGORIES = ['fomo_graduated', 'fomo_trending', 'pump_trending', 'photon_new', 'photon_graduated', 'track_buy', 'track_top_tesis', 'track_atencion_m1'] as const;
+export const ALERT_CATEGORIES = [
+  'fomo_graduated',
+  'fomo_trending',
+  'pump_trending',
+  'photon_new',
+  'photon_graduated',
+  'track_cal_chat',
+  'track_core',
+  'track_chat_tesis',
+  'track_chat',
+  'track_tesis',
+  'track_top',
+] as const;
 export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
+
+/**
+ * Track entry alerts fire at the token's ENTRY snapshot (minute 0). Chat, thesis
+ * and top thresholds are per device; the defaults are the measured ones (see
+ * TRACK_RULES in server/src/notify.js). `track_core` has no threshold: it is the
+ * measured rule as-is (posTot<56 + no thesis).
+ */
+export interface AlertParams {
+  chatWalletsMin: number;
+  tesisMin: number;
+  topMin: number;
+}
+
+export const DEFAULT_ALERT_PARAMS: AlertParams = { chatWalletsMin: 2, tesisMin: 1, topMin: 1 };
+
+/** Clamps raw values to the useful ranges the server also enforces. */
+export function sanitizeAlertParams(raw?: Partial<AlertParams> | null): AlertParams {
+  const num = (v: unknown, def: number, max: number) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(Math.max(Math.round(n), 1), max) : def;
+  };
+  return {
+    chatWalletsMin: num(raw?.chatWalletsMin, DEFAULT_ALERT_PARAMS.chatWalletsMin, 50),
+    tesisMin: num(raw?.tesisMin, DEFAULT_ALERT_PARAMS.tesisMin, 20),
+    topMin: num(raw?.topMin, DEFAULT_ALERT_PARAMS.topMin, 10),
+  };
+}
 
 const TIMEOUT_MS = 8_000;
 
@@ -144,6 +188,7 @@ export interface NotificationConfig {
   registered: boolean;
   hasPush?: boolean;
   categories?: Record<AlertCategory, boolean>;
+  params?: AlertParams;
 }
 
 /**
@@ -152,7 +197,11 @@ export interface NotificationConfig {
  * categories still apply, alerts arrive over the private WS topic.
  * @returns the push registration error, or null when the token was obtained.
  */
-export async function saveCategories(base: string, categories: Record<AlertCategory, boolean>): Promise<string | null> {
+export async function saveCategories(
+  base: string,
+  categories: Record<AlertCategory, boolean>,
+  params?: AlertParams,
+): Promise<string | null> {
   let pushToken: string | null = null;
   let pushError: string | null = null;
   try {
@@ -163,18 +212,19 @@ export async function saveCategories(base: string, categories: Record<AlertCateg
   }
   await call(base, '/api/notifications/config', {
     method: 'PUT',
-    body: JSON.stringify({ push_token: pushToken, categories }),
+    body: JSON.stringify({ push_token: pushToken, categories, params: sanitizeAlertParams(params) }),
   });
   return pushError;
 }
 
 export async function loadConfig(base: string): Promise<NotificationConfig> {
   try {
-    const data = await call<{ registered?: boolean; has_push?: boolean; categories?: Record<string, boolean> }>(base, '/api/notifications/config');
+    const data = await call<{ registered?: boolean; has_push?: boolean; categories?: Record<string, boolean>; params?: Partial<AlertParams> }>(base, '/api/notifications/config');
     return {
       registered: Boolean(data.registered),
       hasPush: Boolean(data.has_push),
       categories: data.categories as Record<AlertCategory, boolean> | undefined,
+      params: sanitizeAlertParams(data.params),
     };
   } catch {
     return { registered: false };
@@ -182,10 +232,10 @@ export async function loadConfig(base: string): Promise<NotificationConfig> {
 }
 
 /**
- * Re-registers this device's push token on app open, keeping the saved categories —
- * tokens rotate, so the server's copy must be refreshed without anyone touching the
- * alerts screen. Skips when this device never saved categories (nothing to alert
- * about yet).
+ * Re-registers this device's push token on app open, keeping the saved categories and
+ * thresholds — tokens rotate, so the server's copy must be refreshed without anyone
+ * touching the alerts screen. Skips when this device never saved categories (nothing
+ * to alert about yet).
  * @returns why registration left the server without a token, or null when ok.
  */
 export async function registerDevice(base: string): Promise<string | null> {
@@ -193,7 +243,7 @@ export async function registerDevice(base: string): Promise<string | null> {
   try {
     const cfg = await loadConfig(base);
     if (!cfg.categories) return null;
-    return await saveCategories(base, cfg.categories);
+    return await saveCategories(base, cfg.categories, cfg.params);
   } catch (err) {
     // Server unreachable or the PUT was rejected (e.g. token format) — report it.
     return err instanceof Error ? err.message : String(err);

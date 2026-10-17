@@ -16,7 +16,7 @@
  * Per-device filters (the old alerts-screen config) are no longer read.
  */
 
-import { notificationConfig, notificationHistory, fomoSeen, photonSeen, trackBuySeen, trackTopTesisSeen, trackAtencionSeen } from './stores.js';
+import { notificationConfig, notificationHistory, fomoSeen, photonSeen, trackEntrySeen } from './stores.js';
 import { getFomoFilters } from './fomo-filter-store.js';
 import { isValidPushToken, sendPush } from './push.js';
 import { sendToDevice } from './ws.js';
@@ -30,9 +30,13 @@ const LABELS = {
   pump_trending: 'Pump Trending',
   photon_new: 'Photon New',
   photon_graduated: 'Photon Graduated',
-  track_buy: 'Track COMPRAR',
-  track_top_tesis: 'Track TOP+TESIS',
-  track_atencion_m1: 'Track ATENCIÓN M1',
+  // Alertas del Track (ver TRACK_ENTRY_CATEGORIES): se evalúan en la entrada.
+  track_cal_chat: 'Track CAL+CHAT',
+  track_core: 'Track CORE',
+  track_chat_tesis: 'Track CHAT+TESIS',
+  track_chat: 'Track CHAT',
+  track_tesis: 'Track TESIS',
+  track_top: 'Track TOP',
 };
 
 /**
@@ -142,136 +146,111 @@ export function emitToken(category, token) {
 }
 
 /**
- * The TRACK buy-signal alert — fired ONCE per address, the minute the tracker's
- * series flips to 'buy' (entry profile + minute-3 momentum). Not a feed token:
- * the signal is computed from the tracked series, so it rides its own seen-map
- * (trackBuySeen) and its own category (`track_buy`), opt-in per device like the
- * rest. Payload mirrors emitToken's so the app paints the same floating panel.
+ * TRACK entry alerts — cada regla se evalúa en el snapshot de ENTRADA (el primer
+ * minuto del token) y dispara UNA vez por address y categoría.
+ *
+ * Medidas el 17/oct sobre el dump de prod (486 tokens / 8.108 snapshots,
+ * horizontes fijos 5/10/20/30 min, resultado = pico sobre el precio de entrada).
+ * Medido EN LA ENTRADA, que es lo operable:
+ *   track_cal_chat   CAL [$100,$500) ≥1 + chat ≥N wallets — n=28: 96% sube,
+ *                    18% x2, +30% pico a 10 min. Confirmación: "sube" casi seguro.
+ *   track_core       posTot<56 + sin tesis (chico y tranquilo) — n=76: 72% sube,
+ *                    29% x2, +47% pico: el mejor x2 con muestra grande.
+ *   track_chat_tesis chat ≥N + ≥M tesis — n=22: 95% sube, 27% x2, +65% pico.
+ *   track_chat       chat ≥N wallets — n=75 (N=2): 86% sube, 22% x2, +32% pico.
+ *   track_tesis      ≥M tesis — n=59: 81% sube pero 12% x2 (sube sí, upside no).
+ *   track_top        TOP·D ≥N — n=69: 80% sube, 23% x2, +36% pico.
+ *
+ * Los umbrales (N/M) son POR DISPOSITIVO (`device.params`, editables en la
+ * pantalla Notificaciones); los defaults son los medidos. `track_core` no lleva
+ * umbral: es la regla medida tal cual (posTot p25 = 56).
  */
-export function emitTrackBuy(token) {
-  const key = token.address;
-  if (trackBuySeen.has(key)) return false;
-  trackBuySeen.set(key, { at: Date.now() });
+export const TRACK_ENTRY_CATEGORIES = ['track_cal_chat', 'track_core', 'track_chat_tesis', 'track_chat', 'track_tesis', 'track_top'];
 
-  // Keep the seen map bounded.
-  const all = trackBuySeen.getAll();
-  const keys = Object.keys(all);
-  if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) trackBuySeen.delete(k);
+/** La regla "chico y tranquilo": poca gente con posición abierta y ninguna tesis. */
+const CORE_POS_TOTAL_MAX = 56;
 
-  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.track_buy);
-  for (const device of devices) {
-    const entry = notificationHistory.add({
-      device_id: device.device_id,
-      category: 'track_buy',
-      address: token.address,
-      chain: 'sol',
-      symbol: token.symbol ?? null,
-      name: token.name ?? null,
-      logo: token.logo ?? null,
-      mcap: token.mcap ?? null,
-      liq: null,
-      vol24h: token.volume ?? null,
-      holders: token.holders ?? null,
-      kolCount: null,
-      ageMinutes: null,
-      notified_at: new Date().toISOString(),
-    });
-
-    // 1. In-app panel: private WS topic, painted by the app wherever it is.
-    sendToDevice(device.device_id, { event: 'alert', data: entry });
-
-    // 2. System push: for when the app is not in the foreground.
-    if (isValidPushToken(device.push_token)) {
-      void sendPush(device.push_token, {
-        title: `${token.symbol || token.name || 'Token'} — COMPRAR`,
-        body: `Señal de compra · MCap $${compact(token.mcap ?? 0)}`,
-        data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category: 'track_buy' },
-      }).catch(() => {});
-    }
-  }
-
-  trimHistory();
-  return true;
+/** Umbrales saneados (defaults medidos, rangos útiles) desde un objeto crudo. */
+export function sanitizeTrackParams(raw) {
+  const num = (v, def, max) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(Math.max(Math.round(n), 1), max) : def;
+  };
+  return {
+    chatWalletsMin: num(raw?.chatWalletsMin, 2, 50),
+    tesisMin: num(raw?.tesisMin, 1, 20),
+    topMin: num(raw?.topMin, 1, 10),
+  };
 }
 
-/**
- * The TRACK "TOP+TESIS" alert — fired ONCE per address, the first minute a
- * tracked token has ≥1 FOMO thesis AND ≥1 pump.fun top trader (D/W/M) at the
- * same time. Validated 16/oct on 51 triggers: 92% rise afterwards, median peak
- * +58% ~10min after the trigger (75% touch +25%, 55% touch +50%) — the play is
- * scalp-into-strength with a stop, never a hold. Same payload shape as
- * emitTrackBuy; `note` marks the best slice (early minute + small mcap).
- */
-export function emitTrackTopTesis(token) {
-  const key = token.address;
-  if (trackTopTesisSeen.has(key)) return false;
-  trackTopTesisSeen.set(key, { at: Date.now() });
-
-  // Keep the seen map bounded.
-  const all = trackTopTesisSeen.getAll();
-  const keys = Object.keys(all);
-  if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) trackTopTesisSeen.delete(k);
-
-  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.track_top_tesis);
-  for (const device of devices) {
-    const entry = notificationHistory.add({
-      device_id: device.device_id,
-      category: 'track_top_tesis',
-      address: token.address,
-      chain: 'sol',
-      symbol: token.symbol ?? null,
-      name: token.name ?? null,
-      logo: token.logo ?? null,
-      mcap: token.mcap ?? null,
-      liq: null,
-      vol24h: token.volume ?? null,
-      holders: token.holders ?? null,
-      kolCount: null,
-      ageMinutes: null,
-      notified_at: new Date().toISOString(),
-    });
-
-    // 1. In-app panel: private WS topic, painted by the app wherever it is.
-    sendToDevice(device.device_id, { event: 'alert', data: entry });
-
-    // 2. System push: for when the app is not in the foreground.
-    if (isValidPushToken(device.push_token)) {
-      void sendPush(device.push_token, {
-        title: `${token.symbol || token.name || 'Token'} — TOP+TESIS`,
-        body: `Top + tesis · MCap $${compact(token.mcap ?? 0)}${token.note ? ` · ${token.note}` : ''}`,
-        data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category: 'track_top_tesis' },
-      }).catch(() => {});
-    }
-  }
-
-  trimHistory();
-  return true;
+/** Umbrales de un dispositivo, con los defaults medidos y saneados al rango útil. */
+export function trackParamsOf(device) {
+  return sanitizeTrackParams(device?.params);
 }
 
+/** ready = la fuente ya trajo el dato. Si no, el token NO se marca (se reintenta). */
+const TRACK_RULES = {
+  track_cal_chat: {
+    ready: (t) => t.callout100to500 != null && t.chatWallets != null,
+    hit: (t, p) => t.callout100to500 >= 1 && t.chatWallets >= p.chatWalletsMin,
+    body: (t, p) => `CAL [$100-500) ×${t.callout100to500} · chat ${t.chatWallets} wallets (≥${p.chatWalletsMin}) · MCap $${compact(t.mcap ?? 0)}`,
+  },
+  track_core: {
+    ready: (t) => t.posHoldersTotal != null && t.thesesCount != null,
+    hit: (t) => t.posHoldersTotal < CORE_POS_TOTAL_MAX && t.thesesCount === 0,
+    body: (t) => `Chico y tranquilo · posTot ${t.posHoldersTotal} (<${CORE_POS_TOTAL_MAX}) · sin tesis · MCap $${compact(t.mcap ?? 0)}`,
+  },
+  track_chat_tesis: {
+    ready: (t) => t.chatWallets != null && t.thesesCount != null,
+    hit: (t, p) => t.chatWallets >= p.chatWalletsMin && t.thesesCount >= p.tesisMin,
+    body: (t, p) => `Chat ${t.chatWallets} wallets (≥${p.chatWalletsMin}) · ${t.thesesCount} tesis (≥${p.tesisMin}) · MCap $${compact(t.mcap ?? 0)}`,
+  },
+  track_chat: {
+    ready: (t) => t.chatWallets != null,
+    hit: (t, p) => t.chatWallets >= p.chatWalletsMin,
+    body: (t, p) => `Chat ${t.chatWallets} wallets (≥${p.chatWalletsMin}) · MCap $${compact(t.mcap ?? 0)}`,
+  },
+  track_tesis: {
+    ready: (t) => t.thesesCount != null,
+    hit: (t, p) => t.thesesCount >= p.tesisMin,
+    body: (t, p) => `${t.thesesCount} tesis (≥${p.tesisMin}) · MCap $${compact(t.mcap ?? 0)}`,
+  },
+  track_top: {
+    ready: (t) => t.topDaily != null,
+    hit: (t, p) => t.topDaily >= p.topMin,
+    body: (t, p) => `TOP·D ${t.topDaily} (≥${p.topMin}) · MCap $${compact(t.mcap ?? 0)}`,
+  },
+};
+
 /**
- * The TRACK "ATENCIÓN M1" alert — the early-attention radar. Fired ONCE per
- * address: the first snapshot at minute 1-3 of life with pump.fun attention
- * (callouts ≥10 ∨ positions ≥50 ∨ ≥1 callout ≥$100 ∨ callouts ≥$1k) while
- * mcap ≤ $60k. Validated 16/oct on 115 triggers: 43% x2 (vs 31% base), 94%
- * rise afterwards, median peak +77% — the best x2 hunter of the whole sweep.
- * The play is buy-the-moment and ladder out (+50/+77%), never a hold (median
- * close is negative on every hold). Same payload shape as emitTrackTopTesis.
+ * Evalúa una categoría de entrada del Track.
+ * @returns false cuando el token ya fue evaluado o cuando la fuente todavía no
+ * trajo el dato (el llamador reintenta el próximo snapshot — la ventana la fija
+ * track.js). El "ya visto" se marca SIEMPRE en la evaluación, haya o no
+ * dispositivos suscritos: reactivar la categoría después no re-alerta tokens
+ * viejos (misma semántica que los feeds).
  */
-export function emitTrackAtencionM1(token) {
-  const key = token.address;
-  if (trackAtencionSeen.has(key)) return false;
-  trackAtencionSeen.set(key, { at: Date.now() });
+export function emitTrackEntry(category, token) {
+  const rule = TRACK_RULES[category];
+  if (!rule) return false;
+  const key = `${category}:${token.address}`;
+  if (trackEntrySeen.has(key)) return false;
+  if (!rule.ready(token)) return false; // sin dato → NO se marca, se reintenta
+
+  trackEntrySeen.set(key, { at: Date.now() });
 
   // Keep the seen map bounded.
-  const all = trackAtencionSeen.getAll();
+  const all = trackEntrySeen.getAll();
   const keys = Object.keys(all);
-  if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) trackAtencionSeen.delete(k);
+  if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) trackEntrySeen.delete(k);
 
-  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.track_atencion_m1);
+  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[category]);
   for (const device of devices) {
+    const params = trackParamsOf(device);
+    if (!rule.hit(token, params)) continue; // umbral del dispositivo (chat/tesis/top)
     const entry = notificationHistory.add({
       device_id: device.device_id,
-      category: 'track_atencion_m1',
+      category,
       address: token.address,
       chain: 'sol',
       symbol: token.symbol ?? null,
@@ -292,9 +271,9 @@ export function emitTrackAtencionM1(token) {
     // 2. System push: for when the app is not in the foreground.
     if (isValidPushToken(device.push_token)) {
       void sendPush(device.push_token, {
-        title: `${token.symbol || token.name || 'Token'} — ATENCIÓN M1`,
-        body: `Atención temprana (min 1-3) · MCap $${compact(token.mcap ?? 0)}${token.note ? ` · ${token.note}` : ''}`,
-        data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category: 'track_atencion_m1' },
+        title: `${token.symbol || token.name || 'Token'} — ${LABELS[category]}`,
+        body: rule.body(token, params),
+        data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category },
       }).catch(() => {});
     }
   }

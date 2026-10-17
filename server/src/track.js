@@ -33,7 +33,7 @@ import initCycleTLS from 'cycletls';
 import { buildQuery, HEADERS, SEARCH_URL, sanitizeColumnFilters } from './photon.js';
 import { getAccessToken } from './fomo.js';
 import { getEffectiveProxy } from './proxy-config.js';
-import { emitTrackBuy, emitTrackTopTesis, emitTrackAtencionM1 } from './notify.js';
+import { emitTrackEntry, TRACK_ENTRY_CATEGORIES } from './notify.js';
 import { broadcast, getSubscriptions, registerTopicProvider } from './ws.js';
 import { normalizeProxy } from './proxy-config.js';
 import { trackConfig, trackTokens } from './stores.js';
@@ -57,6 +57,11 @@ const RATE_LIMIT_BACKOFF_MS = 45_000;
 const ERROR_BACKOFF_MS = 15_000;
 export const TRACK_SNAPSHOT_MAX = 50;
 export const TRACK_TOKENS_MAX = 500;
+// Ventana de reintento de las alertas de ENTRADA del Track (min 1-3): una fuente
+// extra que vino null en el snapshot de entrada se vuelve a evaluar el minuto
+// 2-3. Pasada la ventana ya no se alerta (la decisión es de entrada; ver
+// TRACK_ENTRY_CATEGORIES en notify.js).
+const TRACK_ALERT_WINDOW = 3;
 // Buy-signal entry profile — the measured winners-vs-traps separators (see
 // trackBuySignal): winners enter with few bots, a small crowd and no snipers.
 const BUY_MAX_TP_HOLDERS = 150;
@@ -949,7 +954,6 @@ async function trackTick() {
       // One snapshot per minute, only while the track is still open (dense pulls
       // make the old tick-relative slack unnecessary — due lands within 1.3s).
       if (snapshotDue(tracked)) {
-        const wasBuy = trackBuySignal(tracked.snapshots);
         const extra = extraByAddress.get(address) ?? {};
         if (extra.callout) tracked.callouts = extra.callout; // 1ª vez → queda en el token
         if (extra.chat) tracked.chatAcc = extra.chatAcc; // acumulador del chat acumulativo
@@ -962,28 +966,14 @@ async function trackTick() {
         persist = true;
         snapshotted = true;
         if (tracked.snapshots.length >= TRACK_SNAPSHOT_MAX) tracked.status = 'done'; // 50 → se corta
-        // The minute the series flips to COMPRAR fires the alert (once per
-        // address — the seen-map downstream guarantees it, this is the hook).
-        if (wasBuy !== 'buy' && trackBuySignal(tracked.snapshots) === 'buy') {
-          emitTrackBuy({
-            address,
-            symbol: tracked.symbol,
-            name: tracked.name,
-            logo: tracked.logo,
-            mcap: tracked.snapshots[tracked.snapshots.length - 1]?.mcap ?? null,
-            volume: tracked.snapshots[tracked.snapshots.length - 1]?.volume ?? null,
-            holders: tracked.snapshots[tracked.snapshots.length - 1]?.holders ?? null,
-          });
-        }
-        // El patrón "1 tesis + 1 top D/W/M" (validado el 16/oct sobre 51
-        // disparos: 92% sube después, pico mediano +58% a los ~10min) — se
-        // dispara UNA vez por token, el primer minuto en que coinciden. El
-        // seen-map de notify garantiza el "una sola vez"; esto es el gancho.
-        const snapNow = tracked.snapshots[tracked.snapshots.length - 1];
-        const topsNow = [snapNow.topDaily, snapNow.topWeekly, snapNow.topMonthly].filter((v) => (v ?? 0) >= 1).length;
-        if ((snapNow.thesesCount ?? 0) >= 1 && topsNow > 0) {
-          const ageMin = tracked.snapshots.length - 1; // 1 snapshot por minuto
-          emitTrackTopTesis({
+        // Alertas de ENTRADA del Track (ver TRACK_ENTRY_CATEGORIES en notify.js):
+        // se evalúan en el snapshot de entrada y se reintentan hasta el minuto
+        // TRACK_ALERT_WINDOW si una fuente vino null. Una vez por token y
+        // categoría — el seen-map de notify.js garantiza el "una sola vez"; esto
+        // es el gancho.
+        if (tracked.snapshots.length <= TRACK_ALERT_WINDOW) {
+          const snapNow = tracked.snapshots[tracked.snapshots.length - 1];
+          const alertToken = {
             address,
             symbol: tracked.symbol,
             name: tracked.name,
@@ -991,37 +981,13 @@ async function trackTick() {
             mcap: snapNow.mcap,
             volume: snapNow.volume,
             holders: snapNow.holders,
-            // La mejor rebanada de los datos: temprano (min 1-3) y chico
-            // (≤$50k) → 45% x2, 73% toca +50%, cierre mediano +5%.
-            note: ageMin <= 3 && (snapNow.mcap ?? Infinity) <= 50_000 ? '⭐ temprano y chico' : `min ${ageMin}`,
-          });
-        }
-        // El radar "ATENCIÓN M1" (validado 16/oct sobre 115 disparos: 43% x2
-        // vs 31% base, 94% sube, pico mediano +77%): la PRIMERA señal de
-        // atención de pump.fun (callouts≥10 ∨ posiciones≥50 ∨ ≥1 callout de
-        // ≥$100 ∨ callouts ≥$1k) en los minutos 1-3 de vida, con mcap ≤$60k.
-        // Una vez por token — el seen-map de notify garantiza el "una sola
-        // vez"; esto es el gancho.
-        const ageMinM1 = tracked.snapshots.length - 1; // 1 snapshot por minuto
-        const attM1 =
-          ageMinM1 >= 1 &&
-          ageMinM1 <= 3 &&
-          ((snapNow.calloutsTotal ?? 0) >= 10 ||
-            (snapNow.posHoldersTotal ?? 0) >= 50 ||
-            (snapNow.callout100 ?? 0) >= 1 ||
-            (snapNow.calloutsUsd ?? 0) >= 1000) &&
-          (snapNow.mcap ?? Infinity) <= 60_000;
-        if (attM1) {
-          emitTrackAtencionM1({
-            address,
-            symbol: tracked.symbol,
-            name: tracked.name,
-            logo: tracked.logo,
-            mcap: snapNow.mcap,
-            volume: snapNow.volume,
-            holders: snapNow.holders,
-            note: `min ${ageMinM1}`,
-          });
+            chatWallets: snapNow.chatWallets,
+            thesesCount: snapNow.thesesCount,
+            topDaily: snapNow.topDaily,
+            callout100to500: snapNow.callout100to500,
+            posHoldersTotal: snapNow.posHoldersTotal,
+          };
+          for (const category of TRACK_ENTRY_CATEGORIES) emitTrackEntry(category, alertToken);
         }
       }
 

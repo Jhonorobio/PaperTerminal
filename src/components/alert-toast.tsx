@@ -24,9 +24,12 @@ const LABELS: Record<string, string> = {
   pump_trending: 'Pump Trending',
   photon_new: 'Photon New',
   photon_graduated: 'Photon Graduated',
-  track_buy: 'Track COMPRAR',
-  track_top_tesis: 'Track TOP+TESIS',
-  track_atencion_m1: 'Track ATENCIÓN M1',
+  track_cal_chat: 'Track CAL+CHAT',
+  track_core: 'Track CORE',
+  track_chat_tesis: 'Track CHAT+TESIS',
+  track_chat: 'Track CHAT',
+  track_tesis: 'Track TESIS',
+  track_top: 'Track TOP·D',
 };
 
 export function AlertOverlay() {

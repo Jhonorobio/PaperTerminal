@@ -31,12 +31,20 @@ import { photonLogo } from './logo-proxy.js';
 import { clearTrack, getTrackConfig, getTrackStatus, getTrackToken, listTrackTokens, setTrackConfig, snapshotsWithHealth, summarizeTrackToken, testTrackProxy, TRACK_SNAPSHOT_MAX, TRACK_TOKENS_MAX } from './track.js';
 import { notificationConfig, notificationHistory } from './stores.js';
 import { getPushReceipt, isValidPushToken, sendPush } from './push.js';
+import { TRACK_ENTRY_CATEGORIES, sanitizeTrackParams } from './notify.js';
 import { sendToDevice } from './ws.js';
 import { clientCount, getSubscriptions } from './ws.js';
 
 const router = Router();
 
-const CATEGORIES = ['fomo_graduated', 'fomo_trending', 'pump_trending', 'photon_new', 'photon_graduated', 'track_buy', 'track_top_tesis', 'track_atencion_m1'];
+const CATEGORIES = [
+  'fomo_graduated',
+  'fomo_trending',
+  'pump_trending',
+  'photon_new',
+  'photon_graduated',
+  ...TRACK_ENTRY_CATEGORIES,
+];
 
 function deviceId(req) {
   const id = req.headers['x-device-id'] || req.query.deviceId;
@@ -152,6 +160,9 @@ router.get('/notifications/config', (req, res) => {
       registered: true,
       has_push: isValidPushToken(entry.push_token),
       categories: entry.categories,
+      // Umbrales de las alertas de entrada del Track (chat/tesis/top) — la app
+      // los edita en la pantalla Notificaciones.
+      params: sanitizeTrackParams(entry.params),
     });
   } catch (err) {
     fail(res, err);
@@ -161,7 +172,7 @@ router.get('/notifications/config', (req, res) => {
 router.put('/notifications/config', (req, res) => {
   try {
     const id = deviceId(req);
-    const { push_token, categories } = req.body ?? {};
+    const { push_token, categories, params } = req.body ?? {};
     // A device without a push token is panel-only: it still receives alerts over its private
     // WS topic (Expo Go can't do remote push since SDK 53, but the in-app panel works).
     const hasPush = isValidPushToken(push_token);
@@ -178,6 +189,9 @@ router.put('/notifications/config', (req, res) => {
       device_id: id,
       push_token: hasPush ? push_token : null,
       categories: cats,
+      // Umbrales de las alertas de entrada del Track (chat/tesis/top): saneados
+      // acá para que lo guardado sea siempre un número válido.
+      params: sanitizeTrackParams(params),
       updated_at: new Date().toISOString(),
     };
     notificationConfig.set(id, entry);

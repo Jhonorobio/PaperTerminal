@@ -39,9 +39,12 @@ const ALERT_LABELS: Record<string, string> = {
   pump_trending: 'Pump Trend.',
   photon_new: 'Photon New',
   photon_graduated: 'Photon Grad.',
-  track_buy: 'Track COMPRAR',
-  track_top_tesis: 'Track TOP+TES',
-  track_atencion_m1: 'Track ATENCIÓN',
+  track_cal_chat: 'Track CAL+CHAT',
+  track_core: 'Track CORE',
+  track_chat_tesis: 'Track CHAT+TESIS',
+  track_chat: 'Track CHAT',
+  track_tesis: 'Track TESIS',
+  track_top: 'Track TOP·D',
 };
 
 const toneColor = (v: number | null | undefined) =>

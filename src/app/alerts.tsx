@@ -1,10 +1,11 @@
-// Notification settings — which categories alert this device. The alert history moved to the
-// History tab ("Alertas"), where trades and alerts share one timeline.
+// Notification settings — which categories alert this device, plus the Track entry
+// alerts' thresholds. The alert history moved to the History tab ("Alertas"), where
+// trades and alerts share one timeline.
 // Filters are NOT configured here: the feed screens own them (FOMO pushes both tabs,
 // Photon its columns) and the server notifies on exactly what those screens show.
 
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -13,11 +14,14 @@ import { Banner, Card } from '@/components/ui';
 import { Palette } from '@/constants/paper';
 import {
   ALERT_CATEGORIES,
+  DEFAULT_ALERT_PARAMS,
   loadConfig,
   pushAvailable,
   registerDevice,
+  sanitizeAlertParams,
   saveCategories,
   type AlertCategory,
+  type AlertParams,
 } from '@/lib/notifications';
 import { useApp } from '@/state/app';
 
@@ -27,16 +31,20 @@ const CATEGORY_LABELS: Record<AlertCategory, string> = {
   pump_trending: 'Pump Trend.',
   photon_new: 'Photon New',
   photon_graduated: 'Photon Grad.',
-  track_buy: 'Track COMPRAR',
-  track_top_tesis: 'Track TOP+TESIS',
-  track_atencion_m1: 'Track ATENCIÓN M1',
+  track_cal_chat: 'Track CAL+CHAT',
+  track_core: 'Track CORE',
+  track_chat_tesis: 'Track CHAT+TESIS',
+  track_chat: 'Track CHAT',
+  track_tesis: 'Track TESIS',
+  track_top: 'Track TOP·D',
 };
 
 /**
- * Defaults per category. ATENCIÓN M1 and Pump Trend. nacen ON: se pidieron con
- * push y sin pasos extra — la migración del effect de carga la sincroniza al
- * server la primera vez que se abre esta pantalla (si no, el switch diría ON
- * pero el server no la emitiría).
+ * Defaults per category. Pump Trend. nace ON (se pidió con push y sin pasos
+ * extra — la migración del effect de carga la sincroniza al server la primera
+ * vez que se abre esta pantalla, si no el switch diría ON pero el server no la
+ * emitiría). Las seis del Track nacen OFF: son opt-in con umbral propio y cada
+ * una dispara sobre una porción grande del universo trackeado.
  */
 const DEFAULT_CATEGORIES: Record<AlertCategory, boolean> = {
   fomo_graduated: false,
@@ -44,14 +52,50 @@ const DEFAULT_CATEGORIES: Record<AlertCategory, boolean> = {
   pump_trending: true,
   photon_new: false,
   photon_graduated: false,
-  track_buy: false,
-  track_top_tesis: false,
-  track_atencion_m1: true,
+  track_cal_chat: false,
+  track_core: false,
+  track_chat_tesis: false,
+  track_chat: false,
+  track_tesis: false,
+  track_top: false,
 };
+
+/**
+ * Las reglas del Track se evalúan en el snapshot de ENTRADA del token (su primer
+ * minuto) y disparan una vez por token. Los números son los medidos el 17/oct
+ * sobre el dump de prod (486 tokens / 8.108 snapshots, pico vs precio de
+ * entrada): ver TRACK_RULES en server/src/notify.js.
+ */
+const TRACK_SUBS: Partial<Record<AlertCategory, string>> = {
+  track_cal_chat:
+    'Entrada con CAL [$100-500) y chat ≥N wallets: n=28 → 96% sube después, 18% x2, pico mediano +30% a 10min. Confirma el "sube", no el x2.',
+  track_core:
+    'Entrada "chico y tranquilo": <56 con posición abierta y sin ninguna tesis. n=76 → 72% sube, 29% x2, +47% pico. El mejor cazador de x2 con muestra grande.',
+  track_chat_tesis: 'Entrada con chat ≥N wallets Y ≥M tesis: n=22 → 95% sube, 27% x2, +65% pico a 10min.',
+  track_chat: 'Chat ≥N wallets en la entrada: n=75 (N=2) → 86% sube, 22% x2, +32% pico a 10min.',
+  track_tesis:
+    '≥M tesis en la entrada (default 1): n=59 → 81% sube pero solo 12% x2. Avisa que hay interés, no que haya recorrido.',
+  track_top:
+    'TOP·D ≥N en la entrada: n=69 → 80% sube, 23% x2, +36% pico a 10min (y 32% x2 / +55% a 30min).',
+};
+
+const PARAM_FIELDS: { key: keyof AlertParams; label: string; hint: string }[] = [
+  { key: 'chatWalletsMin', label: 'Chat ≥', hint: 'wallets hablando del token' },
+  { key: 'tesisMin', label: 'Tesis ≥', hint: 'tesis de FOMO' },
+  { key: 'topMin', label: 'TOP·D ≥', hint: 'top traders del día' },
+];
 
 export default function AlertsScreen() {
   const { settings } = useApp();
   const [categories, setCategories] = useState<Record<AlertCategory, boolean>>({ ...DEFAULT_CATEGORIES });
+  const [params, setParams] = useState<AlertParams>({ ...DEFAULT_ALERT_PARAMS });
+  // Texto en edición de cada umbral: deja borrar el campo mientras se escribe y se
+  // sanea (1..máximo) recién al salir — lo que se guarda siempre es un número válido.
+  const [paramText, setParamText] = useState<Record<keyof AlertParams, string>>({
+    chatWalletsMin: String(DEFAULT_ALERT_PARAMS.chatWalletsMin),
+    tesisMin: String(DEFAULT_ALERT_PARAMS.tesisMin),
+    topMin: String(DEFAULT_ALERT_PARAMS.topMin),
+  });
   const [registered, setRegistered] = useState(false);
   const [pushOk, setPushOk] = useState(true);
   // Whether the server holds a push token for this device — null until known. Without
@@ -78,11 +122,18 @@ export default function AlertsScreen() {
         if (cats) {
           const merged = { ...DEFAULT_CATEGORIES, ...cats };
           setCategories(merged);
+          const mergedParams = sanitizeAlertParams(config.params);
+          setParams(mergedParams);
+          setParamText({
+            chatWalletsMin: String(mergedParams.chatWalletsMin),
+            tesisMin: String(mergedParams.tesisMin),
+            topMin: String(mergedParams.topMin),
+          });
           // Migración: una categoría nueva que el server todavía no guarda se
           // sincroniza sola aquí — garantiza que lo que dice el switch es lo
           // que el server realmente va a emitir.
           if (ALERT_CATEGORIES.some((id) => !(id in cats))) {
-            void saveCategories(settings.serverBase, merged).catch(() => {});
+            void saveCategories(settings.serverBase, merged, mergedParams).catch(() => {});
           }
         }
         // A freshly reinstalled build has no token on the server yet — register right
@@ -106,9 +157,9 @@ export default function AlertsScreen() {
   }, [settings.serverBase]);
 
   const persist = useCallback(
-    async (nextCats: Record<AlertCategory, boolean>) => {
+    async (nextCats: Record<AlertCategory, boolean>, nextParams: AlertParams) => {
       try {
-        setPushRegError(await saveCategories(settings.serverBase, nextCats));
+        setPushRegError(await saveCategories(settings.serverBase, nextCats, nextParams));
         setRegistered(true);
         setProblem(null);
         // The PUT registers the push token too — refresh so the banner reflects reality.
@@ -123,7 +174,15 @@ export default function AlertsScreen() {
   const toggle = (id: AlertCategory, value: boolean) => {
     const next = { ...categories, [id]: value };
     setCategories(next);
-    void persist(next);
+    void persist(next, params);
+  };
+
+  /** Sanea el campo editado y lo persiste junto con el resto (se llama al salir del input). */
+  const commitParam = (key: keyof AlertParams) => {
+    const clean = sanitizeAlertParams({ ...params, [key]: Number(paramText[key]) });
+    setParams(clean);
+    setParamText((t) => ({ ...t, [key]: String(clean[key]) }));
+    void persist(categories, clean);
   };
 
   return (
@@ -154,15 +213,7 @@ export default function AlertsScreen() {
             <View key={id} style={styles.row}>
               <View style={styles.rowLead}>
                 <Text style={styles.rowTitle}>{CATEGORY_LABELS[id]}</Text>
-                <Text style={styles.rowSub}>
-                  {id === 'track_buy'
-                    ? 'Te aviso el minuto en que un token trackeado enciende la señal COMPRAR (bots<150, holders<300, snipers<1% —o bundle quieto si no hay dato—, mcap arriba).'
-                    : id === 'track_top_tesis'
-                      ? 'Patrón validado 16/oct: el primer minuto en que un token trackeado tiene ≥1 tesis Y ≥1 top trader D/W/M. 92% sube después (pico +58% mediano a los ~10min) — venta al alza, no hold.'
-                      : id === 'track_atencion_m1'
-                        ? 'Radar validado 16/oct: callouts o posiciones de pump.fun en los minutos 1-3 con mcap ≤$60k. 43% x2 (vs 31% base), 94% sube después, pico mediano +77% — compra el momento y baja en escalera (+50/+77%), no hold.'
-                        : 'Te aviso cuando aparezca un token nuevo en ese feed.'}
-                </Text>
+                <Text style={styles.rowSub}>{TRACK_SUBS[id] ?? 'Te aviso cuando aparezca un token nuevo en ese feed.'}</Text>
               </View>
               <Switch
                 value={categories[id]}
@@ -175,10 +226,37 @@ export default function AlertsScreen() {
           {!registered ? <Text style={styles.fine}>Al activar una categoría se registra este dispositivo para push.</Text> : null}
           <Text style={styles.fine}>
             Los filtros no se configuran acá: son los de las pantallas FOMO y Photon. Se envían al server con cada cambio, y
-            la alerta se dispara con exactamente los mismos — lo que ves en la lista es lo que te avisa. La señal Track
-            COMPRAR viene del análisis de los snapshots del tracker (Track → Filtros).
+            la alerta se dispara con exactamente los mismos — lo que ves en la lista es lo que te avisa.
           </Text>
           <Text style={styles.fine}>El historial de alertas vive ahora en la pestaña History → Alertas.</Text>
+        </Card>
+
+        <Card style={{ padding: 14, gap: 12 }}>
+          <Text style={styles.groupTitle}>Umbrales del Track</Text>
+          {PARAM_FIELDS.map(({ key, label, hint }) => (
+            <View key={key} style={styles.row}>
+              <View style={styles.rowLead}>
+                <Text style={styles.rowTitle}>{label}</Text>
+                <Text style={styles.rowSub}>{hint}</Text>
+              </View>
+              <TextInput
+                value={paramText[key]}
+                onChangeText={(t) => setParamText((prev) => ({ ...prev, [key]: t.replace(/[^0-9]/g, '') }))}
+                onBlur={() => commitParam(key)}
+                onSubmitEditing={() => commitParam(key)}
+                keyboardType="number-pad"
+                inputMode="numeric"
+                returnKeyType="done"
+                style={styles.input}
+                accessibilityLabel={`${label} (${hint})`}
+              />
+            </View>
+          ))}
+          <Text style={styles.fine}>
+            Se aplican a las alertas del Track (CAL+CHAT, CORE, CHAT+TESIS, CHAT, TESIS y TOP·D) y son por dispositivo: el
+            server guarda un valor para cada uno. Defaults = los medidos (chat 2, tesis 1, top 1). Las reglas se evalúan en
+            el snapshot de entrada del token y disparan una vez por token.
+          </Text>
         </Card>
       </ScrollView>
     </SafeAreaView>
@@ -198,6 +276,20 @@ const styles = StyleSheet.create({
   rowLead: { flex: 1, gap: 1, minWidth: 0 },
   rowTitle: { fontSize: 14, fontWeight: '700', color: Palette.textPrimary },
   rowSub: { fontSize: 11, color: Palette.textTertiary },
+
+  input: {
+    minWidth: 56,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '700',
+    color: Palette.textPrimary,
+    backgroundColor: Palette.bgSecondary,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Palette.lineStrong,
+  },
 
   fine: { fontSize: 11, color: Palette.textTertiary, lineHeight: 15 },
 });
