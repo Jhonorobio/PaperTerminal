@@ -19,7 +19,7 @@ import type { FomoToken, PhotonSnapshot } from '../types';
 export const TOPICS = {
   graduated: 'fomo',
   trending: 'fomo_trending',
-  /** Pump Trend. board (pump.fun's hot list, top 5 Solana) — polled by the server every 60 s. */
+  /** Pump Trend. board (pump.fun's hot list, top 5 Solana) — polled by the server every 15 s. */
   pump: 'pump_trending',
   memescope: 'memescope',
   alerts: 'alerts',

@@ -1,6 +1,6 @@
 // FOMO (fomo.family) discovery feed — graduated + trending Solana tokens, live from the FOMO
 // WebSocket, plus Pump Trend.: pump.fun's own hot board (top 5 Solana), polled by the server
-// every 60 s on its own topic. Filters for age / market cap / KOLs / limit on the FOMO tabs
+// every 15 s on its own topic. Filters for age / market cap / KOLs / limit on the FOMO tabs
 // (the Pump board is a fixed top 5, no filters), and a tap that hands the token to the Trade
 // screen. The feed client lives in `@/lib/market/server-feed`.
 
@@ -209,10 +209,10 @@ export default function FomoScreen() {
   // Freshness: FOMO pushes are change-driven, so "datos hace Ns" climbs whenever the server's
   // upstream connection goes quiet — a green dot alone can't tell a live feed from a dead one.
   // 30s before red: quiet minutes happen; a dead feed looks exactly like a quiet one until then.
-  // Pump Trend.'s cadence IS the 60 s poll, so it gets a full cycle + margin before going red.
+  // Pump Trend.'s cadence IS the 15 s poll — red after three missed cycles (45s).
   const feedAt = feed === 'pump' ? serverFeed.pumpReceivedAt() : serverFeed.fomoReceivedAt();
   const feedAgeSec = feedAt ? Math.max(0, nowSec - Math.floor(feedAt / 1000)) : null;
-  const staleAfter = feed === 'pump' ? 90 : 30;
+  const staleAfter = feed === 'pump' ? 45 : 30;
   const feedStale = feedAgeSec != null && feedAgeSec > staleAfter;
   const dotColor = status.lastError || feedStale ? Palette.red : status.connected && feedAgeSec != null ? Palette.green : Palette.textTertiary;
   const statusText = !status.connected
@@ -319,7 +319,7 @@ export default function FomoScreen() {
               title={feed === 'pump' ? 'Pump Trending vacío…' : 'Cargando el feed…'}
               body={
                 feed === 'pump'
-                  ? 'El servidor publica el top 5 de Solana cada 60 s; la lista llega apenas te suscribís.'
+                  ? 'El servidor publica el top 5 de Solana cada 15 s; la lista llega apenas te suscribís.'
                   : 'La lista completa llega al suscribirse; después se actualiza en vivo.'
               }
             />

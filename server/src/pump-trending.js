@@ -10,8 +10,10 @@
  * FOMO's — a bare GET with a browser UA, no auth and no session params (200
  * direct, measured locally and from any egress IP), and the payload is tiny with
  * limit=5 (~5 KB/call). Measured churn of the top 5: 0 changes in ~8 minutes, so
- * a 60 s cadence catches every new entrant within a minute while staying under
- * ~7 MB/day of traffic. A failed poll keeps the last good board on screen.
+ * a 15 s cadence catches every new entrant within one beat of the board while
+ * staying at ~29 MB/day of traffic (5 KB per call). A failed poll keeps the last
+ * good board on screen. The 15 s gap also guarantees polls never overlap (the
+ * fetch timeout is 10 s).
  */
 
 import { broadcast, registerTopicProvider } from './ws.js';
@@ -19,7 +21,7 @@ import { emitToken, seedSeen } from './notify.js';
 
 const BOARD_URL =
   'https://advanced-indexer.pump.fun/boards/trending?limit=5&offset=0&ranking=social&window=1h&hot=label&chains=solana';
-const POLL_MS = 60_000;
+const POLL_MS = 15_000;
 const TOP_N = 5;
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
