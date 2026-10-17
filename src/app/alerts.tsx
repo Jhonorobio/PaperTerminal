@@ -28,18 +28,28 @@ const CATEGORY_LABELS: Record<AlertCategory, string> = {
   photon_graduated: 'Photon Grad.',
   track_buy: 'Track COMPRAR',
   track_top_tesis: 'Track TOP+TESIS',
+  track_atencion_m1: 'Track ATENCIÓN M1',
+};
+
+/**
+ * Defaults per category. ATENCIÓN M1 nace ON: se pidió con push y sin pasos
+ * extra — la migración del effect de carga la sincroniza al server la primera
+ * vez que se abre esta pantalla (si no, el switch diría ON pero el server no
+ * la emitiría).
+ */
+const DEFAULT_CATEGORIES: Record<AlertCategory, boolean> = {
+  fomo_graduated: false,
+  fomo_trending: false,
+  photon_new: false,
+  photon_graduated: false,
+  track_buy: false,
+  track_top_tesis: false,
+  track_atencion_m1: true,
 };
 
 export default function AlertsScreen() {
   const { settings } = useApp();
-  const [categories, setCategories] = useState<Record<AlertCategory, boolean>>({
-    fomo_graduated: false,
-    fomo_trending: false,
-    photon_new: false,
-    photon_graduated: false,
-    track_buy: false,
-    track_top_tesis: false,
-  });
+  const [categories, setCategories] = useState<Record<AlertCategory, boolean>>({ ...DEFAULT_CATEGORIES });
   const [registered, setRegistered] = useState(false);
   const [pushOk, setPushOk] = useState(true);
   // Whether the server holds a push token for this device — null until known. Without
@@ -62,7 +72,17 @@ export default function AlertsScreen() {
       if (!live) return;
       if (config.registered) {
         setRegistered(true);
-        if (config.categories) setCategories((prev) => ({ ...prev, ...config.categories }));
+        const cats = config.categories;
+        if (cats) {
+          const merged = { ...DEFAULT_CATEGORIES, ...cats };
+          setCategories(merged);
+          // Migración: una categoría nueva que el server todavía no guarda se
+          // sincroniza sola aquí — garantiza que lo que dice el switch es lo
+          // que el server realmente va a emitir.
+          if (ALERT_CATEGORIES.some((id) => !(id in cats))) {
+            void saveCategories(settings.serverBase, merged).catch(() => {});
+          }
+        }
         // A freshly reinstalled build has no token on the server yet — register right
         // here so "Probar" always tests the real push path, not a stale state.
         if (config.hasPush === false) {
@@ -137,7 +157,9 @@ export default function AlertsScreen() {
                     ? 'Te aviso el minuto en que un token trackeado enciende la señal COMPRAR (bots<150, holders<300, snipers<1% —o bundle quieto si no hay dato—, mcap arriba).'
                     : id === 'track_top_tesis'
                       ? 'Patrón validado 16/oct: el primer minuto en que un token trackeado tiene ≥1 tesis Y ≥1 top trader D/W/M. 92% sube después (pico +58% mediano a los ~10min) — venta al alza, no hold.'
-                      : 'Te aviso cuando aparezca un token nuevo en ese feed.'}
+                      : id === 'track_atencion_m1'
+                        ? 'Radar validado 16/oct: callouts o posiciones de pump.fun en los minutos 1-3 con mcap ≤$60k. 43% x2 (vs 31% base), 94% sube después, pico mediano +77% — compra el momento y baja en escalera (+50/+77%), no hold.'
+                        : 'Te aviso cuando aparezca un token nuevo en ese feed.'}
                 </Text>
               </View>
               <Switch

@@ -34,7 +34,7 @@ import initCycleTLS from 'cycletls';
 import { buildQuery, HEADERS, SEARCH_URL, sanitizeColumnFilters } from './photon.js';
 import { getAccessToken } from './fomo.js';
 import { getEffectiveProxy } from './proxy-config.js';
-import { emitTrackBuy, emitTrackTopTesis } from './notify.js';
+import { emitTrackBuy, emitTrackTopTesis, emitTrackAtencionM1 } from './notify.js';
 import { broadcast, getSubscriptions, registerTopicProvider } from './ws.js';
 import { normalizeProxy } from './proxy-config.js';
 import { trackConfig, trackTokens } from './stores.js';
@@ -1026,6 +1026,33 @@ async function trackTick() {
             // La mejor rebanada de los datos: temprano (min 1-3) y chico
             // (≤$50k) → 45% x2, 73% toca +50%, cierre mediano +5%.
             note: ageMin <= 3 && (snapNow.mcap ?? Infinity) <= 50_000 ? '⭐ temprano y chico' : `min ${ageMin}`,
+          });
+        }
+        // El radar "ATENCIÓN M1" (validado 16/oct sobre 115 disparos: 43% x2
+        // vs 31% base, 94% sube, pico mediano +77%): la PRIMERA señal de
+        // atención de pump.fun (callouts≥10 ∨ posiciones≥50 ∨ ≥1 callout de
+        // ≥$100 ∨ callouts ≥$1k) en los minutos 1-3 de vida, con mcap ≤$60k.
+        // Una vez por token — el seen-map de notify garantiza el "una sola
+        // vez"; esto es el gancho.
+        const ageMinM1 = tracked.snapshots.length - 1; // 1 snapshot por minuto
+        const attM1 =
+          ageMinM1 >= 1 &&
+          ageMinM1 <= 3 &&
+          ((snapNow.calloutsTotal ?? 0) >= 10 ||
+            (snapNow.posHoldersTotal ?? 0) >= 50 ||
+            (snapNow.callout100 ?? 0) >= 1 ||
+            (snapNow.calloutsUsd ?? 0) >= 1000) &&
+          (snapNow.mcap ?? Infinity) <= 60_000;
+        if (attM1) {
+          emitTrackAtencionM1({
+            address,
+            symbol: tracked.symbol,
+            name: tracked.name,
+            logo: tracked.logo,
+            mcap: snapNow.mcap,
+            volume: snapNow.volume,
+            holders: snapNow.holders,
+            note: `min ${ageMinM1}`,
           });
         }
       }

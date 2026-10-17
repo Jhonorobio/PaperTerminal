@@ -16,6 +16,7 @@ export const photonFilters = new JsonStore('photon_filters');
 export const fomoSeen = new JsonStore('fomo_seen');
 export const photonSeen = new JsonStore('photon_seen');
 export const trackBuySeen = new JsonStore('track_buy_seen');
+export const trackAtencionSeen = new JsonStore('track_atencion_m1_seen');
 export const trackTopTesisSeen = new JsonStore('track_top_tesis_seen');
 export const trackConfig = new JsonStore('track_config');
 export const trackTokens = new JsonStore('track_tokens');

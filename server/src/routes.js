@@ -36,7 +36,7 @@ import { clientCount, getSubscriptions } from './ws.js';
 
 const router = Router();
 
-const CATEGORIES = ['fomo_graduated', 'fomo_trending', 'photon_new', 'photon_graduated', 'track_buy', 'track_top_tesis'];
+const CATEGORIES = ['fomo_graduated', 'fomo_trending', 'photon_new', 'photon_graduated', 'track_buy', 'track_top_tesis', 'track_atencion_m1'];
 
 function deviceId(req) {
   const id = req.headers['x-device-id'] || req.query.deviceId;

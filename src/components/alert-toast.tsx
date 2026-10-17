@@ -25,6 +25,7 @@ const LABELS: Record<string, string> = {
   photon_graduated: 'Photon Graduated',
   track_buy: 'Track COMPRAR',
   track_top_tesis: 'Track TOP+TESIS',
+  track_atencion_m1: 'Track ATENCIÓN M1',
 };
 
 export function AlertOverlay() {

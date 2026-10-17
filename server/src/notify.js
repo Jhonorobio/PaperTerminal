@@ -16,7 +16,7 @@
  * Per-device filters (the old alerts-screen config) are no longer read.
  */
 
-import { notificationConfig, notificationHistory, fomoSeen, photonSeen, trackBuySeen, trackTopTesisSeen } from './stores.js';
+import { notificationConfig, notificationHistory, fomoSeen, photonSeen, trackBuySeen, trackTopTesisSeen, trackAtencionSeen } from './stores.js';
 import { getFomoFilters } from './fomo-filter-store.js';
 import { isValidPushToken, sendPush } from './push.js';
 import { sendToDevice } from './ws.js';
@@ -31,6 +31,7 @@ const LABELS = {
   photon_graduated: 'Photon Graduated',
   track_buy: 'Track COMPRAR',
   track_top_tesis: 'Track TOP+TESIS',
+  track_atencion_m1: 'Track ATENCIÓN M1',
 };
 
 /**
@@ -238,6 +239,61 @@ export function emitTrackTopTesis(token) {
         title: `${token.symbol || token.name || 'Token'} — TOP+TESIS`,
         body: `Top + tesis · MCap $${compact(token.mcap ?? 0)}${token.note ? ` · ${token.note}` : ''}`,
         data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category: 'track_top_tesis' },
+      }).catch(() => {});
+    }
+  }
+
+  trimHistory();
+  return true;
+}
+
+/**
+ * The TRACK "ATENCIÓN M1" alert — the early-attention radar. Fired ONCE per
+ * address: the first snapshot at minute 1-3 of life with pump.fun attention
+ * (callouts ≥10 ∨ positions ≥50 ∨ ≥1 callout ≥$100 ∨ callouts ≥$1k) while
+ * mcap ≤ $60k. Validated 16/oct on 115 triggers: 43% x2 (vs 31% base), 94%
+ * rise afterwards, median peak +77% — the best x2 hunter of the whole sweep.
+ * The play is buy-the-moment and ladder out (+50/+77%), never a hold (median
+ * close is negative on every hold). Same payload shape as emitTrackTopTesis.
+ */
+export function emitTrackAtencionM1(token) {
+  const key = token.address;
+  if (trackAtencionSeen.has(key)) return false;
+  trackAtencionSeen.set(key, { at: Date.now() });
+
+  // Keep the seen map bounded.
+  const all = trackAtencionSeen.getAll();
+  const keys = Object.keys(all);
+  if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) trackAtencionSeen.delete(k);
+
+  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.track_atencion_m1);
+  for (const device of devices) {
+    const entry = notificationHistory.add({
+      device_id: device.device_id,
+      category: 'track_atencion_m1',
+      address: token.address,
+      chain: 'sol',
+      symbol: token.symbol ?? null,
+      name: token.name ?? null,
+      logo: token.logo ?? null,
+      mcap: token.mcap ?? null,
+      liq: null,
+      vol24h: token.volume ?? null,
+      holders: token.holders ?? null,
+      kolCount: null,
+      ageMinutes: null,
+      notified_at: new Date().toISOString(),
+    });
+
+    // 1. In-app panel: private WS topic, painted by the app wherever it is.
+    sendToDevice(device.device_id, { event: 'alert', data: entry });
+
+    // 2. System push: for when the app is not in the foreground.
+    if (isValidPushToken(device.push_token)) {
+      void sendPush(device.push_token, {
+        title: `${token.symbol || token.name || 'Token'} — ATENCIÓN M1`,
+        body: `Atención temprana (min 1-3) · MCap $${compact(token.mcap ?? 0)}${token.note ? ` · ${token.note}` : ''}`,
+        data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category: 'track_atencion_m1' },
       }).catch(() => {});
     }
   }

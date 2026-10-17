@@ -42,7 +42,7 @@ async function notifications() {
  * Android throws at import — "remote notifications removed from Expo Go").
  */
 
-export const ALERT_CATEGORIES = ['fomo_graduated', 'fomo_trending', 'photon_new', 'photon_graduated', 'track_buy', 'track_top_tesis'] as const;
+export const ALERT_CATEGORIES = ['fomo_graduated', 'fomo_trending', 'photon_new', 'photon_graduated', 'track_buy', 'track_top_tesis', 'track_atencion_m1'] as const;
 export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
 
 const TIMEOUT_MS = 8_000;
