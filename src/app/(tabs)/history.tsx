@@ -775,14 +775,6 @@ const TrackRow = memo(function TrackRow({
             <Text style={styles.rowName} numberOfLines={1}>
               {t.symbol ?? t.name ?? `${t.address.slice(0, 4)}…`}
             </Text>
-            {/* SCORE chico-y-tranquilo al lado del símbolo — reemplazó a las
-                señales viejas (COMPRAR/EVITAR/health): esas no discriminaban
-                (verde cerraba peor que rojo en 145 tokens). */}
-            {t.buyScore != null ? (
-              <View style={[styles.health, { backgroundColor: `${scoreTone(t.buyScore)}22`, borderColor: scoreTone(t.buyScore) }]}>
-                <Text style={[styles.healthText, { color: scoreTone(t.buyScore) }]}>SCORE {t.buyScore}</Text>
-              </View>
-            ) : null}
           </View>
           <Text style={styles.rowSub}>
             MC {formatCompactUsd(t.mcap)} · VOL {formatCompactUsd(t.volume)}
@@ -850,15 +842,10 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
       <Text style={styles.detailLine}>
         {snaps.length} snapshots · {formatDateTime(first.at)} → {formatDateTime(last.at)}
       </Text>
-      {/* La línea de estado: SCORE manda; el "flujo compras/ventas" se quitó
-          a petición (débil en el análisis) — queda holdersΔ + vol/mcap. */}
-      <Text
-        style={[
-          styles.detailLine,
-          { color: detail.buyScore != null ? scoreTone(detail.buyScore) : Palette.textSecondary },
-        ]}>
-        {detail.buyScore != null ? `SCORE ${detail.buyScore}/6 · ` : ''}holders{' '}
-        {detail.holdersDeltaPct == null ? '—' : formatPct(detail.holdersDeltaPct, { sign: true })}
+      {/* Línea de estado: SCORE salió de la UI a petición (el campo sigue en
+          el snapshot, para análisis) — queda holdersΔ + vol/mcap. */}
+      <Text style={[styles.detailLine, { color: Palette.textSecondary }]}>
+        holders {detail.holdersDeltaPct == null ? '—' : formatPct(detail.holdersDeltaPct, { sign: true })}
         {detail.turnover != null ? ` · vol/mcap ${detail.turnover.toFixed(1)}x` : ''}
       </Text>
       {/* Full series (≤ the 50-snapshot cap), newest first. A COPY before
@@ -873,7 +860,7 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
               <Text style={styles.snapTime}>{time24(s.at)}</Text>
               {/* Los chips de señal/health del minuto se quitaron: con 145
                   tokens no discriminaban (verde cerraba peor que rojo). El
-                  SCORE de cada minuto vive en la fila de fuentes. */}
+                  SCORE también salió de la UI — solo sigue como dato. */}
             </View>
             <View style={{ flex: 1, gap: 3 }}>
               <View style={styles.chipRow}>
@@ -973,13 +960,7 @@ type SourceFields = {
   topWeekly: number | null;
   topMonthly: number | null;
   topTraderNames: string[] | null;
-  buyScore: number | null;
 };
-
-/** Verde ≥3 · ámbar 2 · rojo ≤1 — el score chico-y-tranquilo del snapshot. */
-function scoreTone(score: number) {
-  return score >= 3 ? Palette.green : score === 2 ? Palette.warning : Palette.red;
-}
 
 /**
  * Icono del chip TESIS: el "top trade" por defecto de GMGN (el tile azul con
@@ -1002,7 +983,7 @@ const CAL100_ICON = require('@/assets/images/cal100-gmgn.png');
 const CAL500_ICON = require('@/assets/images/cal500-gmgn.png');
 
 /**
- * Extra-source chips (SMART/INS/DEV, SCORE, FOMO theses, GMGN chat,
+ * Extra-source chips (SMART/INS/DEV, FOMO theses, GMGN chat,
  * pump callouts, TOP traders) as ONE flowing row, so the metrics
  * column packs lines full instead of leaving half-empty rows. Timeline
  * only (the list card shows none of this). A token tracked before those
@@ -1022,7 +1003,6 @@ function SourceChips({ s }: { s: SourceFields }) {
     s.callout100 != null ||
     s.callout100to500 != null ||
     s.callout500 != null ||
-    s.buyScore != null ||
     s.topDaily != null ||
     s.topWeekly != null ||
     s.topMonthly != null;
@@ -1052,11 +1032,6 @@ function SourceChips({ s }: { s: SourceFields }) {
       {/* Fuentes sociales — en la UI SOLO el conteo. El resto (USD, PnL,
           entry MC, verificados…) se guarda en el snapshot para el análisis,
           pero no se pinta: menos ruido por fila. */}
-      {/* SCORE 0-6 chico-y-tranquilo — la señal de compra (x2 monótono:
-          0→21%, ≥2→68%, ≥3→73% sobre 145 tokens). */}
-      {s.buyScore != null ? (
-        <MiniStat label="SCORE" value={String(s.buyScore)} valueTone={scoreTone(s.buyScore)} />
-      ) : null}
       {/* TESIS: SOLO el icono "top trade" azul de GMGN + conteo (sin texto
           — decisión del usuario; reconoce el icono). La URL original de GMGN
           está tras Cloudflare, por eso vive en el repo. */}
@@ -1158,8 +1133,6 @@ const styles = StyleSheet.create({
   chipSub: { fontSize: 10, fontWeight: '400', color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
   trackSort: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   rowAddr: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
-  health: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, borderWidth: 1 },
-  healthText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.4 },
   addrText: { fontSize: 10, color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
   gmgn: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, backgroundColor: Palette.paperT },
   gmgnText: { fontSize: 9, fontWeight: '800', color: Palette.paper, letterSpacing: 0.5 },
