@@ -73,21 +73,15 @@ export interface TrackSnapshot {
   sells: number | null;
   holders: number | null;
   topHoldersPct: number | null;
-  freshPct: number | null;
-  freshHolders: number | null;
   snipersPct: number | null;
   snipers: number | null;
   bundlePct: number | null;
   bundleHolders: number | null;
   tpHolders: number | null;
-  /** Trenchers Pulse (fuente 2): % de wallets clasificadas como insiders. */
-  insiderPct: number | null;
   /** Trenchers Pulse: % de traders inteligentes (rentables) dentro. */
   smartTraderPct: number | null;
   /** Trenchers Pulse: cantidad de pro traders. */
   proTraders: number | null;
-  /** Trenchers Pulse: cantidad de KOLs dentro del token. */
-  kolCount: number | null;
   /** Trenchers Pulse: historial del dev — mints que creó y cuántos graduaron. */
   creatorMints: number | null;
   creatorGraduated: number | null;
@@ -95,16 +89,13 @@ export interface TrackSnapshot {
   overallSecurity: string | null;
   /** Azura: flags de auditoría encendidos ([] = limpia; ej: "washTrading"). */
   securityFlags: string[] | null;
-  /** Azura: cambio del volumen en % — ¿se acelera (+) o se muere (−)? */
-  volChange5m: number | null;
+  /** Azura: cambio del volumen 1h en % — ¿se acelera (+) o se muere (−)? */
   volChange1h: number | null;
   /** Azura: volumen en $ compras vs ventas (ventanas 5m y 1h). */
   buyVol5m: number | null;
   sellVol5m: number | null;
   buyVol1h: number | null;
   sellVol1h: number | null;
-  /** Azura: pro traders de AZURA (métrica distinta a la de Pulse). */
-  proTradersAz: number | null;
   /** FOMO thesis (fuente 4, ≥$1K): tesis publicadas en la última hora. */
   thesesCount: number | null;
   /** De esas tesis, cuántas siguen con la posición abierta. */
@@ -153,12 +144,6 @@ export interface TrackSnapshot {
   topMonthly: number | null;
   /** Sus usernames (hasta 10) — para el detalle, no para la lista. */
   topTraderNames: string[] | null;
-  /**
-   * Score "chico-y-tranquilo" 0-6 (mcap≤33k, holders≤300, posTot≤100,
-   * callUsd≤240, CAL100≤1, tesis≥2). Predictor más fuerto del dataset:
-   * x2 monótono 21%→41%→68%→73% (base 30%). Nulo si falta algún dato.
-   */
-  buyScore: number | null;
   /**
    * The chip as it looked AT THAT MINUTE (server computes it from the prefix
    * [0..i] of the series — no hindsight). null on the first snapshot.
@@ -213,24 +198,19 @@ export interface TrackTokenSummary {
    */
   watchSignal: boolean;
   /** Latest snapshot's Trenchers Pulse reading — null on older tokens. */
-  insiderPct: number | null;
   smartTraderPct: number | null;
   proTraders: number | null;
-  kolCount: number | null;
   creatorMints: number | null;
   creatorGraduated: number | null;
   /** Latest snapshot's Azura reading — security verdict + triggered flags. */
   overallSecurity: string | null;
   securityFlags: string[] | null;
-  /** Latest snapshot's volume rhythm (% change) and $ buy vs sell split. */
-  volChange5m: number | null;
+  /** Latest snapshot's 1h volume rhythm (% change) and $ buy vs sell split. */
   volChange1h: number | null;
   buyVol5m: number | null;
   sellVol5m: number | null;
   buyVol1h: number | null;
   sellVol1h: number | null;
-  /** Azura's own pro-trader count (different metric than Pulse's `proTraders`). */
-  proTradersAz: number | null;
   /** Latest snapshot's social readings: FOMO thesis (≥$1K, last hour). */
   thesesCount: number | null;
   thesesOpen: number | null;
@@ -263,8 +243,6 @@ export interface TrackTokenSummary {
   topWeekly: number | null;
   topMonthly: number | null;
   topTraderNames: string[] | null;
-  /** Score "chico-y-tranquilo" 0-6 del último snapshot (ver TrackSnapshot). */
-  buyScore: number | null;
   /** Holders first→last snapshot, percent (the strongest signal, r=0.71). */
   holdersDeltaPct: number | null;
   /** Buys/sells over the last ~3 min — ≥1 means net buying. */

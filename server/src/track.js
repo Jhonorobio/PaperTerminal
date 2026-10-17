@@ -9,9 +9,8 @@
  *             mechanism the app's Photon screen uses — so "pasa el filtro"
  *             means the same thing on both screens.
  *   capture — while it stays visible in the column: one snapshot per minute with
- *             top holders %, holders, fresh %, fresh holders, snipers %, snipers,
- *             bundle %, bundle count, buys, sells, market cap, volume and tp
- *             holders ("bots").
+ *             top holders %, holders, snipers %, snipers, bundle %, bundle count,
+ *             buys, sells, market cap, volume and tp holders ("bots").
  *   pause   — it dropped out of the column: capture stops, the data stays; if it
  *             reappears capture resumes, over and over.
  *   cut     — 50 snapshots reached: the track is over for that token (its data is
@@ -133,36 +132,18 @@ export function setTrackConfig(raw) {
   return getTrackConfig();
 }
 
-/** One minute's worth of the stats the analysis runs on. */
-// ── Score "chico-y-tranquilo" (0-6) ─────────────────────────────────────────
-// Validado el 15/oct sobre 145 tokens (33h del 14-16/oct): la probabilidad de
-// un pico ≥x2 sube monótona con el score — 0 → 21%, ≥1 → 41%, ≥2 → 68%,
-// ≥3 → 73% (base 30%). Cuenta cuántas de estas 6 condiciones cumple el token
-// en el minuto del snapshot. Nulo si falta algún dato: un "sin dato" NO se
-// cuenta como "no cumple" (eso diluiría el score de los tokens con fuente caída).
-const SCORE_MCAP_MAX = 33_000; // mcap de entrada barato
-const SCORE_HOLDERS_MAX = 300; // pocos holders todavía
-const SCORE_POS_TOTAL_MAX = 100; // positions: poca gente con posición abierta
-const SCORE_CALLUSD_MAX = 240; // callouts con poca plata metida
-const SCORE_CAL100_MAX = 1; // casi nadie con ≥$100 callouteado
-const SCORE_TESIS_MIN = 2; // FOMO: ≥2 tesis con plata real
-
+/**
+ * One minute's worth of the stats the analysis runs on.
+ *
+ * El 17/oct se midió cada campo sobre el dump de prod (486 tokens / 8.108
+ * snapshots, horizonte fijo 5/10/20/30 min): se dejaron de capturar INS
+ * (insiderPct), KOL (kolCount), fresh %/holders, V5m y PRO·AZ por ser ruido
+ * (ρ≈0 en los cuatro horizontes), y el SCORE 0-6 por no reproducir su promesa
+ * (x2 monótono 21→41→68→73%, base 30%) en el dataset actual.
+ */
 function snapshotOf(a, pulse, card, thesis, chat, callout, pos, top) {
   const mcap = numOrNull(a.fdv);
   const holders = numOrNull(a.holders_count);
-  const posTotal = pos?.holdersTotal ?? null;
-  const callUsd = callout?.calloutsUsd ?? null;
-  const cal100 = pos?.callout100 ?? null;
-  const tesisN = thesis?.thesesCount ?? null;
-  const buyScore =
-    mcap != null && holders != null && posTotal != null && callUsd != null && cal100 != null && tesisN != null
-      ? (mcap <= SCORE_MCAP_MAX ? 1 : 0) +
-        (holders <= SCORE_HOLDERS_MAX ? 1 : 0) +
-        (posTotal <= SCORE_POS_TOTAL_MAX ? 1 : 0) +
-        (callUsd <= SCORE_CALLUSD_MAX ? 1 : 0) +
-        (cal100 <= SCORE_CAL100_MAX ? 1 : 0) +
-        (tesisN >= SCORE_TESIS_MIN ? 1 : 0)
-      : null;
   return {
     at: new Date().toISOString(),
     mcap,
@@ -171,8 +152,6 @@ function snapshotOf(a, pulse, card, thesis, chat, callout, pos, top) {
     sells: numOrNull(a.sells_count),
     holders,
     topHoldersPct: numOrNull(a.audit?.top_holders_perc),
-    freshPct: numOrNull(a.fresh_holding_perc),
-    freshHolders: numOrNull(a.fresh_holders_count),
     snipersPct: numOrNull(a.snipers_holding_perc),
     snipers: numOrNull(a.snipers_count),
     bundlePct: numOrNull(a.bundle_holding_perc),
@@ -181,24 +160,20 @@ function snapshotOf(a, pulse, card, thesis, chat, callout, pos, top) {
     // Trenchers Pulse (fuente 2, una llamada por token por minuto — probado
     // con 20 en paralelo sin rate limit). Un fallo de esta fuente deja nulls:
     // el snapshot de Photon NUNCA se pierde por una fuente extra caída.
-    insiderPct: pulse?.insiderPct ?? null,
     smartTraderPct: pulse?.smartTraderPct ?? null,
     proTraders: pulse?.proTraders ?? null,
-    kolCount: pulse?.kolCount ?? null,
     creatorMints: pulse?.creatorMints ?? null,
     creatorGraduated: pulse?.creatorGraduated ?? null,
-    // Azura getCard (fuente 3): seguridad, ritmo del volumen y pro traders
-    // propio (NO es el mismo número que el de Pulse: 52 vs 102 en Pepper —
-    // métricas distintas, por eso van con nombre separado).
+    // Azura getCard (fuente 3): seguridad y split de volumen 1h. El ritmo a 5m
+    // (volChange5m) y el pro-trader propio de Azura (proTradersAz) se sacaron
+    // el 17/oct (ruido); el resto sigue guardándose aunque la UI no lo pinte.
     overallSecurity: card?.overallSecurity ?? null,
     securityFlags: card?.securityFlags ?? null,
-    volChange5m: card?.volChange5m ?? null,
     volChange1h: card?.volChange1h ?? null,
     buyVol5m: card?.buyVol5m ?? null,
     sellVol5m: card?.sellVol5m ?? null,
     buyVol1h: card?.buyVol1h ?? null,
     sellVol1h: card?.sellVol1h ?? null,
-    proTradersAz: card?.proTradersAz ?? null,
     // FOMO thesis (fuente 4): tesis de traders con plata real adjunta, ≥$1K.
     thesesCount: thesis?.thesesCount ?? null,
     thesesOpen: thesis?.thesesOpen ?? null,
@@ -235,16 +210,13 @@ function snapshotOf(a, pulse, card, thesis, chat, callout, pos, top) {
     topWeekly: top?.topWeekly ?? null,
     topMonthly: top?.topMonthly ?? null,
     topTraderNames: top?.topTraderNames ?? null,
-    // Score "chico-y-tranquilo" (0-6): el predictor más fuerte del dataset
-    // (ver arriba). Va en el snapshot desde el minuto 1 cuando hay datos.
-    buyScore,
   };
 }
 
 // ── Trenchers Pulse ──────────────────────────────────────────────────────────
 // The tracker's second source: Photon gives the column (holders/bots/snipers/
-// bundle/fresh), Pulse adds what no column has — insiders, smart traders, KOLs
-// and the dev's launch history. Probed: 20 parallel calls, all 200, no rate
+// bundle), Pulse adds what no column has — % de smart traders (rentables) y el
+// historial de lanzamientos del dev. Probed: 20 parallel calls, all 200, no rate
 // limit headers, ~0.5s. A timeout keeps a slow Pulse from stalling the tick.
 const PULSE_URL = 'https://pulse-production.trenchers.ai/pulse/token/';
 const PULSE_TIMEOUT_MS = 5_000;
@@ -258,10 +230,8 @@ async function fetchPulse(address) {
     if (!res.ok) return null;
     const j = await res.json();
     return {
-      insiderPct: numOrNull(j.insider_pct),
       smartTraderPct: numOrNull(j.smart_trader_pct),
       proTraders: numOrNull(j.pro_traders_count),
-      kolCount: numOrNull(j.kol_count),
       creatorMints: numOrNull(j.creator_stats?.mints_created),
       creatorGraduated: numOrNull(j.creator_stats?.mints_graduated),
     };
@@ -282,8 +252,8 @@ function snapshotDue(tracked) {
 // ── Azura getCard (fuente 3) ─────────────────────────────────────────────────
 // Same probe profile as Pulse: 20 parallel calls, all 200, no rate limit.
 // Contributes what neither Photon nor Pulse has: the security audit (wash
-// trading / fake volume / honeypot flags), liquidity depth, the volume rhythm
-// (accelerating vs dying) and Azura's own pro-trader count.
+// trading / fake volume / honeypot flags) y el split de volumen 1h. El ritmo a
+// 5m y el pro-trader propio de Azura salieron el 17/oct (ruido).
 const AZURA_URL = 'https://gateway.azura.xyz/trpc/v2.tokens.getCard';
 const AZURA_TIMEOUT_MS = 5_000;
 
@@ -307,13 +277,11 @@ async function fetchAzura(address) {
             .filter(([, f]) => f?.value === true)
             .map(([name]) => name)
         : null,
-      volChange5m: numOrNull(card.stats?.volume?.['5m']?.change),
       volChange1h: numOrNull(card.stats?.volume?.['1h']?.change),
       buyVol5m: numOrNull(card.stats?.volume?.['5m']?.buyVolume),
       sellVol5m: numOrNull(card.stats?.volume?.['5m']?.sellVolume),
       buyVol1h: numOrNull(card.stats?.volume?.['1h']?.buyVolume),
       sellVol1h: numOrNull(card.stats?.volume?.['1h']?.sellVolume),
-      proTradersAz: numOrNull(card.auditMetrics?.proTraders),
     };
   } catch {
     return null; // caída o timeout → nulls, el tick sigue igual
@@ -1445,23 +1413,19 @@ export function summarizeTrackToken(t) {
     strongBuy: trackStrongBuy(snaps),
     // chip B: verde + bundle quieto sin llegar a buy — informativo, con TP/SL
     watchSignal: trackWatchSignal(snaps),
-    // Latest Pulse + Azura readings (newest snapshot) — the list row's extra
+    // Latest Pulse + Azura readings (newest snapshot) — the detail's extra
     // chips. null on tokens tracked before those sources existed.
-    insiderPct: last?.insiderPct ?? null,
     smartTraderPct: last?.smartTraderPct ?? null,
     proTraders: last?.proTraders ?? null,
-    kolCount: last?.kolCount ?? null,
     creatorMints: last?.creatorMints ?? null,
     creatorGraduated: last?.creatorGraduated ?? null,
     overallSecurity: last?.overallSecurity ?? null,
     securityFlags: last?.securityFlags ?? null,
-    volChange5m: last?.volChange5m ?? null,
     volChange1h: last?.volChange1h ?? null,
     buyVol5m: last?.buyVol5m ?? null,
     sellVol5m: last?.sellVol5m ?? null,
     buyVol1h: last?.buyVol1h ?? null,
     sellVol1h: last?.sellVol1h ?? null,
-    proTradersAz: last?.proTradersAz ?? null,
     // Últimas lecturas sociales (fuentes 4-6) — la lista no las pinta, el
     // detalle las sirve junto a los snapshots.
     thesesCount: last?.thesesCount ?? null,
@@ -1489,7 +1453,6 @@ export function summarizeTrackToken(t) {
     topWeekly: last?.topWeekly ?? null,
     topMonthly: last?.topMonthly ?? null,
     topTraderNames: last?.topTraderNames ?? null,
-    buyScore: last?.buyScore ?? null,
   };
 }
 

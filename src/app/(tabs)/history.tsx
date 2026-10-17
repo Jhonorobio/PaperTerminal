@@ -843,8 +843,8 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
       <Text style={styles.detailLine}>
         {snaps.length} snapshots · {formatDateTime(first.at)} → {formatDateTime(last.at)}
       </Text>
-      {/* Línea de estado: SCORE salió de la UI a petición (el campo sigue en
-          el snapshot, para análisis) — queda holdersΔ + vol/mcap. */}
+      {/* Línea de estado: SCORE salió de la UI y ya no se captura (ruido) —
+          queda holdersΔ + vol/mcap. */}
       <Text style={[styles.detailLine, { color: Palette.textSecondary }]}>
         holders {detail.holdersDeltaPct == null ? '—' : formatPct(detail.holdersDeltaPct, { sign: true })}
         {detail.turnover != null ? ` · vol/mcap ${detail.turnover.toFixed(1)}x` : ''}
@@ -861,7 +861,7 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
               <Text style={styles.snapTime}>{time24(s.at)}</Text>
               {/* Los chips de señal/health del minuto se quitaron: con 145
                   tokens no discriminaban (verde cerraba peor que rojo). El
-                  SCORE también salió de la UI — solo sigue como dato. */}
+                  SCORE salió de la UI y de la captura (ruido, 17/oct). */}
             </View>
             <View style={{ flex: 1, gap: 3 }}>
               <View style={styles.chipRow}>
@@ -873,9 +873,8 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
               </View>
               <View style={styles.chipRow}>
                 <MiniStat icon="crown" value={pct(s.topHoldersPct)} tone={Palette.warning} />
-                {/* fresh% y snipers% quitados: muertos en el análisis
-                   (snipers ρ≈0 / mejor regla lift 1.1; fresh 45% con n=11).
-                   Los campos siguen en el snapshot. */}
+                {/* fresh% quitado de la UI y de la captura (ruido, 17/oct);
+                   snipers% sigue capturándose aunque no se pinte (ρ≈0). */}
                 <MiniStat icon="package" value={pct(s.bundlePct)} sub={formatCompactQty(s.bundleHolders)} tone={Palette.paper} />
                 <MiniStat icon="cpu" value={formatCompactQty(s.tpHolders)} tone={Palette.warning} />
               </View>
@@ -921,21 +920,17 @@ function MiniStat({
 
 /** The extra sources per snapshot (Trenchers Pulse + Azura + fuentes sociales). */
 type SourceFields = {
-  insiderPct: number | null;
   smartTraderPct: number | null;
   proTraders: number | null;
-  kolCount: number | null;
   creatorMints: number | null;
   creatorGraduated: number | null;
   overallSecurity: string | null;
   securityFlags: string[] | null;
-  volChange5m: number | null;
   volChange1h: number | null;
   buyVol5m: number | null;
   sellVol5m: number | null;
   buyVol1h: number | null;
   sellVol1h: number | null;
-  proTradersAz: number | null;
   thesesCount: number | null;
   thesesOpen: number | null;
   thesesUsd: number | null;
@@ -992,7 +987,6 @@ const CAL500_ICON = require('@/assets/images/cal500-gmgn.png');
  */
 function SourceChips({ s }: { s: SourceFields }) {
   const hasPulse =
-    s.insiderPct != null ||
     s.smartTraderPct != null ||
     s.creatorMints != null ||
     s.creatorGraduated != null;
@@ -1013,11 +1007,8 @@ function SourceChips({ s }: { s: SourceFields }) {
       {s.smartTraderPct != null ? (
         <MiniStat label="SMART" value={formatPct(s.smartTraderPct, { sign: false })} valueTone={Palette.green} />
       ) : null}
-      {s.insiderPct != null ? (
-        <MiniStat label="INS" value={formatPct(s.insiderPct, { sign: false })} valueTone={Palette.paper} />
-      ) : null}
-      {/* PRO (Pulse) quitado: redundante con 🖥 bots (ρ 0.93) y débil (40%,
-          lift 1.3). KOL quitado: muerto (36%, lift 1.2). */}
+      {/* PRO (Pulse), INS y KOL salieron de la UI y de la captura: ruido
+          confirmado el 17/oct sobre 486 tokens (ρ≈0 en 5/10/20/30 min). */}
       {s.creatorMints != null || s.creatorGraduated != null ? (
         <MiniStat
           label="DEV"
@@ -1026,10 +1017,11 @@ function SourceChips({ s }: { s: SourceFields }) {
           valueTone={Palette.warning}
         />
       ) : null}
-      {/* Quitados de la UI tras el análisis de 53h/223 tokens: V5m/V1h/C-V
-          (ritmo de volumen), ⚠ flags de seguridad (31%, lift 1.0), PRO·AZ
-          (40%, no correlaciona), PRO, KOL, fresh%, snipers%. Los campos
-          siguen en el snapshot para el análisis, solo no se pintan. */}
+      {/* Quitados de la UI tras el análisis de 53h/223 tokens: V1h/C-V (ritmo
+          de volumen), ⚠ flags de seguridad, fresh%, snipers%. Los campos
+          siguen en el snapshot para el análisis, solo no se pintan. V5m,
+          PRO·AZ, INS, KOL y SCORE además dejaron de capturarse (ruido,
+          análisis 17/oct sobre 486 tokens). */}
       {/* Fuentes sociales — en la UI SOLO el conteo. El resto (USD, PnL,
           entry MC, verificados…) se guarda en el snapshot para el análisis,
           pero no se pinta: menos ruido por fila. */}
