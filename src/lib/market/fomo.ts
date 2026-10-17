@@ -29,6 +29,9 @@
 import type { FomoFeedId, FomoStatus, FomoToken } from '../types';
 import { getAccessToken, hasCredentials, invalidateAccessToken } from './fomo-auth';
 
+/** This direct socket only carries the two FOMO feeds; 'pump' lives on server-feed. */
+type FomoSocketFeedId = Exclude<FomoFeedId, 'pump'>;
+
 const FOMO_WS_URL = 'wss://prod-api.fomo.family/ws';
 const GRADUATED_TYPE = 'graduated_tokens';
 const TRENDING_TYPE = 'trending_tokens';
@@ -103,7 +106,8 @@ class FomoFeed {
   /** Arrival timestamps of data messages — feeds the "msg/s" readout in the status pill. */
   private readonly arrivals: number[] = [];
 
-  private readonly maps: Record<FomoFeedId, Map<string, FomoToken>> = { graduated: new Map(), trending: new Map() };
+  // 'pump' lives on the server feed (server-feed.ts), not on this direct FOMO socket.
+  private readonly maps: Record<FomoSocketFeedId, Map<string, FomoToken>> = { graduated: new Map(), trending: new Map() };
   private readonly listeners = new Set<Listener>();
 
   // ─── lifecycle ─────────────────────────────────────────────────────────────
@@ -147,7 +151,7 @@ class FomoFeed {
 
   // ─── reads ─────────────────────────────────────────────────────────────────
 
-  tokens(feed: FomoFeedId): FomoToken[] {
+  tokens(feed: FomoSocketFeedId): FomoToken[] {
     return [...this.maps[feed].values()];
   }
 
@@ -271,7 +275,7 @@ class FomoFeed {
     }
   }
 
-  private applyData(feed: FomoFeedId, p: Record<string, unknown>): void {
+  private applyData(feed: FomoSocketFeedId, p: Record<string, unknown>): void {
     const map = this.maps[feed];
     const ranked = feed === 'trending';
 
@@ -361,7 +365,7 @@ export const fomoFeed = {
   start: () => feed.start(),
   stop: () => feed.stop(),
   subscribe: (listener: Listener) => feed.subscribe(listener),
-  tokens: (id: FomoFeedId) => feed.tokens(id),
+  tokens: (id: FomoSocketFeedId) => feed.tokens(id),
   status: () => feed.status(),
   updatesPerSec: () => feed.updatesPerSec(),
   /** Drop the cached Privy token so the next challenge mints a fresh one. */

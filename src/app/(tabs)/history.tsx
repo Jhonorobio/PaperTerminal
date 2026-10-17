@@ -36,6 +36,7 @@ type HistoryMode = 'trades' | 'alerts' | 'track';
 const ALERT_LABELS: Record<string, string> = {
   fomo_graduated: 'FOMO Grad.',
   fomo_trending: 'FOMO Trend.',
+  pump_trending: 'Pump Trend.',
   photon_new: 'Photon New',
   photon_graduated: 'Photon Grad.',
   track_buy: 'Track COMPRAR',

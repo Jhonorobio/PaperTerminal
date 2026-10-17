@@ -14,6 +14,7 @@ import express from 'express';
 import routes from './routes.js';
 import { initWebSocket } from './ws.js';
 import { startFomoWatcher } from './fomo.js';
+import { startPumpTrending } from './pump-trending.js';
 import { startPhotonPoller } from './photon.js';
 import { startTrackPoller } from './track.js';
 
@@ -43,6 +44,7 @@ server.listen(PORT, () => {
     );
   }
   startFomoWatcher();
+  startPumpTrending();
   startPhotonPoller();
   startTrackPoller();
 });

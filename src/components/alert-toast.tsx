@@ -21,6 +21,7 @@ import { useApp } from '@/state/app';
 const LABELS: Record<string, string> = {
   fomo_graduated: 'FOMO Graduados',
   fomo_trending: 'FOMO Trending',
+  pump_trending: 'Pump Trending',
   photon_new: 'Photon New',
   photon_graduated: 'Photon Graduated',
   track_buy: 'Track COMPRAR',

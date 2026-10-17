@@ -1,6 +1,8 @@
 // FOMO (fomo.family) discovery feed — graduated + trending Solana tokens, live from the FOMO
-// WebSocket. Two tabs over one connection, filters for age / market cap / KOLs / limit, and a
-// tap that hands the token to the Trade screen. The feed client lives in `@/lib/market/fomo`.
+// WebSocket, plus Pump Trend.: pump.fun's own hot board (top 5 Solana), polled by the server
+// every 60 s on its own topic. Filters for age / market cap / KOLs / limit on the FOMO tabs
+// (the Pump board is a fixed top 5, no filters), and a tap that hands the token to the Trade
+// screen. The feed client lives in `@/lib/market/server-feed`.
 
 import { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -103,7 +105,9 @@ export default function FomoScreen() {
   const [feed, setFeed] = useState<FomoFeedId>('graduated');
   // Each tab keeps its own filters, persisted in settings so they survive app restarts.
   const rawByFeed = useMemo(() => settings.fomoFilters ?? { graduated: {}, trending: {} }, [settings.fomoFilters]);
-  const raw = rawByFeed[feed];
+  // Wrapped in useMemo: `?? {}` would otherwise be a fresh object every render and
+  // bust the filters memo below.
+  const raw = useMemo(() => rawByFeed[feed] ?? {}, [rawByFeed, feed]);
   const [open, setOpen] = useState(false);
   // The server feed is a singleton outside React; this counter re-renders on its pushes.
   const [tick, setTick] = useState(0);
@@ -163,7 +167,8 @@ export default function FomoScreen() {
 
   // Recomputed every render ON PURPOSE — no useMemo (React Compiler drops [tick] from memo
   // deps and the list froze until remount, the same bug Photon had). ~40 tokens.
-  const tokens = selectFomoTokens(feed, serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo'), filters, nowSec);
+  // Pump Trend. shows the board itself: the server's current top 5, no local filtering.
+  const tokens = feed === 'pump' ? serverFeed.pumpTokens() : selectFomoTokens(feed, serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo'), filters, nowSec);
 
   // Trending tokens carry no createdAt from FOMO — resolve their age (and the KOL count that comes
   // free in the same Pulse response) for the visible candidates. Graduated tokens already carry
@@ -171,7 +176,8 @@ export default function FomoScreen() {
   useEffect(() => {
     const needsKol = filters.kolMin != null || filters.kolMax != null;
     const needsAge = filters.ageMinMin != null || filters.ageMaxMin != null;
-    if (feed !== 'trending' && !needsKol && !needsAge) return;
+    // Pump Trend. tokens already carry createdAt/kolCount from the board — no Pulse round-trip.
+    if (feed === 'pump' || (feed !== 'trending' && !needsKol && !needsAge)) return;
     let live = true;
     const wide = selectFomoTokens(feed, serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo'), { ...filters, kolMin: undefined, kolMax: undefined }, nowSec).slice(0, 100);
     void pulseEnrich(wide, { kol: needsKol, age: true }).then((changed) => {
@@ -199,13 +205,15 @@ export default function FomoScreen() {
     [flash],
   );
 
-  const liveCount = serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo').length;
+  const liveCount = feed === 'pump' ? serverFeed.pumpTokens().length : serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo').length;
   // Freshness: FOMO pushes are change-driven, so "datos hace Ns" climbs whenever the server's
   // upstream connection goes quiet — a green dot alone can't tell a live feed from a dead one.
   // 30s before red: quiet minutes happen; a dead feed looks exactly like a quiet one until then.
-  const feedAt = serverFeed.fomoReceivedAt();
+  // Pump Trend.'s cadence IS the 60 s poll, so it gets a full cycle + margin before going red.
+  const feedAt = feed === 'pump' ? serverFeed.pumpReceivedAt() : serverFeed.fomoReceivedAt();
   const feedAgeSec = feedAt ? Math.max(0, nowSec - Math.floor(feedAt / 1000)) : null;
-  const feedStale = feedAgeSec != null && feedAgeSec > 30;
+  const staleAfter = feed === 'pump' ? 90 : 30;
+  const feedStale = feedAgeSec != null && feedAgeSec > staleAfter;
   const dotColor = status.lastError || feedStale ? Palette.red : status.connected && feedAgeSec != null ? Palette.green : Palette.textTertiary;
   const statusText = !status.connected
     ? status.everConnected
@@ -246,18 +254,25 @@ export default function FomoScreen() {
       <View style={styles.tabsRow}>
         <SegTabs
           value={feed}
-          onChange={setFeed}
+          onChange={(next) => {
+            // Pump Trend. has no filters — don't carry the open filter card over.
+            setOpen(false);
+            setFeed(next);
+          }}
           options={[
             { value: 'graduated' as FomoFeedId, label: `Graduados${serverFeed.tokens('fomo').length ? ` · ${serverFeed.tokens('fomo').length}` : ''}` },
             { value: 'trending' as FomoFeedId, label: `Trending${serverFeed.tokens('fomo_trending').length ? ` · ${serverFeed.tokens('fomo_trending').length}` : ''}` },
+            { value: 'pump' as FomoFeedId, label: `Pump Trend.${serverFeed.pumpTokens().length ? ` · ${serverFeed.pumpTokens().length}` : ''}` },
           ]}
         />
-        <Btn
-          label={activeCount ? `Filtros · ${activeCount}` : 'Filtros'}
-          variant="sm"
-          icon={activeCount ? 'check' : 'search'}
-          onPress={() => setOpen((v) => !v)}
-        />
+        {feed !== 'pump' ? (
+          <Btn
+            label={activeCount ? `Filtros · ${activeCount}` : 'Filtros'}
+            variant="sm"
+            icon={activeCount ? 'check' : 'search'}
+            onPress={() => setOpen((v) => !v)}
+          />
+        ) : null}
       </View>
 
       {open ? (
@@ -300,7 +315,14 @@ export default function FomoScreen() {
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           status.connected ? (
-            <Empty title="Cargando el feed…" body="La lista completa llega al suscribirse; después se actualiza en vivo." />
+            <Empty
+              title={feed === 'pump' ? 'Pump Trending vacío…' : 'Cargando el feed…'}
+              body={
+                feed === 'pump'
+                  ? 'El servidor publica el top 5 de Solana cada 60 s; la lista llega apenas te suscribís.'
+                  : 'La lista completa llega al suscribirse; después se actualiza en vivo.'
+              }
+            />
           ) : (
             <Empty
               title={status.everConnected ? 'Reconectando…' : 'Sin servidor'}

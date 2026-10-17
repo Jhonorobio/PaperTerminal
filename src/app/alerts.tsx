@@ -24,6 +24,7 @@ import { useApp } from '@/state/app';
 const CATEGORY_LABELS: Record<AlertCategory, string> = {
   fomo_graduated: 'FOMO Grad.',
   fomo_trending: 'FOMO Trend.',
+  pump_trending: 'Pump Trend.',
   photon_new: 'Photon New',
   photon_graduated: 'Photon Grad.',
   track_buy: 'Track COMPRAR',
@@ -32,14 +33,15 @@ const CATEGORY_LABELS: Record<AlertCategory, string> = {
 };
 
 /**
- * Defaults per category. ATENCIÓN M1 nace ON: se pidió con push y sin pasos
- * extra — la migración del effect de carga la sincroniza al server la primera
- * vez que se abre esta pantalla (si no, el switch diría ON pero el server no
- * la emitiría).
+ * Defaults per category. ATENCIÓN M1 and Pump Trend. nacen ON: se pidieron con
+ * push y sin pasos extra — la migración del effect de carga la sincroniza al
+ * server la primera vez que se abre esta pantalla (si no, el switch diría ON
+ * pero el server no la emitiría).
  */
 const DEFAULT_CATEGORIES: Record<AlertCategory, boolean> = {
   fomo_graduated: false,
   fomo_trending: false,
+  pump_trending: true,
   photon_new: false,
   photon_graduated: false,
   track_buy: false,

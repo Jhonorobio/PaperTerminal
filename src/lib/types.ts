@@ -262,7 +262,7 @@ export interface PhotonSnapshot {
 
 // ---------- FOMO feed (fomo.family) ----------
 
-export type FomoFeedId = 'graduated' | 'trending';
+export type FomoFeedId = 'graduated' | 'trending' | 'pump';
 
 /** One token in a FOMO feed, normalized from the WSS payload. */
 export interface FomoToken {

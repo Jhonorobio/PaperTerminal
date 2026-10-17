@@ -3,6 +3,7 @@
  *
  * One WebSocket to the feed server (settings.serverBase, http→ws). Topics:
  *   fomo | fomo_trending   → { event: 'fomo_updated',        data: { tokens, savedAt, snapshot } }
+ *   pump_trending         → { event: 'pump_trending_updated', data: { tokens, savedAt, snapshot } }
  *   memescope             → { event: 'memescope_updated',    data: { columns: { col1, col3 }, … } }
  *   alerts:{deviceId}     → { event: 'alert',                data: <history entry> }
  *
@@ -18,6 +19,8 @@ import type { FomoToken, PhotonSnapshot } from '../types';
 export const TOPICS = {
   graduated: 'fomo',
   trending: 'fomo_trending',
+  /** Pump Trend. board (pump.fun's hot list, top 5 Solana) — polled by the server every 60 s. */
+  pump: 'pump_trending',
   memescope: 'memescope',
   alerts: 'alerts',
   /** Token tracker state (History → Track) — subscribed only while that tab is open. */
@@ -65,6 +68,10 @@ class ServerFeed {
   private memescopeAt = 0;
   /** Local clock of the last FOMO push (either feed). */
   private fomoAt = 0;
+  /** Pump Trend. board — the server's current top 5 (full-list snapshot each poll). */
+  private pumpList: FomoToken[] = [];
+  /** Local clock of the last pump_trending frame. */
+  private pumpAt = 0;
   private readonly listeners = new Set<Listener>();
   private readonly alertListeners = new Set<AlertListener>();
   /** Optional topics the app asked for (track, …) — subscribed on open + reconnect. */
@@ -140,6 +147,7 @@ class ServerFeed {
       this.send({ action: 'subscribe', topic: TOPICS.graduated });
       this.send({ action: 'subscribe', topic: TOPICS.trending });
       this.send({ action: 'subscribe', topic: TOPICS.memescope });
+      this.send({ action: 'subscribe', topic: TOPICS.pump });
       this.send({ action: 'subscribe', topic: `${TOPICS.alerts}:${deviceId}` });
       // Optional topics (track, …) must survive reconnects too.
       for (const topic of this.stickyTopics) this.send({ action: 'subscribe', topic });
@@ -215,6 +223,10 @@ class ServerFeed {
         for (const token of data.tokens) map.set(token.address, token);
       }
       this.fomoAt = Date.now();
+    } else if (topic === TOPICS.pump) {
+      // Snapshot list (no map): the server sends the whole board every poll.
+      if (Array.isArray(data.tokens)) this.pumpList = data.tokens;
+      this.pumpAt = Date.now();
     } else if (topic === TOPICS.memescope) {
       this.memescope = data as unknown as PhotonSnapshot;
       this.memescopeAt = Date.now();
@@ -236,6 +248,16 @@ class ServerFeed {
 
   tokens(topic: 'fomo' | 'fomo_trending'): FomoToken[] {
     return [...(topic === 'fomo_trending' ? this.fomoMaps.fomo_trending : this.fomoMaps.fomo).values()];
+  }
+
+  /** Pump Trend. board: the server's current top 5 Solana tokens. */
+  pumpTokens(): FomoToken[] {
+    return this.pumpList;
+  }
+
+  /** Local clock of the last pump_trending frame. */
+  pumpReceivedAt(): number {
+    return this.pumpAt;
   }
 
   memescopeSnapshot(): PhotonSnapshot | null {
