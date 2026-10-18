@@ -8,7 +8,7 @@
  *   2. El TRACK: la lista del tracker en vivo (topic `track`) y el detalle minuto a
  *      minuto de un token (HTTP).
  *
- * Los tableros de FOMO, Photon y Pump Trend. NO están acá a propósito: los filtros de
+ * Los tableros de FOMO y Photon NO están acá a propósito: los filtros de
  * esos feeds viven en el teléfono (se aplican localmente por dispositivo), así que un
  * espejo en el navegador mostraría otra cosa. Sus alertas, en cambio, sí están: llegan
  * del server y se configuran en Ajustes como cualquier otra.
@@ -703,7 +703,7 @@ function renderConfig() {
       el('p', {
         class: 'note',
         text:
-          'Mismos umbrales que la app y por dispositivo (el server guarda los de este navegador aparte). Las 5 reglas del Track se ' +
+          'Mismos umbrales que la app y por dispositivo (el server guarda los de este navegador aparte). Las 3 reglas del Track se ' +
           'evalúan en el snapshot de ENTRADA del token, una vez por token.',
       }),
       el('div', { class: 'chips' }, [
@@ -720,7 +720,7 @@ function renderConfig() {
         class: 'note',
         text:
           'Este panel hace dos cosas: las alertas de este dispositivo (con sus categorías y sus umbrales) y el tracker. No hay ' +
-          'cuenta ni cartera acá — el trading sigue en la app, y los tableros de FOMO/Photon/Pump tampoco están: sus filtros se ' +
+          'cuenta ni cartera acá — el trading sigue en la app, y los tableros de FOMO/Photon tampoco están: sus filtros se ' +
           'aplican en el teléfono, así que un espejo mostraría otra cosa. Las alertas se avisan con una notificación de Chrome; ' +
           'hacer click abre este panel en el token (o GMGN si Chrome no lo permite).',
       }),

@@ -25,8 +25,8 @@ export interface Settings {
   slippageSellPct: number;
   /** Fixed network fee per trade, in USD (priority + tip + base). */
   networkFeeUsd: number;
-  /** FOMO feed filters per tab (raw text-field values), so they survive app restarts. The Pump Trend. tab has no filters (fixed top 5). */
-  fomoFilters?: { graduated: Record<string, string>; trending: Record<string, string>; pump?: Record<string, string> };
+  /** FOMO feed filters (raw text-field values), so they survive app restarts. */
+  fomoFilters?: { trending: Record<string, string> };
   /** Photon filters per column — persisted in settings, so they survive app restarts. */
   photonFilters?: {
     col1: Partial<Record<keyof PhotonFilters, PhotonRange>>;
@@ -60,7 +60,7 @@ export const DEFAULTS: Settings = {
   slippageBuyPct: PAPER_CONFIG.slippageBuyPct,
   slippageSellPct: PAPER_CONFIG.slippageSellPct,
   networkFeeUsd: PAPER_CONFIG.networkFeeUsd,
-  fomoFilters: { graduated: {}, trending: {} },
+  fomoFilters: { trending: {} },
   photonFilters: { col1: {}, col3: {} },
   feedProxyUrl: '',
   feedProxyOn: false,

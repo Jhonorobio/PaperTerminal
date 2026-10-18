@@ -35,15 +35,10 @@ type HistoryMode = 'trades' | 'alerts' | 'track';
 
 /** Server alert categories → labels, same taxonomy as the floating panel. */
 const ALERT_LABELS: Record<string, string> = {
-  fomo_graduated: 'FOMO Grad.',
   fomo_trending: 'FOMO Trend.',
-  pump_trending: 'Pump Trend.',
-  photon_new: 'Photon New',
   photon_graduated: 'Photon Grad.',
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
-  track_chat: 'Track CHAT',
-  track_tesis: 'Track TESIS',
   track_top: 'Track TOP·D',
   track_cal100_pos: 'Track CAL100+',
 };

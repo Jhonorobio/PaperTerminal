@@ -20,7 +20,7 @@ export interface FeedProxyStatus {
 
 export interface ServerStatus {
   ok: boolean;
-  fomo: { live: boolean; graduated: number; trending: number; proxy: FeedProxyStatus } | null;
+  fomo: { live: boolean; trending: number; proxy: FeedProxyStatus } | null;
   photon: { errorCount: number; proxy?: FeedProxyStatus } | null;
 }
 
@@ -49,7 +49,7 @@ async function call<T>(base: string, path: string, init?: RequestInit): Promise<
 /** Health + feed status in one shot. Throws with a readable message on failure. */
 export async function fetchServerStatus(base: string): Promise<ServerStatus> {
   const data = await call<{
-    fomo?: { live: boolean; graduated?: { count: number }; trending?: { count: number }; proxy?: FeedProxyStatus };
+    fomo?: { live: boolean; trending?: { count: number }; proxy?: FeedProxyStatus };
     photon?: { errorCount?: number; proxy?: FeedProxyStatus };
   }>(base, '/api/status');
   return {
@@ -57,7 +57,6 @@ export async function fetchServerStatus(base: string): Promise<ServerStatus> {
     fomo: data.fomo
       ? {
           live: Boolean(data.fomo.live),
-          graduated: data.fomo.graduated?.count ?? 0,
           trending: data.fomo.trending?.count ?? 0,
           proxy: data.fomo.proxy ?? { url: '', enabled: false, transport: 'direct' },
         }
@@ -165,13 +164,13 @@ export async function setPhotonServerFilters(base: string, filters: PhotonServer
 // ── FOMO: the screen's filters travel to the server ──────────────────────────
 
 /**
- * Sends both FOMO tabs' filters to the server, which uses them for the feed read
+ * Sends the FOMO screen's filters to the server, which uses them for the feed read
  * AND for the alert gate — notifications fire on exactly what the screen shows.
  * Values are the normalized ones the local filter already uses (market cap in
  * dollars: "150" → 150000). Pushed on every change and once per app start, so a
  * restarted server gets them back without anyone touching Settings.
  */
-export async function setFomoServerFilters(base: string, filters: { graduated: FomoFilters; trending: FomoFilters }): Promise<void> {
+export async function setFomoServerFilters(base: string, filters: { trending: FomoFilters }): Promise<void> {
   await call(base, '/api/fomo/filters', {
     method: 'PUT',
     body: JSON.stringify(filters),

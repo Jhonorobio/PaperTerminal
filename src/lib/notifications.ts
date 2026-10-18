@@ -3,13 +3,13 @@
  * per-category toggles in sync.
  *
  * Categories (the server's alert taxonomy):
- *   fomo_graduated · fomo_trending · pump_trending · photon_new · photon_graduated
- *   track_cal_chat · track_chat_tesis · track_chat · track_tesis · track_top
+ *   fomo_trending · photon_graduated
+ *   track_cal_chat · track_chat_tesis · track_top
  *   track_cal100_pos
  *
- * The five track_* entry alerts fire at the token's ENTRY snapshot (see TRACK_RULES
- * in server/src/notify.js) and the chat/tesis/top thresholds are per device
- * (AlertParams, edited on the Notifications screen).
+ * The three track_* entry alerts fire at the token's ENTRY snapshot (see
+ * TRACK_RULES in server/src/notify.js) and the chat/tesis/top thresholds are per
+ * device (AlertParams, edited on the Notifications screen).
  *
  * track_cal100_pos is the exception: it is NOT evaluated at a snapshot — it fires
  * when the CAL100 sweep resolves a wallet's portfolio PnL and finds it green in
@@ -54,15 +54,10 @@ async function notifications() {
  */
 
 export const ALERT_CATEGORIES = [
-  'fomo_graduated',
   'fomo_trending',
-  'pump_trending',
-  'photon_new',
   'photon_graduated',
   'track_cal_chat',
   'track_chat_tesis',
-  'track_chat',
-  'track_tesis',
   'track_top',
   'track_cal100_pos',
 ] as const;

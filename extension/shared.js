@@ -13,80 +13,57 @@
 /** Server del que cuelga todo (el mismo de la app; en Ajustes se puede cambiar). */
 export const DEFAULT_SERVER = 'https://paperterminal-production.up.railway.app';
 
-/** Taxonomía del server — mismas 11 categorías que la pantalla Notificaciones de la app. */
+/** Taxonomía del server — mismas 6 categorías que la pantalla Notificaciones de la app. */
 export const ALERT_CATEGORIES = [
-  'fomo_graduated',
   'fomo_trending',
-  'pump_trending',
-  'photon_new',
   'photon_graduated',
   'track_cal_chat',
   'track_chat_tesis',
-  'track_chat',
-  'track_tesis',
   'track_top',
   'track_cal100_pos',
 ];
 
 /**
- * Las del Track (server-side). Las 5 primeras se evalúan en el snapshot de ENTRADA
+ * Las del Track (server-side). Las 3 primeras se evalúan en el snapshot de ENTRADA
  * del token; `track_cal100_pos` no: avisa cuando el barrido CAL100 le resuelve el
  * PnL a una entrada y la deja en verde (por eso no lleva umbral).
  */
 export const TRACK_CATEGORIES = [
   'track_cal_chat',
   'track_chat_tesis',
-  'track_chat',
-  'track_tesis',
   'track_top',
   'track_cal100_pos',
 ];
 
 export const CATEGORY_LABELS = {
-  fomo_graduated: 'FOMO Graduados',
   fomo_trending: 'FOMO Trending',
-  pump_trending: 'Pump Trending',
-  photon_new: 'Photon New',
   photon_graduated: 'Photon Graduated',
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
-  track_chat: 'Track CHAT',
-  track_tesis: 'Track TESIS',
   track_top: 'Track TOP·D',
   track_cal100_pos: 'Track CAL100+',
 };
 
 /** La regla detrás de cada categoría — va como primera línea del cuerpo del aviso. */
 export const CATEGORY_HINTS = {
-  fomo_graduated: 'Graduado en FOMO',
   fomo_trending: 'Trending en FOMO',
-  pump_trending: 'Top 5 del board de pump.fun',
-  photon_new: 'Nuevo en Photon',
   photon_graduated: 'Graduado en Photon',
   track_cal_chat: 'Entrada: CAL [$100-500) + chat',
   track_chat_tesis: 'Entrada: chat + tesis',
-  track_chat: 'Entrada: chat',
-  track_tesis: 'Entrada: tesis',
   track_top: 'Entrada: TOP·D',
   track_cal100_pos: 'Entrada: wallet CAL100 en verde',
 };
 
 /**
- * Defaults del dispositivo. Espejo de la app: Pump Trend. y CAL100+ nacen ON (la
- * primera es la de menor ruido; la segunda la pidió el usuario tal cual, sin piso:
- * ~28 avisos/hora de track); las 5 del Track nacen OFF porque son opt-in con
- * umbral propio.
+ * Defaults del dispositivo. Espejo de la app: sólo CAL100+ nace ON (la pidió el
+ * usuario tal cual, sin piso: ~28 avisos/hora de track); las 3 del Track nacen OFF
+ * porque son opt-in con umbral propio.
  */
 export const DEFAULT_CATEGORIES = {
-  fomo_graduated: false,
   fomo_trending: false,
-  pump_trending: true,
-  photon_new: false,
   photon_graduated: false,
   track_cal_chat: false,
   track_chat_tesis: false,
-  track_chat: false,
-  track_tesis: false,
   track_top: false,
   track_cal100_pos: true,
 };
@@ -108,10 +85,9 @@ export function sanitizeAlertParams(raw) {
 }
 
 /**
- * Topics del server que el panel usa. El server sirve cinco más (`fomo`,
- * `fomo_trending`, `pump_trending`, `memescope`, `track:health`) pero el panel no se
- * suscribe a los tableros de feeds: esos se filtran en el teléfono. Sus ALERTAS sí
- * llegan (van por `alerts:{deviceId}`, que arma el worker, no por acá).
+ * Topics del server que el panel usa. El server sirve uno más (`fomo_trending`) que
+ * el panel no pide: ese tablero se filtra en el teléfono. Sus ALERTAS sí llegan
+ * (van por `alerts:{deviceId}`, que arma el worker, no por acá).
  */
 export const TOPICS = {
   track: 'track',

@@ -8,8 +8,7 @@
  *             { event: 'connected' } | { event: 'pong' }
  *
  * Topics:
- *   fomo              — graduated tokens (snapshot + updates)
- *   fomo_trending     — trending tokens
+ *   fomo_trending     — trending tokens (the only FOMO feed)
  *   memescope         — Photon columns { col1, col3 }
  *   track             — token tracker state (History → Track)
  *   track:health      — health chips of the tracked tokens (Trade/FOMO/Photon)

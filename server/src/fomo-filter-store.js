@@ -33,16 +33,13 @@ export function sanitizeFeedFilters(raw) {
 export function getFomoFilters() {
   const entry = fomoFilters.get('global');
   const root = entry?.filters ?? entry ?? {};
-  // Sanitize per feed: the stored shape is { graduated: {...}, trending: {...} },
-  // so the field bounds only exist one level deeper than the store entry itself.
-  return { graduated: sanitizeFeedFilters(root.graduated), trending: sanitizeFeedFilters(root.trending) };
+  // Sanitize one level deeper than the store entry (the stored shape is { trending: {...} }).
+  return { trending: sanitizeFeedFilters(root.trending) };
 }
 
 export function setFomoFilters(raw) {
   const clean = {};
-  for (const feed of ['graduated', 'trending']) {
-    if (raw?.[feed]) clean[feed] = sanitizeFeedFilters(raw[feed]);
-  }
+  if (raw?.trending) clean.trending = sanitizeFeedFilters(raw.trending);
   fomoFilters.set('global', { filters: clean, updated_at: new Date().toISOString() });
   return getFomoFilters();
 }

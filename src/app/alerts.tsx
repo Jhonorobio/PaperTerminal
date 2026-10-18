@@ -26,37 +26,26 @@ import {
 import { useApp } from '@/state/app';
 
 const CATEGORY_LABELS: Record<AlertCategory, string> = {
-  fomo_graduated: 'FOMO Grad.',
   fomo_trending: 'FOMO Trend.',
-  pump_trending: 'Pump Trend.',
-  photon_new: 'Photon New',
   photon_graduated: 'Photon Grad.',
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
-  track_chat: 'Track CHAT',
-  track_tesis: 'Track TESIS',
   track_top: 'Track TOP·D',
   track_cal100_pos: 'Track CAL100+',
 };
 
 /**
- * Defaults per category. Pump Trend. y CAL100+ nacen ON (la primera se pidió con
- * push y sin pasos extra; la segunda también — la migración del effect de carga
- * las sincroniza al server la primera vez que se abre esta pantalla, si no el
- * switch diría ON pero el server no la emitiría). Las cinco de entrada del Track
- * nacen OFF: son opt-in con umbral propio y cada una dispara sobre una porción
- * grande del universo trackeado.
+ * Defaults per category. CAL100+ nace ON (la migración del effect de carga la
+ * sincroniza al server la primera vez que se abre esta pantalla, si no el switch
+ * diría ON pero el server no la emitiría). Las tres de entrada del Track nacen
+ * OFF: son opt-in con umbral propio y cada una dispara sobre una porción grande
+ * del universo trackeado.
  */
 const DEFAULT_CATEGORIES: Record<AlertCategory, boolean> = {
-  fomo_graduated: false,
   fomo_trending: false,
-  pump_trending: true,
-  photon_new: false,
   photon_graduated: false,
   track_cal_chat: false,
   track_chat_tesis: false,
-  track_chat: false,
-  track_tesis: false,
   track_top: false,
   track_cal100_pos: true,
 };
@@ -72,9 +61,6 @@ const TRACK_SUBS: Partial<Record<AlertCategory, string>> = {
   track_cal_chat:
     'Entrada con CAL [$100-500) y chat ≥N wallets: n=28 → 96% sube después, 18% x2, pico mediano +30% a 10min. Confirma el "sube", no el x2.',
   track_chat_tesis: 'Entrada con chat ≥N wallets Y ≥M tesis: n=22 → 95% sube, 27% x2, +65% pico a 10min.',
-  track_chat: 'Chat ≥N wallets en la entrada: n=75 (N=2) → 86% sube, 22% x2, +32% pico a 10min.',
-  track_tesis:
-    '≥M tesis en la entrada (default 1): n=59 → 81% sube pero solo 12% x2. Avisa que hay interés, no que haya recorrido.',
   track_top:
     'TOP·D ≥N en la entrada: n=69 → 80% sube, 23% x2, +36% pico a 10min (y 32% x2 / +55% a 30min).',
   track_cal100_pos:
@@ -255,8 +241,8 @@ export default function AlertsScreen() {
             </View>
           ))}
           <Text style={styles.fine}>
-            Se aplican a las 5 alertas de entrada del Track (CAL+CHAT, CHAT+TESIS, CHAT, TESIS y TOP·D) y son por
-            dispositivo: el server guarda un valor para cada uno. Defaults = los medidos (chat 2, tesis 1, top 1). Esas 5 se
+            Se aplican a las 3 alertas de entrada del Track (CAL+CHAT, CHAT+TESIS y TOP·D) y son por
+            dispositivo: el server guarda un valor para cada uno. Defaults = los medidos (chat 2, tesis 1, top 1). Esas 3 se
             evalúan en el snapshot de entrada del token y disparan una vez por token. CAL100+ no lleva umbral: avisa por cada
             wallet que el barrido deja en verde.
           </Text>

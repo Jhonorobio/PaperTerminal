@@ -1,8 +1,7 @@
-// FOMO (fomo.family) discovery feed — graduated + trending Solana tokens, live from the FOMO
-// WebSocket, plus Pump Trend.: pump.fun's own hot board (top 5 Solana), polled by the server
-// every 15 s on its own topic. Filters for age / market cap / KOLs / limit on the FOMO tabs
-// (the Pump board is a fixed top 5, no filters), and a tap that hands the token to the Trade
-// screen. The feed client lives in `@/lib/market/server-feed`.
+// FOMO (fomo.family) discovery feed — trending Solana tokens, live from the FOMO
+// WebSocket. Filters for age / market cap / KOLs / limit on the list, and a tap
+// that hands the token to the Trade screen. The feed client lives in
+// `@/lib/market/server-feed`.
 
 import { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -12,7 +11,7 @@ import { Image as ExpoImage } from 'expo-image';
 
 import { Icon } from '@/components/icons';
 import { TrackBuyChip, TrackHealthChip } from '@/components/track-health-chip';
-import { Btn, Card, Empty, Field, Input, SegTabs } from '@/components/ui';
+import { Btn, Card, Empty, Field, Input } from '@/components/ui';
 import { Palette, Radius } from '@/constants/paper';
 import { formatCompactUsd, formatPct, pnlClass } from '@/lib/format';
 import { addRecentAsset } from '@/lib/storage';
@@ -21,7 +20,7 @@ import { pulseEnrich } from '@/lib/market/pulse';
 import { activeFilterCount, ageMinutes, normalizeFilters, selectFomoTokens, type RawFilters } from '@/lib/market/fomo-filters';
 import { useTrackHealth, type TrackChips } from '@/lib/market/track-health';
 import { setFomoServerFilters } from '@/lib/server-base';
-import type { FomoFeedId, FomoFilters, FomoToken } from '@/lib/types';
+import type { FomoFilters, FomoToken } from '@/lib/types';
 import { useApp } from '@/state/app';
 
 /** Age label shape: 17m, 3h, 2d. */
@@ -102,12 +101,9 @@ const FomoRow = memo(function FomoRow({ token, nowSec, chips, onPress }: { token
 
 export default function FomoScreen() {
   const { flash, settings, updateSettings } = useApp();
-  const [feed, setFeed] = useState<FomoFeedId>('graduated');
-  // Each tab keeps its own filters, persisted in settings so they survive app restarts.
-  const rawByFeed = useMemo(() => settings.fomoFilters ?? { graduated: {}, trending: {} }, [settings.fomoFilters]);
   // Wrapped in useMemo: `?? {}` would otherwise be a fresh object every render and
   // bust the filters memo below.
-  const raw = useMemo(() => rawByFeed[feed] ?? {}, [rawByFeed, feed]);
+  const raw = useMemo(() => settings.fomoFilters?.trending ?? {}, [settings.fomoFilters]);
   const [open, setOpen] = useState(false);
   // The server feed is a singleton outside React; this counter re-renders on its pushes.
   const [tick, setTick] = useState(0);
@@ -118,7 +114,7 @@ export default function FomoScreen() {
   // cheap; a token that isn't tracked simply has no chip (no series → no data).
   const trackHealth = useTrackHealth(settings.serverBase);
 
-  // One WS to the feed server carries both feeds (and alerts). The phone never
+  // One WS to the feed server carries the feed (and alerts). The phone never
   // talks to FOMO directly anymore.
   useEffect(() => {
     void ServerFeed.ensureConnected(settings.serverBase);
@@ -140,53 +136,47 @@ export default function FomoScreen() {
   );
 
   const patchFeed = useCallback(
-    (id: FomoFeedId, patch: Partial<RawFilters>) => {
-      const next = { ...rawByFeed, [id]: { ...rawByFeed[id], ...patch } };
-      void updateSettings({ fomoFilters: next });
+    (patch: Partial<RawFilters>) => {
+      void updateSettings({ fomoFilters: { trending: { ...raw, ...patch } } });
     },
-    [rawByFeed, updateSettings],
+    [raw, updateSettings],
   );
 
   // Market cap is typed in thousands ($K): "150" means $150,000.
   const filters = useMemo(() => buildFilters(raw), [raw]);
   const activeCount = activeFilterCount(filters);
 
-  // Both tabs' filters also travel to the server: FOMO's feed read and its alert gate
-  // live there, so notifications fire on exactly what this screen shows. Debounced like
-  // Photon's, and it runs once on mount — a restarted server gets them back on the next
-  // app open, without anyone touching Settings.
+  // The filters also travel to the server: FOMO's feed read and its alert gate
+  // live there, so notifications fire on exactly what this screen shows. Debounced
+  // like Photon's, and it runs once on mount — a restarted server gets them back
+  // on the next app open, without anyone touching Settings.
   useEffect(() => {
     const id = setTimeout(() => {
-      void setFomoServerFilters(settings.serverBase, {
-        graduated: buildFilters(rawByFeed.graduated ?? {}),
-        trending: buildFilters(rawByFeed.trending ?? {}),
-      }).catch(() => {});
+      void setFomoServerFilters(settings.serverBase, { trending: buildFilters(raw) }).catch(() => {});
     }, 400);
     return () => clearTimeout(id);
-  }, [rawByFeed, settings.serverBase]);
+  }, [raw, settings.serverBase]);
 
   // Recomputed every render ON PURPOSE — no useMemo (React Compiler drops [tick] from memo
   // deps and the list froze until remount, the same bug Photon had). ~40 tokens.
-  // Pump Trend. shows the board itself: the server's current top 5, no local filtering.
-  const tokens = feed === 'pump' ? serverFeed.pumpTokens() : selectFomoTokens(feed, serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo'), filters, nowSec);
+  const tokens = selectFomoTokens(serverFeed.tokens(), filters, nowSec);
 
   // Trending tokens carry no createdAt from FOMO — resolve their age (and the KOL count that comes
-  // free in the same Pulse response) for the visible candidates. Graduated tokens already carry
-  // it, so this only runs there. Filter bounds still force enrichment, same as before.
+  // free in the same Pulse response) for the visible candidates. Filter bounds still force
+  // enrichment, same as before.
   useEffect(() => {
     const needsKol = filters.kolMin != null || filters.kolMax != null;
     const needsAge = filters.ageMinMin != null || filters.ageMaxMin != null;
-    // Pump Trend. tokens already carry createdAt/kolCount from the board — no Pulse round-trip.
-    if (feed === 'pump' || (feed !== 'trending' && !needsKol && !needsAge)) return;
+    if (!needsKol && !needsAge) return;
     let live = true;
-    const wide = selectFomoTokens(feed, serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo'), { ...filters, kolMin: undefined, kolMax: undefined }, nowSec).slice(0, 100);
+    const wide = selectFomoTokens(serverFeed.tokens(), { ...filters, kolMin: undefined, kolMax: undefined }, nowSec).slice(0, 100);
     void pulseEnrich(wide, { kol: needsKol, age: true }).then((changed) => {
       if (live && changed > 0) setTick((t) => t + 1);
     });
     return () => {
       live = false;
     };
-  }, [feed, filters, nowSec, tick]);
+  }, [filters, nowSec, tick]);
 
   const openToken = useCallback(
     async (token: FomoToken) => {
@@ -205,15 +195,13 @@ export default function FomoScreen() {
     [flash],
   );
 
-  const liveCount = feed === 'pump' ? serverFeed.pumpTokens().length : serverFeed.tokens(feed === 'trending' ? 'fomo_trending' : 'fomo').length;
+  const liveCount = serverFeed.tokens().length;
   // Freshness: FOMO pushes are change-driven, so "datos hace Ns" climbs whenever the server's
   // upstream connection goes quiet — a green dot alone can't tell a live feed from a dead one.
   // 30s before red: quiet minutes happen; a dead feed looks exactly like a quiet one until then.
-  // Pump Trend.'s cadence IS the 15 s poll — red after three missed cycles (45s).
-  const feedAt = feed === 'pump' ? serverFeed.pumpReceivedAt() : serverFeed.fomoReceivedAt();
+  const feedAt = serverFeed.trendingReceivedAt();
   const feedAgeSec = feedAt ? Math.max(0, nowSec - Math.floor(feedAt / 1000)) : null;
-  const staleAfter = feed === 'pump' ? 45 : 30;
-  const feedStale = feedAgeSec != null && feedAgeSec > staleAfter;
+  const feedStale = feedAgeSec != null && feedAgeSec > 30;
   const dotColor = status.lastError || feedStale ? Palette.red : status.connected && feedAgeSec != null ? Palette.green : Palette.textTertiary;
   const statusText = !status.connected
     ? status.everConnected
@@ -252,56 +240,41 @@ export default function FomoScreen() {
       </View>
 
       <View style={styles.tabsRow}>
-        <SegTabs
-          value={feed}
-          onChange={(next) => {
-            // Pump Trend. has no filters — don't carry the open filter card over.
-            setOpen(false);
-            setFeed(next);
-          }}
-          options={[
-            { value: 'graduated' as FomoFeedId, label: `Graduados${serverFeed.tokens('fomo').length ? ` · ${serverFeed.tokens('fomo').length}` : ''}` },
-            { value: 'trending' as FomoFeedId, label: `Trending${serverFeed.tokens('fomo_trending').length ? ` · ${serverFeed.tokens('fomo_trending').length}` : ''}` },
-            { value: 'pump' as FomoFeedId, label: `Pump Trend.${serverFeed.pumpTokens().length ? ` · ${serverFeed.pumpTokens().length}` : ''}` },
-          ]}
+        <Btn
+          label={activeCount ? `Filtros · ${activeCount}` : 'Filtros'}
+          variant="sm"
+          icon={activeCount ? 'check' : 'search'}
+          onPress={() => setOpen((v) => !v)}
         />
-        {feed !== 'pump' ? (
-          <Btn
-            label={activeCount ? `Filtros · ${activeCount}` : 'Filtros'}
-            variant="sm"
-            icon={activeCount ? 'check' : 'search'}
-            onPress={() => setOpen((v) => !v)}
-          />
-        ) : null}
       </View>
 
       {open ? (
         <Card style={styles.filters}>
           <View style={styles.filterGrid}>
             <Field label="Edad mín (min)">
-              <Input value={raw.ageMinMin ?? ''} onChangeText={(v) => patchFeed(feed, { ageMinMin: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="0" />
+              <Input value={raw.ageMinMin ?? ''} onChangeText={(v) => patchFeed({ ageMinMin: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="0" />
             </Field>
             <Field label="Edad máx (min)">
-              <Input value={raw.ageMaxMin ?? ''} onChangeText={(v) => patchFeed(feed, { ageMaxMin: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="∞" />
+              <Input value={raw.ageMaxMin ?? ''} onChangeText={(v) => patchFeed({ ageMaxMin: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="∞" />
             </Field>
             <Field label="MC mín ($K)">
-              <Input value={raw.mcapMin ?? ''} onChangeText={(v) => patchFeed(feed, { mcapMin: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="0" />
+              <Input value={raw.mcapMin ?? ''} onChangeText={(v) => patchFeed({ mcapMin: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="0" />
             </Field>
             <Field label="MC máx ($K)">
-              <Input value={raw.mcapMax ?? ''} onChangeText={(v) => patchFeed(feed, { mcapMax: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="∞" />
+              <Input value={raw.mcapMax ?? ''} onChangeText={(v) => patchFeed({ mcapMax: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="∞" />
             </Field>
             <Field label="KOL mín">
-              <Input value={raw.kolMin ?? ''} onChangeText={(v) => patchFeed(feed, { kolMin: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="0" />
+              <Input value={raw.kolMin ?? ''} onChangeText={(v) => patchFeed({ kolMin: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="0" />
             </Field>
             <Field label="KOL máx">
-              <Input value={raw.kolMax ?? ''} onChangeText={(v) => patchFeed(feed, { kolMax: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="∞" />
+              <Input value={raw.kolMax ?? ''} onChangeText={(v) => patchFeed({ kolMax: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="∞" />
             </Field>
           </View>
           <Field label="Límite de resultados">
-            <Input value={raw.limit ?? ''} onChangeText={(v) => patchFeed(feed, { limit: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="200" />
+            <Input value={raw.limit ?? ''} onChangeText={(v) => patchFeed({ limit: v.replace(/[^0-9]/g, '') })} keyboardType="number-pad" placeholder="200" />
           </Field>
           <View style={styles.filterActions}>
-            <Btn label="Limpiar" variant="sm" onPress={() => patchFeed(feed, {})} />
+            <Btn label="Limpiar" variant="sm" onPress={() => patchFeed({})} />
             <Text style={styles.filterHint}>Market cap en miles: 150 = $150.000. El KOL y la edad se resuelven por token solo cuando filtrás por ellos.</Text>
           </View>
         </Card>
@@ -315,14 +288,7 @@ export default function FomoScreen() {
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           status.connected ? (
-            <Empty
-              title={feed === 'pump' ? 'Pump Trending vacío…' : 'Cargando el feed…'}
-              body={
-                feed === 'pump'
-                  ? 'El servidor publica el top 5 de Solana cada 15 s; la lista llega apenas te suscribís.'
-                  : 'La lista completa llega al suscribirse; después se actualiza en vivo.'
-              }
-            />
+            <Empty title="Cargando el feed…" body="La lista completa llega al suscribirse; después se actualiza en vivo." />
           ) : (
             <Empty
               title={status.everConnected ? 'Reconectando…' : 'Sin servidor'}
@@ -356,7 +322,7 @@ const styles = StyleSheet.create({
   dot: { width: 7, height: 7, borderRadius: 4 },
   statusText: { flex: 1, fontSize: 11, color: Palette.textSecondary },
 
-  tabsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingBottom: 10 },
+  tabsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, paddingHorizontal: 14, paddingBottom: 10 },
 
   filters: { marginHorizontal: 14, marginBottom: 10, padding: 12, gap: 10 },
   filterGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

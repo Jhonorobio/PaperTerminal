@@ -6,7 +6,7 @@
  * the server does.
  */
 
-import type { FomoFeedId, FomoFilters, FomoToken } from '../types';
+import type { FomoFilters, FomoToken } from '../types';
 
 export const EMPTY_FILTERS: FomoFilters = {};
 
@@ -43,9 +43,9 @@ export function activeFilterCount(filters: FomoFilters): number {
   return Object.values(filters).filter((v) => v != null).length;
 }
 
-/** The feed's natural order: trending by rank, graduated by newest creation. */
-export function feedOrder(feed: FomoFeedId) {
-  return feed === 'trending' ? (a: FomoToken, b: FomoToken) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER) : (a: FomoToken, b: FomoToken) => (b.createdAt ?? 0) - (a.createdAt ?? 0);
+/** The feed's order: trending by rank (unknown rank last). */
+export function feedOrder() {
+  return (a: FomoToken, b: FomoToken) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER);
 }
 
 /**
@@ -70,7 +70,7 @@ export function applyFomoFilters(tokens: FomoToken[], filters: FomoFilters, nowS
     );
   }
 
-  list.sort(feedOrder('trending')); // placeholder replaced by caller-provided order
+  list.sort(feedOrder()); // trending: rank asc, unknown last
 
   if (filters.kolMin != null || filters.kolMax != null) {
     list = list.filter(
@@ -81,9 +81,9 @@ export function applyFomoFilters(tokens: FomoToken[], filters: FomoFilters, nowS
   const cap = Math.min(Math.max(Math.floor(filters.limit ?? 200), 1), 1000);
   return list.slice(0, cap);
 }
-export function selectFomoTokens(feed: FomoFeedId, tokens: FomoToken[], filters: FomoFilters, nowSec: number): FomoToken[] {
+export function selectFomoTokens(tokens: FomoToken[], filters: FomoFilters, nowSec: number): FomoToken[] {
   const filtered = applyFomoFilters(tokens, filters, nowSec);
-  return filtered.sort(feedOrder(feed));
+  return filtered.sort(feedOrder());
 }
 
 /** Token age in minutes, or null when unknown. */

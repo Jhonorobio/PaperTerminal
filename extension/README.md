@@ -5,7 +5,7 @@ que llegan al teléfono, como notificación de Chrome.
 
 - **Sin cuenta**: no hay cartera, no hay posiciones, no hay órdenes. El trading sigue en la app.
 - **Sin backend nuevo**: lee el mismo server (Railway) que usa el móvil.
-- **Sin tableros de feeds**: FOMO, Photon y Pump Trend. **no** se pintan acá porque sus filtros
+- **Sin tableros de feeds**: FOMO y Photon **no** se pintan acá porque sus filtros
   se aplican localmente en el teléfono — un espejo en el navegador mostraría otros tokens.
   Lo que sí llega son sus **alertas**, configuradas por dispositivo.
 - **Sin build step**: JavaScript plano y módulos ES; se carga tal cual está la carpeta.
@@ -50,10 +50,10 @@ con `push_token: null` — una extensión no puede tener token de Expo): el serv
   gesto, cae a abrir GMGN en una pestaña.
 - Los **umbrales del Track** (chat ≥ wallets, tesis ≥, TOP·D ≥) son por dispositivo y viven en
   el server, igual que en la app: podés tener el teléfono y el navegador con reglas distintas.
-- Las categorías de feeds (FOMO, Photon, Pump Trend.) están en Ajustes y avisan igual, aunque
+- Las categorías de feeds (FOMO Trending y Photon Graduated) están en Ajustes y avisan igual, aunque
   el panel no tenga sus tableros.
 
-Las 5 categorías de entrada del Track se evalúan en el **snapshot de entrada** del token, una
+Las 3 categorías de entrada del Track se evalúan en el **snapshot de entrada** del token, una
 vez por token, en el server. O sea: la extensión no calcula nada — solo muestra y avisa.
 
 **`Track CAL100+` es la excepción en las dos cosas**: no se evalúa en el snapshot (el PnL de la

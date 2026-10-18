@@ -448,7 +448,7 @@ export default function SettingsScreen() {
             {serverInfo ? (
               <Text style={[styles.serverState, { color: serverInfo.fomo?.live ? Palette.green : Palette.warning }]}>
                 {serverInfo.fomo?.live
-                  ? `FOMO live Â· ${serverInfo.fomo.graduated} graduados Â· ${serverInfo.fomo.trending} trending`
+                  ? `FOMO live Â· ${serverInfo.fomo.trending} trending`
                   : 'Conectado, feed FOMO arrancandoâ€¦'}
                 {serverInfo.photon && serverInfo.photon.errorCount > 0 ? ' Â· Photon con errores' : ''}
               </Text>

@@ -19,15 +19,10 @@ import { serverFeed, ServerFeed } from '@/lib/market/server-feed';
 import { useApp } from '@/state/app';
 
 const LABELS: Record<string, string> = {
-  fomo_graduated: 'FOMO Graduados',
   fomo_trending: 'FOMO Trending',
-  pump_trending: 'Pump Trending',
-  photon_new: 'Photon New',
   photon_graduated: 'Photon Graduated',
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
-  track_chat: 'Track CHAT',
-  track_tesis: 'Track TESIS',
   track_top: 'Track TOP·D',
   track_cal100_pos: 'Track CAL100+',
 };

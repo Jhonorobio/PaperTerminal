@@ -25,26 +25,22 @@ const HISTORY_MAX = 500;
 const SEEN_MAX = 5000;
 
 const LABELS = {
-  fomo_graduated: 'FOMO Graduados',
   fomo_trending: 'FOMO Trending',
-  pump_trending: 'Pump Trending',
-  photon_new: 'Photon New',
   photon_graduated: 'Photon Graduated',
   // Alertas del Track (ver TRACK_ENTRY_CATEGORIES): se evalúan en la entrada.
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
-  track_chat: 'Track CHAT',
-  track_tesis: 'Track TESIS',
   track_top: 'Track TOP',
   track_cal100_pos: 'Track CAL100+',
 };
 
 /**
- * The FOMO screen's bounds over the alert token's fields. A bound on data the token
- * doesn't carry excludes it — the same rule readFeed applies to the visible list.
+ * The one FOMO feed that still exists (the app's single tab) against the bounds
+ * pushed by the app. A bound on data the token doesn't carry excludes it — the
+ * same rule readFeed applies to the visible list.
  */
-function passesFeedFilters(category, token) {
-  const feed = getFomoFilters()[category === 'fomo_graduated' ? 'graduated' : 'trending'];
+function passesFeedFilters(token) {
+  const feed = getFomoFilters().trending;
   if (!feed) return true;
   const bounds = [
     [feed.mcapMin, feed.mcapMax, token.mcap],
@@ -94,6 +90,9 @@ export function isSeen(category, address) {
  * Returns true when it was new (regardless of matching devices).
  */
 export function emitToken(category, token) {
+  // Sólo categorías que existen (ver ALERT_CATEGORIES): un dispositivo con una
+  // categoría vieja guardada no puede reencender un feed retirado.
+  if (!ALERT_CATEGORIES.includes(category)) return false;
   const store = category.startsWith('fomo') ? fomoSeen : photonSeen;
   const key = `${category}:${token.address}`;
   if (store.has(key)) return false;
@@ -107,7 +106,7 @@ export function emitToken(category, token) {
   // FOMO's stream is unfiltered, so the feed's own bounds gate it here (Photon's were
   // applied by its column query). The token stays seen either way — loosening a filter
   // later must not re-alert tokens that already passed through.
-  if (category.startsWith('fomo') && !passesFeedFilters(category, token)) return true;
+  if (category.startsWith('fomo') && !passesFeedFilters(token)) return true;
 
   const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[category]);
   for (const device of devices) {
@@ -155,14 +154,12 @@ export function emitToken(category, token) {
  *   track_cal_chat   CAL [$100,$500) ≥1 + chat ≥N wallets — n=28: 96% sube,
  *                    18% x2, +30% pico a 10 min. Confirmación: "sube" casi seguro.
  *   track_chat_tesis chat ≥N + ≥M tesis — n=22: 95% sube, 27% x2, +65% pico.
- *   track_chat       chat ≥N wallets — n=75 (N=2): 86% sube, 22% x2, +32% pico.
- *   track_tesis      ≥M tesis — n=59: 81% sube pero 12% x2 (sube sí, upside no).
  *   track_top        TOP·D ≥N — n=69: 80% sube, 23% x2, +36% pico.
  *
  * Los umbrales (N/M) son POR DISPOSITIVO (`device.params`, editables en la
  * pantalla Notificaciones); los defaults son los medidos.
  */
-export const TRACK_ENTRY_CATEGORIES = ['track_cal_chat', 'track_chat_tesis', 'track_chat', 'track_tesis', 'track_top'];
+export const TRACK_ENTRY_CATEGORIES = ['track_cal_chat', 'track_chat_tesis', 'track_top'];
 
 /**
  * TRACK CAL100+ — la entrada CAL100 (fuente 10, ver track.js) cuando el barrido
@@ -177,7 +174,7 @@ export const TRACK_ENTRY_CATEGORIES = ['track_cal_chat', 'track_chat_tesis', 'tr
  * Sin umbral a propósito (decisión del usuario): avisa CADA wallet que resuelve en
  * verde, sin piso de monto ni de PnL. Medido en prod el 18/oct: ~28 wallets
  * positivas por hora de track —es la categoría más ruidosa de todas; si cansa, el
- * piso natural es un conteo por token, como las otras cinco.
+ * piso natural es un conteo por token, como las otras tres.
  *
  * "Verde" = alguna ventana > 0 (1d o 1w), la MISMA regla que pinta la UI (ver
  * WindowPnl en la app y cal100Cell en el panel): la ventana en rojo no cuenta.
@@ -185,6 +182,18 @@ export const TRACK_ENTRY_CATEGORIES = ['track_cal_chat', 'track_chat_tesis', 'tr
  * 2, 3, … wallets porque la unidad es la entrada, no el token.
  */
 export const TRACK_CAL100_CATEGORY = 'track_cal100_pos';
+
+/**
+ * Las categorías que existen — única fuente de verdad: routes.js guarda exactamente
+ * estas y emitToken ignora cualquier otra (una config vieja con una categoría
+ * retirada no puede volver a emitirla).
+ */
+export const ALERT_CATEGORIES = [
+  'fomo_trending',
+  'photon_graduated',
+  ...TRACK_ENTRY_CATEGORIES,
+  TRACK_CAL100_CATEGORY,
+];
 
 /** Umbrales saneados (defaults medidos, rangos útiles) desde un objeto crudo. */
 export function sanitizeTrackParams(raw) {
@@ -215,16 +224,6 @@ const TRACK_RULES = {
     ready: (t) => t.chatWallets != null && t.thesesCount != null,
     hit: (t, p) => t.chatWallets >= p.chatWalletsMin && t.thesesCount >= p.tesisMin,
     body: (t, p) => `Chat ${t.chatWallets} wallets (≥${p.chatWalletsMin}) · ${t.thesesCount} tesis (≥${p.tesisMin}) · MCap $${compact(t.mcap ?? 0)}`,
-  },
-  track_chat: {
-    ready: (t) => t.chatWallets != null,
-    hit: (t, p) => t.chatWallets >= p.chatWalletsMin,
-    body: (t, p) => `Chat ${t.chatWallets} wallets (≥${p.chatWalletsMin}) · MCap $${compact(t.mcap ?? 0)}`,
-  },
-  track_tesis: {
-    ready: (t) => t.thesesCount != null,
-    hit: (t, p) => t.thesesCount >= p.tesisMin,
-    body: (t, p) => `${t.thesesCount} tesis (≥${p.tesisMin}) · MCap $${compact(t.mcap ?? 0)}`,
   },
   track_top: {
     ready: (t) => t.topDaily != null,

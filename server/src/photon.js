@@ -8,8 +8,8 @@
  * upstream traffic stays under the rate limit (429 → 45s backoff).
  *
  * Columns: col1 = New, col3 = Graduated. Each refresh is broadcast to the app's
- * WS topic `memescope`; newly-seen tokens run through notify.js for the per-column
- * alert categories photon_new / photon_graduated.
+ * WS topic `memescope`; newly-seen tokens run through notify.js — only Graduated
+ * has an alert category (photon_graduated): New se pinta pero no avisa.
  */
 
 import initCycleTLS from 'cycletls';
@@ -66,8 +66,9 @@ const DEFAULT_FILTERS = {
   col3: {},
 };
 
+// `category`: the alert a new token in that column fires — col1 (New) has none.
 const COLS = [
-  { key: 'col1', category: 'photon_new' },
+  { key: 'col1' },
   { key: 'col3', category: 'photon_graduated' },
 ];
 const FALLBACK_TITLES = { col1: 'New', col3: 'Graduated' };
@@ -194,14 +195,15 @@ function toObj(data) {
   }
 }
 
-/** Emits alerts for any token new to this column. */
+/** Emits alerts for any token new to this column (columns without a category don't alert). */
 function notifyColumn(colKey, items) {
+  const category = COLS.find((c) => c.key === colKey)?.category;
+  if (!category) return;
   for (const it of items) {
     const a = it?.attributes;
     const address = a?.tokenAddress || a?.address;
     if (!address) continue;
-    const col = COLS.find((c) => c.key === colKey);
-    emitToken(col.category, {
+    emitToken(category, {
       address,
       symbol: a.symbol ?? null,
       name: a.name ?? null,
@@ -276,10 +278,8 @@ async function fetchOnce(colKey) {
   if (items.length) {
     if (!seeded[colKey]) {
       // First successful fetch: seed silently so booting doesn't fire the whole column.
-      seedSeen(
-        COLS.find((c) => c.key === colKey).category,
-        items.map((it) => it?.attributes?.tokenAddress || it?.attributes?.address).filter(Boolean),
-      );
+      const category = COLS.find((c) => c.key === colKey)?.category;
+      if (category) seedSeen(category, items.map((it) => it?.attributes?.tokenAddress || it?.attributes?.address).filter(Boolean));
       seeded[colKey] = true;
     } else {
       notifyColumn(colKey, items);

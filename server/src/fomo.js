@@ -2,15 +2,15 @@
  * FOMO (fomo.family) feed server — ported and trimmed from
  * `server con APIS/src/services/fomo-ws.js` + `fomo-auth.js`.
  *
- * One socket to wss://prod-api.fomo.family/ws, carrying both subscriptions:
+ * One socket to wss://prod-api.fomo.family/ws, carrying one subscription:
  *
  *   ← { type: 'challenge' }            → { type: 'challengeResponse', jwt }
- *   ← { type: 'challengeAccepted' }     → subscribe graduated_tokens / trending_tokens
+ *   ← { type: 'challengeAccepted' }     → subscribe trending_tokens
  *   ← { type: 'data', topicType, payload: { kind: 'snapshot'|'update'|'remove' } }
  *
- * The app NEVER talks to FOMO: it subscribes to the WS topics `fomo` and
- * `fomo_trending` here and gets everything pushed. Alerts fire from the same
- * stream: every newly-seen token goes through `notify.js` (WS panel + push).
+ * The app NEVER talks to FOMO: it subscribes to the WS topic `fomo_trending` here
+ * and gets everything pushed. Alerts fire from the same stream: every newly-seen
+ * token goes through `notify.js` (WS panel + push).
  *
  * The first snapshot after subscribe seeds the seen-map silently, so connecting
  * does not fire 90 pushes.
@@ -149,13 +149,12 @@ function normalize(item, nowMs) {
 }
 
 const FEEDS = [
-  { id: 'graduated', category: 'fomo_graduated', topicType: 'graduated_tokens', topic: 'fomo', event: 'fomo_updated', ranked: false },
   { id: 'trending', category: 'fomo_trending', topicType: 'trending_tokens', topic: 'fomo_trending', event: 'fomo_trending_updated', ranked: true },
 ];
 
-const maps = { graduated: new Map(), trending: new Map() };
-const snapshotCount = { graduated: 0, trending: 0 };
-const lastMsgAt = { graduated: 0, trending: 0 };
+const maps = { trending: new Map() };
+const snapshotCount = { trending: 0 };
+const lastMsgAt = { trending: 0 };
 
 let ws = null;
 let running = false;
@@ -206,10 +205,6 @@ async function readFeed(feedId, filters) {
   return { tokens: list.slice(0, cap), total: list.length, savedAt: Date.now() };
 }
 
-export async function getFomoGraduated(filters) {
-  return readFeed('graduated', { ...getFomoFilters().graduated, ...sanitizeFeedFilters(filters) });
-}
-
 export async function getFomoTrending(filters) {
   return readFeed('trending', { ...getFomoFilters().trending, ...sanitizeFeedFilters(filters) });
 }
@@ -218,11 +213,10 @@ export function getFomoStatus() {
   const feedStatus = (id) => ({ count: maps[id].size, snapshots: snapshotCount[id], lastMsgAgeMs: lastMsgAt[id] ? Date.now() - lastMsgAt[id] : null });
   return {
     connected: Boolean(ws && ws.readyState === 1),
-    live: Boolean(ws && ws.readyState === 1 && (Date.now() - (lastMsgAt.graduated || 0) < 60_000 || Date.now() - (lastMsgAt.trending || 0) < 60_000)),
+    live: Boolean(ws && ws.readyState === 1 && Date.now() - (lastMsgAt.trending || 0) < 60_000),
     authFailures,
     lastError,
     proxy: getFomoProxyStatus(),
-    graduated: feedStatus('graduated'),
     trending: feedStatus('trending'),
   };
 }
@@ -418,7 +412,7 @@ function connect() {
         break;
       case 'challengeAccepted':
         for (const feed of FEEDS) send({ type: 'subscribe', topicType: feed.topicType, topicId: SOLANA_TOPIC_ID });
-        console.log('[fomo] authenticated — subscribed to graduated + trending');
+        console.log('[fomo] authenticated — subscribed to trending');
         break;
       case 'error':
         lastError = typeof msg.message === 'string' ? msg.message : JSON.stringify(msg).slice(0, 300);
@@ -467,7 +461,7 @@ function scheduleReconnect() {
 function watchdog() {
   if (!running || !ws || ws.readyState !== 1) return;
   const now = Date.now();
-  const newest = Math.max(lastMsgAt.graduated, lastMsgAt.trending);
+  const newest = lastMsgAt.trending;
   if (newest && now - newest > DATA_TIMEOUT_MS) {
     console.log('[fomo] feed silent — restarting socket');
     try {
@@ -499,7 +493,7 @@ export function startFomoWatcher() {
       return { event: feed.event, data: { tokens: list, savedAt: Date.now(), snapshot: true } };
     });
   }
-  console.log('[fomo] watcher started (Solana: graduated + trending)');
+  console.log('[fomo] watcher started (Solana: trending)');
 }
 
 export function stopFomoWatcher() {

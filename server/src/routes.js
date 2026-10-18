@@ -3,9 +3,9 @@
  *
  *   GET  /api/health
  *   GET  /api/status                        feed health + WS clients
- *   GET  /api/fomo/{graduated,trending}     HTTP fallback of each feed (WS is primary)
- *   GET  /api/fomo/filters                  effective filters per feed
- *   PUT  /api/fomo/filters                  { graduated: {...}, trending: {...} }
+ *   GET  /api/fomo/trending                 HTTP fallback of the feed (WS is primary)
+ *   GET  /api/fomo/filters                  effective filters
+ *   PUT  /api/fomo/filters                  { trending: {...} }
  *   GET  /api/market/memescope              Photon columns (Cold-startable)
  *   GET  /api/market/memescope-filters
  *   PUT  /api/market/memescope-filters      { col1: {...}, col3: {...} }
@@ -24,30 +24,22 @@
 
 import { Router } from 'express';
 
-import { getFomoGraduated, getFomoProxyStatus, getFomoStatus, getFomoTrending, setFomoProxy } from './fomo.js';
+import { getFomoProxyStatus, getFomoStatus, getFomoTrending, setFomoProxy } from './fomo.js';
 import { getFomoFilters, setFomoFilters } from './fomo-filter-store.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters } from './photon.js';
 import { photonLogo } from './logo-proxy.js';
 import { clearTrack, getTrackConfig, getTrackStatus, getTrackToken, listTrackTokens, setTrackConfig, snapshotsWithHealth, summarizeTrackToken, testTrackProxy, TRACK_SNAPSHOT_MAX, TRACK_TOKENS_MAX } from './track.js';
 import { notificationConfig, notificationHistory } from './stores.js';
 import { getPushReceipt, isValidPushToken, sendPush } from './push.js';
-import { TRACK_ENTRY_CATEGORIES, TRACK_CAL100_CATEGORY, sanitizeTrackParams } from './notify.js';
+import { ALERT_CATEGORIES, sanitizeTrackParams } from './notify.js';
 import { sendToDevice } from './ws.js';
 import { clientCount, getSubscriptions } from './ws.js';
 
 const router = Router();
 
-const CATEGORIES = [
-  'fomo_graduated',
-  'fomo_trending',
-  'pump_trending',
-  'photon_new',
-  'photon_graduated',
-  ...TRACK_ENTRY_CATEGORIES,
-  // La del Track que NO se evalúa en el snapshot de entrada sino cuando el
-  // barrido CAL100 resuelve el PnL (ver TRACK_CAL100_CATEGORY en notify.js).
-  TRACK_CAL100_CATEGORY,
-];
+// La taxonomía vive en notify.js: lo que el server puede emitir es lo único que
+// un dispositivo puede guardar (y lo que la app y la extensión listan).
+const CATEGORIES = ALERT_CATEGORIES;
 
 function deviceId(req) {
   const id = req.headers['x-device-id'] || req.query.deviceId;
@@ -106,14 +98,6 @@ router.get('/fomo/filters', (_req, res) => res.json(getFomoFilters()));
 router.put('/fomo/filters', (req, res) => {
   try {
     res.json(setFomoFilters(req.body ?? {}));
-  } catch (err) {
-    fail(res, err);
-  }
-});
-
-router.get('/fomo/graduated', async (req, res) => {
-  try {
-    res.json(await getFomoGraduated(req.query ?? {}));
   } catch (err) {
     fail(res, err);
   }
@@ -236,7 +220,7 @@ router.post('/notifications/test', async (req, res) => {
     if (!device) throw Object.assign(new Error('Device not registered'), { status: 404 });
     const entry = notificationHistory.add({
       device_id: id,
-      category: req.body?.category || 'fomo_graduated',
+      category: req.body?.category || 'fomo_trending',
       address: 'TESTTESTTESTTESTTESTTESTTESTTESTTEST',
       chain: 'sol',
       symbol: 'TEST',

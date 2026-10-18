@@ -202,7 +202,7 @@ function normalizeEntry(raw) {
     // El server numera el historial (JsonArrayStore): ese id es el dedupe.
     id: raw.id ?? `${raw.category}:${address}:${raw.notified_at ?? ''}`,
     // Sin catálogo de categorías hardcodeado: el server es la fuente y el label cae al id.
-    category: typeof raw.category === 'string' ? raw.category : 'fomo_graduated',
+    category: typeof raw.category === 'string' ? raw.category : 'fomo_trending',
     address,
     symbol: raw.symbol ?? null,
     name: raw.name ?? null,
@@ -332,7 +332,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         try {
           const result = await apiCall(s.serverBase, '/api/notifications/test', {
             method: 'POST',
-            body: { category: message.category ?? 'pump_trending' },
+            body: { category: message.category ?? 'fomo_trending' },
             timeoutMs: 20_000,
           });
           sendResponse({ ok: true, push: result.push ?? null });
