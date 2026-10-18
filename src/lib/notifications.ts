@@ -5,10 +5,16 @@
  * Categories (the server's alert taxonomy):
  *   fomo_graduated · fomo_trending · pump_trending · photon_new · photon_graduated
  *   track_cal_chat · track_core · track_chat_tesis · track_chat · track_tesis · track_top
+ *   track_cal100_pos
  *
- * The track_* categories are the Track's ENTRY alerts: they fire at the token's
- * first snapshot (see TRACK_RULES in server/src/notify.js) and the chat/tesis/top
- * thresholds are per device (AlertParams, edited on the Notifications screen).
+ * The six track_* entry alerts fire at the token's ENTRY snapshot (see TRACK_RULES
+ * in server/src/notify.js) and the chat/tesis/top thresholds are per device
+ * (AlertParams, edited on the Notifications screen).
+ *
+ * track_cal100_pos is the exception: it is NOT evaluated at a snapshot — it fires
+ * when the CAL100 sweep resolves a wallet's portfolio PnL and finds it green in
+ * 1d or 1w (TRACK_CAL100_CATEGORY in server/src/notify.js). No threshold, and its
+ * unit is the entry, not the token: the same token can alert for 2, 3, … wallets.
  *
  * There is no filter configuration here anymore: the feed screens own the filters
  * (FOMO pushes both tabs, Photon pushes its columns) and the server gates the
@@ -59,6 +65,7 @@ export const ALERT_CATEGORIES = [
   'track_chat',
   'track_tesis',
   'track_top',
+  'track_cal100_pos',
 ] as const;
 export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
 
@@ -264,6 +271,12 @@ export interface AlertHistoryEntry {
   holders: number | null;
   kolCount: number | null;
   ageMinutes: number | null;
+  /**
+   * Texto armado por el server cuando el detalle no entra en los campos fijos
+   * (hoy sólo CAL100+: wallet, lo que metió y las ventanas en verde). El panel
+   * flotante y la timeline lo prefieren sobre su propio resumen.
+   */
+  body?: string | null;
   notified_at: string;
 }
 

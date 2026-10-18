@@ -46,6 +46,7 @@ const ALERT_LABELS: Record<string, string> = {
   track_chat: 'Track CHAT',
   track_tesis: 'Track TESIS',
   track_top: 'Track TOP·D',
+  track_cal100_pos: 'Track CAL100+',
 };
 
 const toneColor = (v: number | null | undefined) =>
@@ -727,6 +728,9 @@ export default function HistoryScreen() {
                             {ALERT_LABELS[entry.category] ?? entry.category}
                             {entry.mcap != null ? ` · ${formatCompactUsd(entry.mcap)} MC` : ''}
                           </Text>
+                          {/* CAL100+ manda el detalle armado (wallet, montos, PnL) en `body`:
+                              sin esto la fila diría sólo qué regla disparó. */}
+                          {entry.body ? <Text style={styles.alertNote}>{entry.body}</Text> : null}
                         </View>
                         {/* Exact time, not "10m ago" — the alert feed is read as a timeline.
                             rowSubValue has no color (trades pass the PnL tone inline), so set one here. */}
@@ -1178,6 +1182,8 @@ const styles = StyleSheet.create({
   rowName: { fontSize: 14, fontWeight: '800', color: Palette.textPrimary },
   rowNameLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
   rowSub: { fontSize: 12, color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
+  // Línea del detalle que arma el server (hoy sólo CAL100+): más chica y terciaria.
+  alertNote: { fontSize: 11, color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
   sideVerb: { fontWeight: '800' },
   rowValue: { alignItems: 'flex-end', gap: 1 },
   rowMainValue: { fontSize: 14, fontWeight: '800', color: Palette.textPrimary, fontVariant: ['tabular-nums'] },

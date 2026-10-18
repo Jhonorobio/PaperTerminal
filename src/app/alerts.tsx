@@ -37,14 +37,16 @@ const CATEGORY_LABELS: Record<AlertCategory, string> = {
   track_chat: 'Track CHAT',
   track_tesis: 'Track TESIS',
   track_top: 'Track TOP·D',
+  track_cal100_pos: 'Track CAL100+',
 };
 
 /**
- * Defaults per category. Pump Trend. nace ON (se pidió con push y sin pasos
- * extra — la migración del effect de carga la sincroniza al server la primera
- * vez que se abre esta pantalla, si no el switch diría ON pero el server no la
- * emitiría). Las seis del Track nacen OFF: son opt-in con umbral propio y cada
- * una dispara sobre una porción grande del universo trackeado.
+ * Defaults per category. Pump Trend. y CAL100+ nacen ON (la primera se pidió con
+ * push y sin pasos extra; la segunda también — la migración del effect de carga
+ * las sincroniza al server la primera vez que se abre esta pantalla, si no el
+ * switch diría ON pero el server no la emitiría). Las seis de entrada del Track
+ * nacen OFF: son opt-in con umbral propio y cada una dispara sobre una porción
+ * grande del universo trackeado.
  */
 const DEFAULT_CATEGORIES: Record<AlertCategory, boolean> = {
   fomo_graduated: false,
@@ -58,13 +60,15 @@ const DEFAULT_CATEGORIES: Record<AlertCategory, boolean> = {
   track_chat: false,
   track_tesis: false,
   track_top: false,
+  track_cal100_pos: true,
 };
 
 /**
  * Las reglas del Track se evalúan en el snapshot de ENTRADA del token (su primer
  * minuto) y disparan una vez por token. Los números son los medidos el 17/oct
  * sobre el dump de prod (486 tokens / 8.108 snapshots, pico vs precio de
- * entrada): ver TRACK_RULES en server/src/notify.js.
+ * entrada): ver TRACK_RULES en server/src/notify.js. CAL100+ es la excepción
+ * (ver su texto): no sale del snapshot y no dispara una vez por token.
  */
 const TRACK_SUBS: Partial<Record<AlertCategory, string>> = {
   track_cal_chat:
@@ -77,6 +81,8 @@ const TRACK_SUBS: Partial<Record<AlertCategory, string>> = {
     '≥M tesis en la entrada (default 1): n=59 → 81% sube pero solo 12% x2. Avisa que hay interés, no que haya recorrido.',
   track_top:
     'TOP·D ≥N en la entrada: n=69 → 80% sube, 23% x2, +36% pico a 10min (y 32% x2 / +55% a 30min).',
+  track_cal100_pos:
+    'Avisa cada wallet con callout ≥$100 que entra al token y queda EN VERDE (1d o 1w de TODA su cartera) — la misma lectura que las entradas CAL100 del detalle. Sin umbral y por entrada, no por token: el mismo token avisa por 2, 3, … wallets (medido: ~28 avisos por hora de track).',
 };
 
 const PARAM_FIELDS: { key: keyof AlertParams; label: string; hint: string }[] = [
@@ -253,9 +259,10 @@ export default function AlertsScreen() {
             </View>
           ))}
           <Text style={styles.fine}>
-            Se aplican a las alertas del Track (CAL+CHAT, CORE, CHAT+TESIS, CHAT, TESIS y TOP·D) y son por dispositivo: el
-            server guarda un valor para cada uno. Defaults = los medidos (chat 2, tesis 1, top 1). Las reglas se evalúan en
-            el snapshot de entrada del token y disparan una vez por token.
+            Se aplican a las 6 alertas de entrada del Track (CAL+CHAT, CORE, CHAT+TESIS, CHAT, TESIS y TOP·D) y son por
+            dispositivo: el server guarda un valor para cada uno. Defaults = los medidos (chat 2, tesis 1, top 1). Esas 6 se
+            evalúan en el snapshot de entrada del token y disparan una vez por token. CAL100+ no lleva umbral: avisa por cada
+            wallet que el barrido deja en verde.
           </Text>
         </Card>
       </ScrollView>

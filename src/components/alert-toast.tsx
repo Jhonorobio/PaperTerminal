@@ -30,6 +30,7 @@ const LABELS: Record<string, string> = {
   track_chat: 'Track CHAT',
   track_tesis: 'Track TESIS',
   track_top: 'Track TOP·D',
+  track_cal100_pos: 'Track CAL100+',
 };
 
 export function AlertOverlay() {
@@ -82,13 +83,15 @@ export function AlertOverlay() {
             {entry.symbol ?? 'Token'} {entry.mcap != null ? `· ${formatCompactUsd(entry.mcap)} MC` : ''}
           </Text>
           <Text style={styles.sub}>
-            {[
-              entry.liq != null ? `Liq ${formatCompactUsd(entry.liq)}` : null,
-              entry.vol24h != null ? `Vol ${formatCompactUsd(entry.vol24h)}` : null,
-              entry.kolCount != null ? `${entry.kolCount} KOL` : null,
-            ]
-              .filter(Boolean)
-              .join(' · ') || 'Pasó tus filtros'}
+            {entry.body ??
+              ([
+                entry.liq != null ? `Liq ${formatCompactUsd(entry.liq)}` : null,
+                entry.vol24h != null ? `Vol ${formatCompactUsd(entry.vol24h)}` : null,
+                entry.kolCount != null ? `${entry.kolCount} KOL` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ') ||
+                'Pasó tus filtros')}
           </Text>
         </View>
         <Pressable onPress={() => setEntry(null)} hitSlop={12} accessibilityLabel="Cerrar">
