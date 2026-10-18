@@ -503,7 +503,7 @@ function cal100Block(token) {
   const events = token?.call100Events ?? [];
   if (!events.length) return null;
   const table = el('table', { class: 'snaps cal' });
-  table.append(el('thead', {}, [el('tr', {}, ['Min', 'Wallet', 'Metió', '1D', '1W'].map((c) => el('th', { text: c })))]));
+  table.append(el('thead', {}, [el('tr', {}, ['Hora', 'Wallet', 'Metió', '1D', '1W'].map((c) => el('th', { text: c })))]));
   table.append(
     el(
       'tbody',
@@ -512,7 +512,8 @@ function cal100Block(token) {
         const day = cal100Cell(e.pnl1dUsd, e.pnl1dPct, e.tokens1d);
         const week = cal100Cell(e.pnl1wUsd, e.pnl1wPct, e.tokens1w);
         return el('tr', {}, [
-          el('td', { text: `min ${e.minute}`, title: e.at }),
+          // La hora (como la tabla de snapshots); el minuto del track, al pasar el mouse.
+          el('td', { text: clockOf(e.at), title: `min ${e.minute} · ${e.at}` }),
           el('td', { text: shortAddr(e.address), title: e.address }),
           el('td', { text: e.usd == null ? '—' : `$${compactUsd(e.usd)}` }),
           el('td', { text: day.text, class: day.cls }),

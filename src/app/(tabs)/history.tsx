@@ -908,9 +908,11 @@ function Call100Events({ events }: { events?: TrackCall100Event[] }) {
       <Text style={styles.calTitle}>ENTRADAS CAL100 · {rows.length}</Text>
       {[...rows].reverse().map((e) => (
         <View key={`${e.minute}-${e.address}`} style={styles.snapRow}>
+          {/* La hora manda (igual que la serie de snapshots de abajo) y el
+              minuto del track queda chico debajo, como referencia. */}
           <View style={styles.snapTimeCol}>
-            <Text style={styles.snapTime}>min {e.minute}</Text>
-            <Text style={styles.chipSub}>{time24(e.at)}</Text>
+            <Text style={styles.snapTime}>{time24(e.at)}</Text>
+            <Text style={styles.chipSub}>min {e.minute}</Text>
           </View>
           <View style={{ flex: 1, gap: 3 }}>
             <View style={styles.chipRow}>
