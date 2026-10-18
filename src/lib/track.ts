@@ -258,8 +258,42 @@ export interface TrackTokenSummary {
   snapshotCount: number;
 }
 
+/**
+ * Una ENTRADA CAL100 del token: una wallet con callout ≥$100 (amountBoughtUsd)
+ * que apareció entre los holders visibles DESPUÉS de la línea base del primer
+ * snapshot, en el minuto `minute` del track, con el PnL de su portfolio leído en
+ * ese momento (ventanas 1d y 1w). Es una lectura de entrada, no un seguimiento —
+ * y es el PnL de TODA su cartera en la ventana, no el de su posición en este
+ * token.
+ */
+export interface TrackCall100Event {
+  /** Minuto del track en que apareció (≥2: el minuto 1 es la línea base). */
+  minute: number;
+  /** Timestamp de ese snapshot. */
+  at: string;
+  /** Su wallet. */
+  address: string;
+  /** USD que tenía metidos en el token (amountBoughtUsd, redondeado). */
+  usd: number | null;
+  /** Intentos de lectura (con 2 y alguna ventana en null se deja de insistir). */
+  tries: number;
+  /** PnL del portfolio en 1d (USD) — el signo es el dato. */
+  pnl1dUsd: number | null;
+  /** Su `percentage.usd` en 1d (se guarda, no se pinta crudo). */
+  pnl1dPct: number | null;
+  /** Tokens operados en la ventana 1d: 0 = no operó (0,00 no es "positivo"). */
+  tokens1d: number | null;
+  /** PnL del portfolio en 1w (USD). */
+  pnl1wUsd: number | null;
+  pnl1wPct: number | null;
+  /** Tokens operados en la ventana 1w. */
+  tokens1w: number | null;
+}
+
 export interface TrackTokenDetail extends TrackTokenSummary {
   snapshots: TrackSnapshot[];
+  /** Las entradas CAL100 del token (una fila por wallet nueva), en orden. */
+  call100Events: TrackCall100Event[];
 }
 
 /** Why the tracker is (or isn't) allowed to run: its own proxy + ≥1 filter. */

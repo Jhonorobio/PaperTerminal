@@ -299,7 +299,11 @@ router.get('/track/export', (_req, res) => {
       status: getTrackStatus(),
       snapshotMax: TRACK_SNAPSHOT_MAX,
       tokensMax: TRACK_TOKENS_MAX,
-      tokens: listTrackTokens().map((s) => ({ ...s, snapshots: snapshotsWithHealth(getTrackToken(s.address)?.snapshots ?? []) })),
+      tokens: listTrackTokens().map((s) => ({
+        ...s,
+        snapshots: snapshotsWithHealth(getTrackToken(s.address)?.snapshots ?? []),
+        call100Events: getTrackToken(s.address)?.call100Events ?? [],
+      })),
     });
   } catch (err) {
     fail(res, err);
@@ -325,8 +329,14 @@ router.get('/track/:address', (req, res) => {
   const token = getTrackToken(req.params.address);
   if (!token) return res.status(404).json({ error: 'Token no trackeado' });
   // Summary (incl. the health chip) + the series, each snapshot tagged with
-  // the chip it showed AT THAT MINUTE (prefix series — no hindsight).
-  res.json({ ...summarizeTrackToken(token), snapshots: snapshotsWithHealth(token.snapshots) });
+  // the chip it showed AT THAT MINUTE (prefix series — no hindsight). Las
+  // ENTRADAS CAL100 (una fila por wallet ≥$100 que apareció, con su PnL 1d/1w)
+  // viajan solo acá: son del detalle, no de la lista.
+  res.json({
+    ...summarizeTrackToken(token),
+    snapshots: snapshotsWithHealth(token.snapshots),
+    call100Events: token.call100Events ?? [],
+  });
 });
 
 router.delete('/track', (_req, res) => {

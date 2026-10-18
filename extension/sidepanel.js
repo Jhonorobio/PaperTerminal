@@ -29,6 +29,7 @@ import {
   formatError,
   getSettings,
   originOf,
+  shortAddr,
   signedPct,
   timeAgo,
   toWsUrl,
@@ -477,6 +478,55 @@ async function openTrackDetail(address, symbol) {
   render();
 }
 
+/**
+ * PnL de una ventana (1d / 1w) de una entrada CAL100: el signo de `pnl.usd`
+ * decide el color. '—' cuando no se pudo leer (2 intentos y nada) o cuando la
+ * wallet NO operó en la ventana (tokenCount 0): un 0,00 de una wallet inactiva
+ * no es un empate.
+ */
+function cal100Cell(usd, pct, tokens) {
+  const noTrades = tokens === 0 && usd === 0;
+  if (usd == null || noTrades) return { text: '—', cls: 'muted' };
+  const money = `${usd >= 0 ? '+' : '−'}$${compactUsd(Math.abs(usd))}`;
+  return {
+    text: pct == null ? money : `${money} (${signedPct(pct, 1)})`,
+    cls: usd > 0 ? 'green' : usd < 0 ? 'red' : '',
+  };
+}
+
+/**
+ * ENTRADAS CAL100 del token: una fila por wallet con callout ≥$100 que APARECIÓ
+ * en el track (minuto en que se sumó) con el PnL de su portfolio leído en ese
+ * momento. Es el PnL de toda su cartera en la ventana, no el de su posición acá.
+ */
+function cal100Block(token) {
+  const events = token?.call100Events ?? [];
+  if (!events.length) return null;
+  const table = el('table', { class: 'snaps cal' });
+  table.append(el('thead', {}, [el('tr', {}, ['Min', 'Wallet', 'Metió', '1D', '1W'].map((c) => el('th', { text: c })))]));
+  table.append(
+    el(
+      'tbody',
+      {},
+      [...events].reverse().map((e) => {
+        const day = cal100Cell(e.pnl1dUsd, e.pnl1dPct, e.tokens1d);
+        const week = cal100Cell(e.pnl1wUsd, e.pnl1wPct, e.tokens1w);
+        return el('tr', {}, [
+          el('td', { text: `min ${e.minute}`, title: e.at }),
+          el('td', { text: shortAddr(e.address), title: e.address }),
+          el('td', { text: e.usd == null ? '—' : `$${compactUsd(e.usd)}` }),
+          el('td', { text: day.text, class: day.cls }),
+          el('td', { text: week.text, class: week.cls }),
+        ]);
+      }),
+    ),
+  );
+  return el('div', {}, [
+    el('p', { class: 'cal-title', text: `Entradas CAL100 · ${events.length} — PnL del portfolio de la wallet al entrar` }),
+    table,
+  ]);
+}
+
 function renderDetail() {
   const detail = state.detail;
   if (!detail) return null;
@@ -503,10 +553,14 @@ function renderDetail() {
   ]);
 
   const body = el('div', { class: 'modal-body' });
+  const cal100 = cal100Block(token);
   if (detail.loading) body.append(el('div', { class: 'empty', text: 'Cargando snapshots…' }));
   else if (detail.error) body.append(el('div', { class: 'banner err', text: detail.error }));
-  else if (!snaps.length) body.append(el('div', { class: 'empty', text: 'Sin snapshots guardados.' }));
-  else {
+  else if (!snaps.length) {
+    if (cal100) body.append(cal100);
+    else body.append(el('div', { class: 'empty', text: 'Sin snapshots guardados.' }));
+  } else {
+    if (cal100) body.append(cal100);
     const columns = ['#', 'MCap', 'Vol', 'Holders', 'TP', 'Bundle%', 'Top%', 'Chat', 'Tesis', 'TOP·D', 'CAL 1-5', 'CAL 5+', 'Salud', 'Señal'];
     const table = el('table', { class: 'snaps' });
     table.append(el('thead', {}, [el('tr', {}, columns.map((c) => el('th', { text: c })))]));

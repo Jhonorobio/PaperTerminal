@@ -7,6 +7,9 @@
  *   track_entry_seen: tracked addresses already evaluated for the entry alerts
  *   track_config: the tracker's own filter set (independent from the columns')
  *   track_tokens: address → tracked token + its per-minute snapshots (≤50 c/u)
+ *     + call100Seen (wallet → minuto en que se vio: línea base del primer
+ *       snapshot + dedupe) y call100Events (una fila por wallet con callout
+ *       ≥$100 que APARECIÓ después, con su PnL de portfolio 1d/1w al entrar)
  */
 import { JsonArrayStore, JsonStore } from './json-store.js';
 

@@ -27,8 +27,11 @@ Requiere Chrome 120+ (usa `chrome.sidePanel` y `chrome.alarms` con período de 1
 | **Ajustes** | server, categorías de alerta, umbrales del Track y "Probar alerta" |
 
 Click en una fila de **Track** → tabla de snapshots minuto a minuto del token (mcap, volumen,
-holders, TP, bundle%, chat, tesis, TOP·D, CAL, salud y señal). En **Alertas**, click → abre el
-token en GMGN (el panel no opera).
+holders, TP, bundle%, chat, tesis, TOP·D, CAL, salud y señal). Arriba de la tabla van las
+**entradas CAL100**: una fila por wallet con callout ≥$100 que apareció *después* de que el
+track empezara a mirar ese token, con el PnL de su portfolio (1d y 1w) leído en ese momento
+— es el PnL de toda su cartera, no el de su posición en el token. También sale del server.
+En **Alertas**, click → abre el token en GMGN (el panel no opera).
 
 ## Alertas
 

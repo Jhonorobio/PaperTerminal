@@ -256,3 +256,7 @@ table.snaps th, table.snaps td { padding: 4px 6px; text-align: right; white-spac
 table.snaps th { color: var(--tx-3); font-weight: 700; position: sticky; top: 0; background: var(--bg); }
 table.snaps td:first-child, table.snaps th:first-child { text-align: left; }
 table.snaps tr:hover td { background: var(--bg-2); }
+
+/* Entradas CAL100: el minuto y la wallet van a la izquierda (el resto, números). */
+.cal-title { font-size: 10px; font-weight: 700; color: var(--tx-2); margin: 10px 0 2px; }
+table.snaps.cal th:nth-child(-n + 2), table.snaps.cal td:nth-child(-n + 2) { text-align: left; }

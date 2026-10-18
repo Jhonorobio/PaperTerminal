@@ -240,6 +240,12 @@ export function clockOf(iso) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+/** Dirección corta para el panel — misma forma que la app (5…4). */
+export function shortAddr(address) {
+  const a = String(address ?? '');
+  return a.length > 12 ? `${a.slice(0, 5)}…${a.slice(-4)}` : a;
+}
+
 /** Edad de un token de FOMO/Photon: createdAt viene en segundos unix. */
 export function ageMinutesOf(createdAt) {
   const secs = Number(createdAt);

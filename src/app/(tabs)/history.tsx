@@ -18,13 +18,14 @@ import {
   formatPct,
   formatUsd,
   pnlClass,
+  shortAddr,
   timeOf,
   tone,
 } from '@/lib/format';
 import { api } from '@/lib/api';
 import { serverFeed, ServerFeed, TOPICS } from '@/lib/market/server-feed';
 import { alertDeepLink, fetchHistory, type AlertHistoryEntry } from '@/lib/notifications';
-import { TRACK_FILTER_FIELDS, clearTrackTokens, fetchTrack, fetchTrackToken, saveTrackConfig, testTrackProxy, type ProxyTestResult, type TrackConfig, type TrackState, type TrackTokenDetail, type TrackTokenSummary } from '@/lib/track';
+import { TRACK_FILTER_FIELDS, clearTrackTokens, fetchTrack, fetchTrackToken, saveTrackConfig, testTrackProxy, type ProxyTestResult, type TrackCall100Event, type TrackConfig, type TrackState, type TrackTokenDetail, type TrackTokenSummary } from '@/lib/track';
 import type { Trade } from '@/lib/types';
 import { useApp } from '@/state/app';
 
@@ -852,6 +853,7 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
         holders {detail.holdersDeltaPct == null ? '—' : formatPct(detail.holdersDeltaPct, { sign: true })}
         {detail.turnover != null ? ` · vol/mcap ${detail.turnover.toFixed(1)}x` : ''}
       </Text>
+      <Call100Events events={detail.call100Events} />
       {/* Full series (≤ the 50-snapshot cap), newest first. A COPY before
           reverse(): reversing the prop in place flips first/last on re-render. */}
       {[...snaps]
@@ -887,6 +889,71 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
           </View>
         ))}
     </View>
+  );
+}
+
+/**
+ * Las ENTRADAS CAL100 del token (fuente 10): una fila por wallet con callout
+ * ≥$100 que APARECIÓ en el track — el momento en que se sumó una wallet con
+ * plata al token — con el PnL de su portfolio leído en ese momento (1d y 1w).
+ * Es una lectura de entrada, no un seguimiento: la fila no se actualiza después.
+ * Ojo con el significado: es el PnL de TODA la cartera de esa wallet en la
+ * ventana, no el de su posición en este token.
+ */
+function Call100Events({ events }: { events?: TrackCall100Event[] }) {
+  const rows = events ?? [];
+  if (!rows.length) return null;
+  return (
+    <View style={styles.calBlock}>
+      <Text style={styles.calTitle}>ENTRADAS CAL100 · {rows.length}</Text>
+      {[...rows].reverse().map((e) => (
+        <View key={`${e.minute}-${e.address}`} style={styles.snapRow}>
+          <View style={styles.snapTimeCol}>
+            <Text style={styles.snapTime}>min {e.minute}</Text>
+            <Text style={styles.chipSub}>{time24(e.at)}</Text>
+          </View>
+          <View style={{ flex: 1, gap: 3 }}>
+            <View style={styles.chipRow}>
+              <Text style={[styles.chipValue, { color: Palette.textSecondary }]}>{shortAddr(e.address)}</Text>
+              {e.usd != null ? <MiniStat label="METIÓ" value={formatCompactUsd(e.usd)} valueTone={Palette.warning} /> : null}
+            </View>
+            <View style={styles.chipRow}>
+              <WindowPnl label="1D" usd={e.pnl1dUsd} pct={e.pnl1dPct} tokens={e.tokens1d} />
+              <WindowPnl label="1W" usd={e.pnl1wUsd} pct={e.pnl1wPct} tokens={e.tokens1w} />
+            </View>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/**
+ * PnL de una ventana para una entrada CAL100. El signo de `pnl.usd` manda (el
+ * `%` acompaña, no decide). "—" en dos casos distintos pero iguales para la
+ * lectura: no se pudo leer (2 intentos y nada) o la wallet NO OPERÓ en la
+ * ventana (tokenCount 0) — un 0,00 de una wallet inactiva no es un empate.
+ */
+function WindowPnl({
+  label,
+  usd,
+  pct,
+  tokens,
+}: {
+  label: string;
+  usd: number | null;
+  pct: number | null;
+  tokens: number | null;
+}) {
+  const noTrades = tokens === 0 && usd === 0;
+  const noData = usd == null || !Number.isFinite(usd) || noTrades;
+  return (
+    <MiniStat
+      label={label}
+      value={noData ? '—' : formatUsd(usd, { sign: true, decimals: 0 })}
+      sub={noData || pct == null ? undefined : formatPct(pct, { sign: true })}
+      valueTone={noData ? Palette.textTertiary : usd > 0 ? Palette.green : usd < 0 ? Palette.red : Palette.textSecondary}
+    />
   );
 }
 
@@ -1113,6 +1180,9 @@ const styles = StyleSheet.create({
   filterPair: { flexDirection: 'row', gap: 6 },
   filterActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   detailHint: { fontSize: 11, color: Palette.textTertiary, lineHeight: 15 },
+  // Entradas CAL100 del detalle: título + una fila por wallet (reusa snapRow).
+  calBlock: { gap: 0, marginTop: 2 },
+  calTitle: { fontSize: 11, fontWeight: '700', color: Palette.textSecondary, marginBottom: 2 },
   detailLine: { fontSize: 11, color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
   // Cada snapshot: columna de la hora (24h + chips de señal debajo) y, al
   // lado, la columna de métricas (Photon + Pulse + Azura) como siempre.
