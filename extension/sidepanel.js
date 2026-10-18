@@ -479,28 +479,29 @@ async function openTrackDetail(address, symbol) {
 }
 
 /**
- * PnL de una ventana (1d / 1w) de una entrada CAL100: el signo de `pnl.usd`
- * decide el color. '—' cuando no se pudo leer (2 intentos y nada) o cuando la
- * wallet NO operó en la ventana (tokenCount 0): un 0,00 de una wallet inactiva
- * no es un empate.
+ * PnL de una ventana (1d / 1w) de una entrada CAL100. Sólo se pinta lo positivo:
+ *   positivo → verde con el %;
+ *   en rojo o en cero → celda vacía;
+ *   '—' → no se pudo leer (2 intentos y nada) o la wallet NO operó en la ventana
+ *         (tokenCount 0: inactiva no es lo mismo que en pérdida).
  */
 function cal100Cell(usd, pct, tokens) {
   const noTrades = tokens === 0 && usd === 0;
   if (usd == null || noTrades) return { text: '—', cls: 'muted' };
-  const money = `${usd >= 0 ? '+' : '−'}$${compactUsd(Math.abs(usd))}`;
-  return {
-    text: pct == null ? money : `${money} (${signedPct(pct, 1)})`,
-    cls: usd > 0 ? 'green' : usd < 0 ? 'red' : '',
-  };
+  if (!(usd > 0)) return { text: '', cls: '' };
+  const money = `+$${compactUsd(usd)}`;
+  return { text: pct > 0 ? `${money} (${signedPct(pct, 1)})` : money, cls: 'green' };
 }
 
 /**
  * ENTRADAS CAL100 del token: una fila por wallet con callout ≥$100 que APARECIÓ
- * en el track (minuto en que se sumó) con el PnL de su portfolio leído en ese
- * momento. Es el PnL de toda su cartera en la ventana, no el de su posición acá.
+ * en el track (la hora en que se sumó) con el PnL de su portfolio leído en ese
+ * momento. Se listan sólo las que están en ganancia en alguna ventana (las
+ * pérdidas no se pintan). Es el PnL de toda su cartera en la ventana, no el de su
+ * posición acá. Sin PnL positivo en ninguna ventana, no hay bloque.
  */
 function cal100Block(token) {
-  const events = token?.call100Events ?? [];
+  const events = (token?.call100Events ?? []).filter((e) => (e.pnl1dUsd ?? 0) > 0 || (e.pnl1wUsd ?? 0) > 0);
   if (!events.length) return null;
   const table = el('table', { class: 'snaps cal' });
   table.append(el('thead', {}, [el('tr', {}, ['Hora', 'Wallet', 'Metió', '1D', '1W'].map((c) => el('th', { text: c })))]));

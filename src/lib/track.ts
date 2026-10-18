@@ -264,7 +264,8 @@ export interface TrackTokenSummary {
  * snapshot, en el minuto `minute` del track, con el PnL de su portfolio leído en
  * ese momento (ventanas 1d y 1w). Es una lectura de entrada, no un seguimiento —
  * y es el PnL de TODA su cartera en la ventana, no el de su posición en este
- * token.
+ * token. La UI lista sólo las entradas con alguna ventana en ganancia y deja en
+ * blanco la ventana en rojo (un null sigue siendo "sin dato").
  */
 export interface TrackCall100Event {
   /** Minuto del track en que apareció (≥2: el minuto 1 es la línea base). */

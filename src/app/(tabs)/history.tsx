@@ -899,9 +899,14 @@ function TrackDetail({ detail }: { detail?: TrackTokenDetail }) {
  * Es una lectura de entrada, no un seguimiento: la fila no se actualiza después.
  * Ojo con el significado: es el PnL de TODA la cartera de esa wallet en la
  * ventana, no el de su posición en este token.
+ *
+ * Sólo se listan las entradas con ALGUNA ventana en ganancia, y de esas filas la
+ * ventana que esté en rojo (o en cero) queda en blanco: acá interesa ver quién
+ * entró ganando, no las pérdidas. "—" sigue siendo "sin dato" (no se pudo leer o
+ * la wallet no operó), que es otra cosa.
  */
 function Call100Events({ events }: { events?: TrackCall100Event[] }) {
-  const rows = events ?? [];
+  const rows = (events ?? []).filter((e) => (e.pnl1dUsd ?? 0) > 0 || (e.pnl1wUsd ?? 0) > 0);
   if (!rows.length) return null;
   return (
     <View style={styles.calBlock}>
@@ -932,9 +937,11 @@ function Call100Events({ events }: { events?: TrackCall100Event[] }) {
 
 /**
  * PnL de una ventana para una entrada CAL100. El signo de `pnl.usd` manda (el
- * `%` acompaña, no decide). "—" en dos casos distintos pero iguales para la
- * lectura: no se pudo leer (2 intentos y nada) o la wallet NO OPERÓ en la
- * ventana (tokenCount 0) — un 0,00 de una wallet inactiva no es un empate.
+ * `%` acompaña, no decide):
+ *   positivo → se pinta en verde;
+ *   en rojo o en cero → NO se pinta (la celda queda vacía, sin chip);
+ *   "—" → no se pudo leer (2 intentos y nada) o la wallet NO OPERÓ en la ventana
+ *         (tokenCount 0) — un 0,00 de una wallet inactiva no es una pérdida.
  */
 function WindowPnl({
   label,
@@ -949,12 +956,16 @@ function WindowPnl({
 }) {
   const noTrades = tokens === 0 && usd === 0;
   const noData = usd == null || !Number.isFinite(usd) || noTrades;
+  if (!noData && usd <= 0) return null;
+  // El % acompaña sólo si también es positivo (siempre lo es cuando usd > 0,
+  // porque percentage.usd = pnl.usd / capital desplegado).
+  const pctText = !noData && pct != null && pct > 0 ? formatPct(pct, { sign: true }) : undefined;
   return (
     <MiniStat
       label={label}
       value={noData ? '—' : formatUsd(usd, { sign: true, decimals: 0 })}
-      sub={noData || pct == null ? undefined : formatPct(pct, { sign: true })}
-      valueTone={noData ? Palette.textTertiary : usd > 0 ? Palette.green : usd < 0 ? Palette.red : Palette.textSecondary}
+      sub={pctText}
+      valueTone={noData ? Palette.textTertiary : Palette.green}
     />
   );
 }
