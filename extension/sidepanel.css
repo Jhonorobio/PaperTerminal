@@ -198,29 +198,6 @@ button.tiny { padding: 3px 6px; font-size: 11px; }
 .amber { color: var(--amber); }
 .violet { color: var(--violet); }
 
-/* ── two-column boards (FOMO / Photon) ────────────────────────────────────── */
-
-.columns { display: grid; grid-template-columns: 1fr; gap: 0; }
-@media (min-width: 620px) { .columns { grid-template-columns: 1fr 1fr; } }
-
-.column { min-width: 0; border-right: 1px solid var(--line); }
-.column:last-child { border-right: 0; }
-
-.column-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 8px 10px 6px;
-  position: sticky;
-  top: 74px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line);
-  z-index: 2;
-}
-
-.column-head .name { font-size: 10px; font-weight: 800; letter-spacing: 0.9px; text-transform: uppercase; color: var(--tx-2); }
-
 /* ── config ───────────────────────────────────────────────────────────────── */
 
 .card { margin: 10px; padding: 10px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; }

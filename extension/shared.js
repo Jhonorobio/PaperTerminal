@@ -102,12 +102,13 @@ export function sanitizeAlertParams(raw) {
   };
 }
 
-/** Topics del server (idénticos a los de la app). */
+/**
+ * Topics del server que el panel usa. El server sirve cinco más (`fomo`,
+ * `fomo_trending`, `pump_trending`, `memescope`, `track:health`) pero el panel no se
+ * suscribe a los tableros de feeds: esos se filtran en el teléfono. Sus ALERTAS sí
+ * llegan (van por `alerts:{deviceId}`, que arma el worker, no por acá).
+ */
 export const TOPICS = {
-  graduated: 'fomo',
-  trending: 'fomo_trending',
-  pump: 'pump_trending',
-  memescope: 'memescope',
   track: 'track',
 };
 

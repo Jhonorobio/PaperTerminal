@@ -1,11 +1,13 @@
 # Paper Terminal — Monitor (extensión de Chrome)
 
-Un panel lateral de escritorio para **mirar** lo que el server de la app ya sirve, y para
-recibir las **mismas alertas** que llegan al teléfono, como notificación de Chrome.
+Un panel lateral de escritorio para **mirar el Track** y para recibir las **mismas alertas**
+que llegan al teléfono, como notificación de Chrome.
 
 - **Sin cuenta**: no hay cartera, no hay posiciones, no hay órdenes. El trading sigue en la app.
-- **Sin backend nuevo**: lee el mismo server (Railway) que usa el móvil — FOMO, Photon, el
-  tracker y el board Pump Trend. — por HTTP + WebSocket.
+- **Sin backend nuevo**: lee el mismo server (Railway) que usa el móvil.
+- **Sin tableros de feeds**: FOMO, Photon y Pump Trend. **no** se pintan acá porque sus filtros
+  se aplican localmente en el teléfono — un espejo en el navegador mostraría otros tokens.
+  Lo que sí llega son sus **alertas**, configuradas por dispositivo.
 - **Sin build step**: JavaScript plano y módulos ES; se carga tal cual está la carpeta.
 
 ## Instalar
@@ -21,15 +23,12 @@ Requiere Chrome 120+ (usa `chrome.sidePanel` y `chrome.alarms` con período de 1
 | Pestaña | De dónde sale |
 | --- | --- |
 | **Alertas** | `GET /api/notifications/history` + el push en vivo del topic `alerts:{deviceId}` |
-| **FOMO** | topics `fomo` (Graduados) y `fomo_trending` |
-| **Photon** | topic `memescope` (columnas New y Graduated, tal cual las sirve el server) |
 | **Track** | topic `track`; el detalle de un token (tabla de snapshots) va por `GET /api/track/:address` |
-| **Pump** | topic `pump_trending` (top 5 del board) |
-| **Ajustes** | server, categorías, umbrales y "Probar alerta" |
+| **Ajustes** | server, categorías de alerta, umbrales del Track y "Probar alerta" |
 
-Click en una fila → abre el token en GMGN (el panel no opera). En **Track**, click abre la
-tabla de snapshots minuto a minuto del token (mcap, volumen, holders, TP, bundle%, chat,
-tesis, TOP·D, CAL, salud y señal).
+Click en una fila de **Track** → tabla de snapshots minuto a minuto del token (mcap, volumen,
+holders, TP, bundle%, chat, tesis, TOP·D, CAL, salud y señal). En **Alertas**, click → abre el
+token en GMGN (el panel no opera).
 
 ## Alertas
 
@@ -46,6 +45,8 @@ con `push_token: null` — una extensión no puede tener token de Expo): el serv
   gesto, cae a abrir GMGN en una pestaña.
 - Los **umbrales del Track** (chat ≥ wallets, tesis ≥, TOP·D ≥) son por dispositivo y viven en
   el server, igual que en la app: podés tener el teléfono y el navegador con reglas distintas.
+- Las categorías de feeds (FOMO, Photon, Pump Trend.) están en Ajustes y avisan igual, aunque
+  el panel no tenga sus tableros.
 
 Las categorías del Track se evalúan en el **snapshot de entrada** del token, una vez por
 token, en el server. O sea: la extensión no calcula nada — solo muestra y avisa.
@@ -72,14 +73,14 @@ extension/
   background.js     service worker: WS de alertas + notificaciones de Chrome + fallback
   sidepanel.html    el marco (header, tabs, main)
   sidepanel.css     la paleta de la app (src/constants/paper.ts)
-  sidepanel.js      los tableros, la lista de alertas y el detalle del Track
+  sidepanel.js      el Track, la lista de alertas, el detalle y los ajustes
   shared.js         taxonomía de alertas, settings, API/WS y formateadores (worker + panel)
   icons/            los íconos (tomados de assets/images/icon.png de la app)
 ```
 
 ## Limitaciones conocidas
 
-- El panel mantiene su **propia** conexión WebSocket para los tableros (el worker tiene la de
+- El panel mantiene su **propia** conexión WebSocket para el Track (el worker tiene la de
   alertas): son dos sockets contra el server por navegador abierto.
 - `chrome.sidePanel.open()` exige un gesto de usuario: el click en la notificación cuenta,
   pero si Chrome lo rechaza el click abre GMGN en una pestaña.

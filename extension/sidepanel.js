@@ -1,14 +1,17 @@
 /**
  * Paper Terminal — Monitor · side panel
  *
- * Los cuatro tableros que el server ya sirve (FOMO graduados/trending, Photon
- * memescope, Track y el board Pump Trend.) más la lista de alertas de este
- * dispositivo. Los tableros llegan por WebSocket (el server manda el snapshot
- * completo en cada push, así que un frame perdido se auto-cura); el historial de
- * alertas y el detalle de un token del Track van por HTTP.
+ * Dos cosas, nada más:
+ *   1. Las ALERTAS de este dispositivo (historial por HTTP + el push en vivo que el
+ *      service worker recibe y reenvía), configuradas con las mismas categorías y
+ *      umbrales por dispositivo que la app.
+ *   2. El TRACK: la lista del tracker en vivo (topic `track`) y el detalle minuto a
+ *      minuto de un token (HTTP).
  *
- * Las alertas en sí las pinta el service worker (notificación de Chrome) y nos las
- * reenvía por runtime message para que aparezcan acá en vivo.
+ * Los tableros de FOMO, Photon y Pump Trend. NO están acá a propósito: los filtros de
+ * esos feeds viven en el teléfono (se aplican localmente por dispositivo), así que un
+ * espejo en el navegador mostraría otra cosa. Sus alertas, en cambio, sí están: llegan
+ * del server y se configuran en Ajustes como cualquier otra.
  */
 
 import {
@@ -19,7 +22,6 @@ import {
   DEFAULT_CATEGORIES,
   DEFAULT_SERVER,
   TOPICS,
-  ageMinutesOf,
   apiCall,
   categoryGroup,
   clockOf,
@@ -46,11 +48,6 @@ const state = {
   notificationsOn: true,
   feeds: { connected: false, error: null },
   alertsConnected: false,
-  fomo: { fomo: [], fomo_trending: [] },
-  pump: [],
-  pumpAt: 0,
-  memescope: null,
-  memescopeAt: 0,
   track: null,
   trackAt: 0,
   alerts: [],
@@ -110,7 +107,7 @@ function tokenRow({ symbol, sub, chips = [], side = [], tone, onClick, title }) 
   ]);
 }
 
-// ── WebSocket de los tableros ─────────────────────────────────────────────────
+// ── WebSocket del Track ───────────────────────────────────────────────────────
 
 let socket = null;
 let pingTimer = null;
@@ -153,9 +150,7 @@ function connectFeeds() {
 
   next.onopen = () => {
     state.feeds = { connected: true, error: null };
-    for (const topic of [TOPICS.graduated, TOPICS.trending, TOPICS.pump, TOPICS.memescope, TOPICS.track]) {
-      send({ action: 'subscribe', topic });
-    }
+    send({ action: 'subscribe', topic: TOPICS.track });
     pingTimer = setInterval(() => send({ action: 'ping' }), PING_MS);
     scheduleRender('all');
   };
@@ -168,20 +163,8 @@ function connectFeeds() {
       return;
     }
     if (msg.event === 'pong' || msg.event === 'connected') return;
-    const data = msg.data ?? {};
-    if (msg.topic === TOPICS.graduated || msg.topic === TOPICS.trending) {
-      state.fomo[msg.topic] = Array.isArray(data.tokens) ? data.tokens : [];
-      scheduleRender('fomo');
-    } else if (msg.topic === TOPICS.pump) {
-      state.pump = Array.isArray(data.tokens) ? data.tokens : [];
-      state.pumpAt = Date.now();
-      scheduleRender('pump');
-    } else if (msg.topic === TOPICS.memescope) {
-      state.memescope = data;
-      state.memescopeAt = Date.now();
-      scheduleRender('photon');
-    } else if (msg.topic === TOPICS.track) {
-      state.track = data;
+    if (msg.topic === TOPICS.track) {
+      state.track = msg.data ?? null;
       state.trackAt = Date.now();
       scheduleRender('track');
     }
@@ -206,7 +189,7 @@ function connectFeeds() {
   };
 }
 
-/** Un frame de memescope llega cada ~1.3 s: renderizamos con techo, no por frame. */
+/** Un frame del tracker llega seguido: renderizamos con techo, no por frame. */
 function scheduleRender(scope) {
   renderScope = scope;
   if (renderTimer) return;
@@ -292,13 +275,18 @@ function render() {
 
 function updateCounts() {
   document.getElementById('count-alerts').textContent = String(state.alerts.length);
-  document.getElementById('count-fomo').textContent = String(state.fomo.fomo.length + state.fomo.fomo_trending.length);
-  document.getElementById('count-track').textContent = String(state.track?.tokens?.length ?? 0);
+  // El badge del Track cuenta los ACTIVOS (lo que el ojo sigue), no los 500 cortados:
+  // el toolbar igual muestra "activos/total".
+  const tracked = state.track?.tokens ?? [];
+  const active = tracked.filter((token) => token.status === 'active').length;
+  const trackBadge = document.getElementById('count-track');
+  trackBadge.textContent = String(active);
+  trackBadge.title = `${active} activos de ${tracked.length} trackeados`;
   const dot = document.getElementById('conn-dot');
   const feeds = state.feeds.connected;
   const alerts = state.alertsConnected;
   dot.className = `dot ${feeds && alerts ? 'on' : feeds || alerts ? 'warn' : 'off'}`;
-  document.getElementById('conn-text').textContent = `${hostOf(state.serverBase)} · feeds ${feeds ? '✓' : '✗'} · alertas ${alerts ? '✓' : '✗'}`;
+  document.getElementById('conn-text').textContent = `${hostOf(state.serverBase)} · track ${feeds ? '✓' : '✗'} · alertas ${alerts ? '✓' : '✗'}`;
   const last = state.alerts[0]?.notified_at;
   document.getElementById('alert-status').textContent = last ? `últ. ${clockOf(last)}` : state.notificationsOn ? 'sin alertas' : 'avisos off';
 }
@@ -312,10 +300,7 @@ function hostOf(base) {
 }
 
 function viewFor(tab) {
-  if (tab === 'fomo') return [renderFomo()];
-  if (tab === 'photon') return [renderPhoton()];
   if (tab === 'track') return [renderTrack()];
-  if (tab === 'pump') return [renderPump()];
   if (tab === 'config') return [renderConfig()];
   return [renderAlerts()];
 }
@@ -393,102 +378,6 @@ async function testAlert() {
     ? 'Alerta de prueba enviada — debería aparecer la notificación y la fila acá.'
     : `No se pudo probar: ${result?.error ?? 'sin respuesta del service worker'}`;
   scheduleRender('all');
-}
-
-// ── FOMO ──────────────────────────────────────────────────────────────────────
-
-function renderFomo() {
-  const column = (title, tokens) =>
-    el('div', { class: 'column' }, [
-      el('div', { class: 'column-head' }, [
-        el('span', { class: 'name', text: title }),
-        el('span', { class: 'muted', text: `${tokens.length}` }),
-      ]),
-      tokens.length
-        ? el(
-            'div',
-            { class: 'rows' },
-            tokens.map((token) => fomoRow(token)),
-          )
-        : el('div', { class: 'empty', text: 'Sin datos todavía…' }),
-    ]);
-
-  return el('div', {}, [
-    state.feeds.error ? el('div', { class: 'banner err', text: `Feed: ${state.feeds.error}` }) : null,
-    el('div', { class: 'columns' }, [
-      column('Graduados', state.fomo[TOPICS.graduated] ?? []),
-      column('Trending', state.fomo[TOPICS.trending] ?? []),
-    ]),
-  ]);
-}
-
-function fomoRow(token, rank) {
-  const age = ageMinutesOf(token.createdAt);
-  return tokenRow({
-    symbol: `${rank ? `#${rank} ` : ''}${token.symbol || token.name || token.address.slice(0, 6)}`,
-    sub:
-      [token.launchpad, age == null ? null : `${age}m`].filter(Boolean).join(' · ') ||
-      timeAgo(new Date(token.updatedAt ?? Date.now()).toISOString()),
-    chips: [chipNum('KOL', token.kolCount, 'violet'), chipNum('H', token.holders)],
-    side: [
-      el('span', { class: 'mcap', text: `$${compactUsd(token.mcap)}` }),
-      token.change24 == null
-        ? el('span', { class: 'muted', text: `v $${compactUsd(token.vol24)}` })
-        : el('span', { class: token.change24 >= 0 ? 'green' : 'red', text: signedPct(token.change24, 1) }),
-    ],
-    onClick: () => openOnGmgn(token.address),
-  });
-}
-
-// ── Photon (memescope) ────────────────────────────────────────────────────────
-
-function renderPhoton() {
-  const snapshot = state.memescope;
-  if (!snapshot?.columns) {
-    return el('div', { class: 'empty', text: state.feeds.connected ? 'Photon todavía no mandó columnas…' : 'Conectando al server…' });
-  }
-  const titles = snapshot.titles ?? {};
-  const column = (key) => {
-    const items = snapshot.columns?.[key]?.data ?? [];
-    return el('div', { class: 'column' }, [
-      el('div', { class: 'column-head' }, [
-        el('span', { class: 'name', text: titles[key] ?? key }),
-        el('span', { class: 'muted', text: `${items.length}` }),
-      ]),
-      items.length ? el('div', { class: 'rows' }, items.map((item) => photonRow(item?.attributes ?? {}))) : el('div', { class: 'empty', text: 'Columna vacía.' }),
-    ]);
-  };
-  return el('div', {}, [
-    el('div', { class: 'banner info', text: `Photon ${snapshot.ageMs != null ? `${Math.round(snapshot.ageMs / 1000)}s` : '—'} de antigüedad${snapshot.error ? ` · ${snapshot.error}` : ''}` }),
-    el('div', { class: 'columns' }, [column('col1'), column('col3')]),
-  ]);
-}
-
-function photonRow(a) {
-  const address = a.tokenAddress || a.address || '';
-  const mcap = numOrNull(a.fdv);
-  const ath = numOrNull(a.ath);
-  return tokenRow({
-    symbol: a.symbol || a.name || address.slice(0, 6),
-    sub: [a.holders_count != null ? `${a.holders_count}H` : null, a.tp_holders_count != null ? `${a.tp_holders_count}TP` : null, a.buys_count != null ? `${a.buys_count} buys` : null]
-      .filter(Boolean)
-      .join(' · '),
-    chips: [
-      chipNum('fresh', a.fresh_holding_perc != null ? `${Number(a.fresh_holding_perc).toFixed(1)}%` : null, 'amber'),
-      chipNum('bundle', a.bundle_holding_perc != null ? `${Number(a.bundle_holding_perc).toFixed(0)}%` : null),
-      a.audit?.top_holders_perc != null ? chip(`top ${Number(a.audit.top_holders_perc).toFixed(0)}%`) : null,
-    ],
-    side: [
-      el('span', { class: 'mcap', text: `$${compactUsd(mcap)}` }),
-      ath && mcap ? el('span', { class: mcap >= ath ? 'green' : 'muted', text: `vs ATH ${signedPct((mcap / ath - 1) * 100)}` }) : el('span', { class: 'muted', text: `v $${compactUsd(a.volume)}` }),
-    ],
-    onClick: () => openOnGmgn(address),
-  });
-}
-
-function numOrNull(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
 }
 
 // ── Track ─────────────────────────────────────────────────────────────────────
@@ -652,22 +541,6 @@ function renderDetail() {
   return el('div', { class: 'modal', onclick: (event) => { if (event.target === event.currentTarget) close(); } }, [el('div', { class: 'modal-card' }, [head, body])]);
 }
 
-// ── Pump Trend. ───────────────────────────────────────────────────────────────
-
-function renderPump() {
-  if (!state.pump.length) {
-    return el('div', { class: 'empty', text: state.feeds.connected ? 'El board todavía no mandó su top 5…' : 'Conectando al server…' });
-  }
-  return el('div', {}, [
-    el('div', { class: 'banner info', text: `Top ${state.pump.length} de pump.fun · actualizado hace ${state.pumpAt ? timeAgo(new Date(state.pumpAt).toISOString()) : '—'}` }),
-    el(
-      'div',
-      { class: 'rows' },
-      state.pump.map((token, index) => fomoRow(token, index + 1)),
-    ),
-  ]);
-}
-
 // ── Ajustes ───────────────────────────────────────────────────────────────────
 
 function renderConfig() {
@@ -738,7 +611,7 @@ function renderConfig() {
       ),
     ]);
 
-  nodes.push(group('Feeds', ALERT_CATEGORIES.filter((id) => categoryGroup(id) === 'feeds')));
+  nodes.push(group('Feeds (alerta, sin tablero acá)', ALERT_CATEGORIES.filter((id) => categoryGroup(id) === 'feeds')));
   nodes.push(
     group(
       'Track (entrada del token)',
@@ -784,9 +657,10 @@ function renderConfig() {
       el('p', {
         class: 'note',
         text:
-          'Este panel lee el server que ya usás en el teléfono: FOMO, Photon, el tracker y el board Pump Trend. No hay cuenta ni ' +
-          'cartera acá — el trading sigue en la app. Las alertas son las mismas del server, con su categoría y sus umbrales, y se ' +
-          'avisan con una notificación de Chrome; hacer click abre este panel en el token (o GMGN si no se puede).',
+          'Este panel hace dos cosas: las alertas de este dispositivo (con sus categorías y sus umbrales) y el tracker. No hay ' +
+          'cuenta ni cartera acá — el trading sigue en la app, y los tableros de FOMO/Photon/Pump tampoco están: sus filtros se ' +
+          'aplican en el teléfono, así que un espejo mostraría otra cosa. Las alertas se avisan con una notificación de Chrome; ' +
+          'hacer click abre este panel en el token (o GMGN si Chrome no lo permite).',
       }),
     ]),
   );
