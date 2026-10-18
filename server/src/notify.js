@@ -37,6 +37,7 @@ const LABELS = {
   track_chat: 'Track CHAT',
   track_tesis: 'Track TESIS',
   track_top: 'Track TOP',
+  track_cal100_pos: 'Track CAL100+',
 };
 
 /**
@@ -167,6 +168,28 @@ export function emitToken(category, token) {
  */
 export const TRACK_ENTRY_CATEGORIES = ['track_cal_chat', 'track_core', 'track_chat_tesis', 'track_chat', 'track_tesis', 'track_top'];
 
+/**
+ * TRACK CAL100+ — la entrada CAL100 (fuente 10, ver track.js) cuando el barrido
+ * le resuelve el PnL y la deja EN VERDE.
+ *
+ * No vive en TRACK_ENTRY_CATEGORIES por una razón dura: las de arriba se evalúan
+ * en el snapshot de ENTRADA, y acá el dato no está en el snapshot — el PnL lo trae
+ * sweepCall100 segundos (o un par de minutos) después, 2 requests por wallet y 3
+ * en paralelo. ESE es el momento en que se conoce el signo, así que el aviso sale
+ * desde el barrido (ver el gancho en track.js).
+ *
+ * Sin umbral a propósito (decisión del usuario): avisa CADA wallet que resuelve en
+ * verde, sin piso de monto ni de PnL. Medido en prod el 18/oct: ~28 wallets
+ * positivas por hora de track —es la categoría más ruidosa de todas; si cansa, el
+ * piso natural es un conteo por token, como las otras seis.
+ *
+ * "Verde" = alguna ventana > 0 (1d o 1w), la MISMA regla que pinta la UI (ver
+ * WindowPnl en la app y cal100Cell en el panel): la ventana en rojo no cuenta.
+ * El "una sola vez" es por token+wallet, no por token: el mismo token avisa por
+ * 2, 3, … wallets porque la unidad es la entrada, no el token.
+ */
+export const TRACK_CAL100_CATEGORY = 'track_cal100_pos';
+
 /** La regla "chico y tranquilo": poca gente con posición abierta y ninguna tesis. */
 const CORE_POS_TOTAL_MAX = 56;
 
@@ -274,6 +297,90 @@ export function emitTrackEntry(category, token) {
         title: `${token.symbol || token.name || 'Token'} — ${LABELS[category]}`,
         body: rule.body(token, params),
         data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category },
+      }).catch(() => {});
+    }
+  }
+
+  trimHistory();
+  return true;
+}
+
+/** Dirección corta — la misma forma que la app y el panel (5…4). */
+const shortAddr = (address) => {
+  const a = String(address ?? '');
+  return a.length > 12 ? `${a.slice(0, 5)}…${a.slice(-4)}` : a;
+};
+
+/**
+ * Texto del aviso CAL100+ (y de la notificación de Chrome, que lo lee del
+ * historial — ver alertBody en el panel): la wallet que entró, cuánto metió y
+ * SÓLO las ventanas en verde. Los montos van redondeados hasta $999 (el `toFixed`
+ * de compact deja "989.00", que en un aviso se ve sucio).
+ */
+function cal100Body(token, ev) {
+  const money = (n) => (Math.abs(n) >= 1000 ? `$${compact(n)}` : `$${Math.round(n)}`);
+  const wins = [];
+  if ((ev.pnl1dUsd ?? 0) > 0) wins.push(`1D +${money(ev.pnl1dUsd)}`);
+  if ((ev.pnl1wUsd ?? 0) > 0) wins.push(`1W +${money(ev.pnl1wUsd)}`);
+  const parts = [shortAddr(ev.address)];
+  if (ev.usd != null) parts.push(`metió ${money(ev.usd)}`);
+  if (wins.length) parts.push(wins.join(' · '));
+  if (token.mcap != null) parts.push(`MCap $${compact(token.mcap)}`);
+  return parts.join(' · ');
+}
+
+/**
+ * Avisa que una entrada CAL100 quedó en verde. La llama sweepCall100 (track.js) en
+ * el momento en que el barrido escribe el PnL — el único punto donde se conoce el
+ * signo. Sin umbral: el llamador ya decidió que hay verde.
+ *
+ * `token` es la identidad del token (symbol/name/logo/mcap/volume/holders) y `ev`
+ * la fila de la entrada (ver TrackCall100Event en src/lib/track.ts).
+ *
+ * Una vez por token+wallet: el barrido reescribe una fila con una ventana null
+ * hasta CALL100_MAX_TRIES, y esa segunda lectura no debe volver a avisar.
+ */
+export function emitTrackCal100Pos(token, ev) {
+  const key = `${TRACK_CAL100_CATEGORY}:${token.address}:${ev.address}`;
+  if (trackEntrySeen.has(key)) return false;
+  trackEntrySeen.set(key, { at: Date.now() });
+
+  const all = trackEntrySeen.getAll();
+  const keys = Object.keys(all);
+  if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) trackEntrySeen.delete(k);
+
+  const body = cal100Body(token, ev);
+  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[TRACK_CAL100_CATEGORY]);
+  for (const device of devices) {
+    const entry = notificationHistory.add({
+      device_id: device.device_id,
+      category: TRACK_CAL100_CATEGORY,
+      address: token.address,
+      chain: 'sol',
+      symbol: token.symbol ?? null,
+      name: token.name ?? null,
+      logo: token.logo ?? null,
+      mcap: token.mcap ?? null,
+      liq: null,
+      vol24h: token.volume ?? null,
+      holders: token.holders ?? null,
+      kolCount: null,
+      ageMinutes: null,
+      // Texto propio: el detalle (wallet, montos, PnL) no entra en los campos
+      // fijos del historial. El panel lo prefiere sobre su propio resumen.
+      body,
+      notified_at: new Date().toISOString(),
+    });
+
+    // 1. In-app panel: private WS topic, painted by the app wherever it is.
+    sendToDevice(device.device_id, { event: 'alert', data: entry });
+
+    // 2. System push: for when the app is not in the foreground.
+    if (isValidPushToken(device.push_token)) {
+      void sendPush(device.push_token, {
+        title: `${token.symbol || token.name || 'Token'} — ${LABELS[TRACK_CAL100_CATEGORY]}`,
+        body,
+        data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category: TRACK_CAL100_CATEGORY },
       }).catch(() => {});
     }
   }

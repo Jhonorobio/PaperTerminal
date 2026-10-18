@@ -209,6 +209,9 @@ function normalizeEntry(raw) {
     mcap: numOrNull(raw.mcap),
     vol24h: numOrNull(raw.vol24h),
     holders: numOrNull(raw.holders),
+    // Texto del aviso cuando el server lo manda ya armado (CAL100+: wallet, montos
+    // y PnL no entran en los campos fijos del historial).
+    body: typeof raw.body === 'string' && raw.body ? raw.body : null,
     notified_at: raw.notified_at ?? new Date().toISOString(),
   };
 }
@@ -218,13 +221,17 @@ function numOrNull(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Cuerpo del aviso: la regla que disparó + los números del token. */
+/**
+ * Cuerpo del aviso: la regla que disparó + los números del token. Si el server ya
+ * mandó el texto armado (`entry.body`, hoy sólo CAL100+), ese manda.
+ */
 function alertBody(entry) {
   const bits = [];
   if (entry.mcap) bits.push(`MCap $${compactUsd(entry.mcap)}`);
   if (entry.vol24h) bits.push(`Vol $${compactUsd(entry.vol24h)}`);
   if (entry.holders) bits.push(`${entry.holders} holders`);
-  return [CATEGORY_HINTS[entry.category] ?? null, bits.join(' · ') || null].filter(Boolean).join(' — ') || 'Alerta del server';
+  const detail = entry.body ?? (bits.join(' · ') || null);
+  return [CATEGORY_HINTS[entry.category] ?? null, detail].filter(Boolean).join(' — ') || 'Alerta del server';
 }
 
 function showNotification(entry) {

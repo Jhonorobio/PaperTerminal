@@ -31,7 +31,7 @@ import { photonLogo } from './logo-proxy.js';
 import { clearTrack, getTrackConfig, getTrackStatus, getTrackToken, listTrackTokens, setTrackConfig, snapshotsWithHealth, summarizeTrackToken, testTrackProxy, TRACK_SNAPSHOT_MAX, TRACK_TOKENS_MAX } from './track.js';
 import { notificationConfig, notificationHistory } from './stores.js';
 import { getPushReceipt, isValidPushToken, sendPush } from './push.js';
-import { TRACK_ENTRY_CATEGORIES, sanitizeTrackParams } from './notify.js';
+import { TRACK_ENTRY_CATEGORIES, TRACK_CAL100_CATEGORY, sanitizeTrackParams } from './notify.js';
 import { sendToDevice } from './ws.js';
 import { clientCount, getSubscriptions } from './ws.js';
 
@@ -44,6 +44,9 @@ const CATEGORIES = [
   'photon_new',
   'photon_graduated',
   ...TRACK_ENTRY_CATEGORIES,
+  // La del Track que NO se evalúa en el snapshot de entrada sino cuando el
+  // barrido CAL100 resuelve el PnL (ver TRACK_CAL100_CATEGORY en notify.js).
+  TRACK_CAL100_CATEGORY,
 ];
 
 function deviceId(req) {

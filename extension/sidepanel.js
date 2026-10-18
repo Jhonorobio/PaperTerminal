@@ -94,8 +94,8 @@ function toneOfHealth(health) {
   return health === 'green' ? 'green' : health === 'red' ? 'red' : health === 'amber' ? 'amber' : null;
 }
 
-/** Fila de token: main (símbolo + sub + chips) · lado derecho (mcap y extra). */
-function tokenRow({ symbol, sub, chips = [], side = [], tone, onClick, title }) {
+/** Fila de token: main (símbolo + sub + chips + nota) · lado derecho (mcap y extra). */
+function tokenRow({ symbol, sub, chips = [], side = [], tone, onClick, title, note }) {
   return el('div', { class: 'row', onclick: onClick, title }, [
     el('div', { class: 'row-main' }, [
       el('div', { class: 'row-top' }, [
@@ -103,6 +103,9 @@ function tokenRow({ symbol, sub, chips = [], side = [], tone, onClick, title }) 
         sub ? el('span', { class: 'sub', text: sub }) : null,
       ]),
       chips.filter(Boolean).length ? el('div', { class: 'chips' }, chips.filter(Boolean)) : null,
+      // Línea suelta para lo que no entra en chips (hoy: el detalle de la entrada
+      // CAL100+ que arma el server en `body`).
+      note ? el('span', { class: 'row-note', text: note }) : null,
     ]),
     el('div', { class: 'row-side' }, side.filter(Boolean)),
   ]);
@@ -365,6 +368,9 @@ function renderAlerts() {
           ],
           side: [el('span', { class: 'muted', text: timeAgo(alert.notified_at) }), el('span', { class: 'muted', text: '↗' })],
           title: CATEGORY_HINTS[alert.category] ?? '',
+          // CAL100+ manda el detalle armado (wallet, montos, PnL) en `body`; el resto
+          // de las categorías no lo trae y la fila queda como estaba.
+          note: alert.body ?? '',
           onClick: () => openOnGmgn(alert.address),
         }),
       ),

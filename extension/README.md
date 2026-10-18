@@ -31,7 +31,8 @@ holders, TP, bundle%, chat, tesis, TOP·D, CAL, salud y señal). Arriba de la ta
 **entradas CAL100**: una fila por wallet con callout ≥$100 que apareció *después* de que el
 track empezara a mirar ese token, con el PnL de su portfolio (1d y 1w) leído en ese momento
 — es el PnL de toda su cartera, no el de su posición en el token. Sólo se listan las que están
-en ganancia en alguna ventana (la ventana en rojo no se pinta). También sale del server.
+en ganancia en alguna ventana (la ventana en rojo no se pinta). Cada una de esas filas en verde
+**también dispara el aviso `Track CAL100+`** (ver Alertas). También sale del server.
 En **Alertas**, click → abre el token en GMGN (el panel no opera).
 
 ## Alertas
@@ -52,8 +53,14 @@ con `push_token: null` — una extensión no puede tener token de Expo): el serv
 - Las categorías de feeds (FOMO, Photon, Pump Trend.) están en Ajustes y avisan igual, aunque
   el panel no tenga sus tableros.
 
-Las categorías del Track se evalúan en el **snapshot de entrada** del token, una vez por
-token, en el server. O sea: la extensión no calcula nada — solo muestra y avisa.
+Las 6 categorías de entrada del Track se evalúan en el **snapshot de entrada** del token, una
+vez por token, en el server. O sea: la extensión no calcula nada — solo muestra y avisa.
+
+**`Track CAL100+` es la excepción en las dos cosas**: no se evalúa en el snapshot (el PnL de la
+wallet no está ahí, lo trae el barrido de entradas CAL100 unos segundos después) y **no es una
+vez por token sino por cada wallet**: avisa cada entrada que el barrido deja en verde, en 1d o
+en 1w, sin piso de monto. Es la categoría más ruidosa (medido: ~28 avisos por hora de track) y
+nace ON porque la pediste así; el interruptor está en Ajustes, junto a las demás.
 
 ## Permisos
 

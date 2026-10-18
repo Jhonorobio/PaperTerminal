@@ -170,6 +170,7 @@ button.tiny { padding: 3px 6px; font-size: 11px; }
 .row-top { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .sym { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub { color: var(--tx-3); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-note { color: var(--tx-3); font-size: 10px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
 .chips { display: flex; flex-wrap: wrap; gap: 3px; }
 

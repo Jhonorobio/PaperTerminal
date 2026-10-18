@@ -13,7 +13,7 @@
 /** Server del que cuelga todo (el mismo de la app; en Ajustes se puede cambiar). */
 export const DEFAULT_SERVER = 'https://paperterminal-production.up.railway.app';
 
-/** Taxonomía del server — mismas 11 categorías que la pantalla Notificaciones de la app. */
+/** Taxonomía del server — mismas 12 categorías que la pantalla Notificaciones de la app. */
 export const ALERT_CATEGORIES = [
   'fomo_graduated',
   'fomo_trending',
@@ -26,16 +26,22 @@ export const ALERT_CATEGORIES = [
   'track_chat',
   'track_tesis',
   'track_top',
+  'track_cal100_pos',
 ];
 
-/** Las 6 del Track: se evalúan en el snapshot de ENTRADA del token (server-side). */
-export const TRACK_ENTRY_CATEGORIES = [
+/**
+ * Las del Track (server-side). Las 6 primeras se evalúan en el snapshot de ENTRADA
+ * del token; `track_cal100_pos` no: avisa cuando el barrido CAL100 le resuelve el
+ * PnL a una entrada y la deja en verde (por eso no lleva umbral).
+ */
+export const TRACK_CATEGORIES = [
   'track_cal_chat',
   'track_core',
   'track_chat_tesis',
   'track_chat',
   'track_tesis',
   'track_top',
+  'track_cal100_pos',
 ];
 
 export const CATEGORY_LABELS = {
@@ -50,6 +56,7 @@ export const CATEGORY_LABELS = {
   track_chat: 'Track CHAT',
   track_tesis: 'Track TESIS',
   track_top: 'Track TOP·D',
+  track_cal100_pos: 'Track CAL100+',
 };
 
 /** La regla detrás de cada categoría — va como primera línea del cuerpo del aviso. */
@@ -65,12 +72,14 @@ export const CATEGORY_HINTS = {
   track_chat: 'Entrada: chat',
   track_tesis: 'Entrada: tesis',
   track_top: 'Entrada: TOP·D',
+  track_cal100_pos: 'Entrada: wallet CAL100 en verde',
 };
 
 /**
- * Defaults del dispositivo. Espejo de la app: Pump Trend. nace ON (es la categoría de
- * menor ruido — el board cambia pocas veces al día); las 6 del Track nacen OFF porque
- * son opt-in con umbral propio.
+ * Defaults del dispositivo. Espejo de la app: Pump Trend. y CAL100+ nacen ON (la
+ * primera es la de menor ruido; la segunda la pidió el usuario tal cual, sin piso:
+ * ~28 avisos/hora de track); las 6 del Track nacen OFF porque son opt-in con
+ * umbral propio.
  */
 export const DEFAULT_CATEGORIES = {
   fomo_graduated: false,
@@ -84,6 +93,7 @@ export const DEFAULT_CATEGORIES = {
   track_chat: false,
   track_tesis: false,
   track_top: false,
+  track_cal100_pos: true,
 };
 
 /** Umbrales del Track (por dispositivo en el server); defaults = los medidos. */
@@ -200,9 +210,9 @@ export async function getDeviceId() {
   return id;
 }
 
-/** 'feeds' (FOMO/Photon/Pump) o 'track' (las de entrada del tracker) — agrupa la UI. */
+/** 'feeds' (FOMO/Photon/Pump) o 'track' (las del tracker) — agrupa la UI. */
 export function categoryGroup(category) {
-  return TRACK_ENTRY_CATEGORIES.includes(category) ? 'track' : 'feeds';
+  return TRACK_CATEGORIES.includes(category) ? 'track' : 'feeds';
 }
 
 // ── formateadores (mismos números que la app, sin Intl raro) ──────────────────

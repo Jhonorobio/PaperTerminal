@@ -36,7 +36,7 @@ import initCycleTLS from 'cycletls';
 import { buildQuery, HEADERS, SEARCH_URL, sanitizeColumnFilters } from './photon.js';
 import { getAccessToken } from './fomo.js';
 import { getEffectiveProxy } from './proxy-config.js';
-import { emitTrackEntry, TRACK_ENTRY_CATEGORIES } from './notify.js';
+import { emitTrackEntry, TRACK_ENTRY_CATEGORIES, emitTrackCal100Pos } from './notify.js';
 import { broadcast, getSubscriptions, registerTopicProvider } from './ws.js';
 import { normalizeProxy } from './proxy-config.js';
 import { trackConfig, trackTokens } from './stores.js';
@@ -758,6 +758,29 @@ function sweepCall100() {
         event.tries = (event.tries ?? 0) + 1;
         trackTokens.set(job.address, live);
         maybeBroadcast(true);
+        // Aviso CAL100+ (ver emitTrackCal100Pos en notify.js): la fila quedó EN
+        // VERDE —alguna ventana > 0, la misma regla que pinta la UI— y este es el
+        // único momento en que eso se sabe: el PnL no está en el snapshot, lo trajo
+        // este barrido. Sin umbral (decisión del usuario) y una vez por token+wallet
+        // (dedupe del emisor): una fila con una ventana null se reintenta y esa
+        // segunda lectura no debe avisar de nuevo.
+        if ((event.pnl1dUsd ?? 0) > 0 || (event.pnl1wUsd ?? 0) > 0) {
+          const lastSnap = live?.snapshots?.[live.snapshots.length - 1];
+          // Identidad del token para el aviso: symbol/name/logo viven en el tracked
+          // y el mcap/vol/holders en su último snapshot (la fila no los trae).
+          emitTrackCal100Pos(
+            {
+              address: job.address,
+              symbol: live?.symbol ?? null,
+              name: live?.name ?? null,
+              logo: live?.logo ?? null,
+              mcap: lastSnap?.mcap ?? null,
+              volume: lastSnap?.volume ?? null,
+              holders: lastSnap?.holders ?? null,
+            },
+            event,
+          );
+        }
       })
       .catch(() => {
         /* la fila queda sin dato y el próximo barrido reintenta */
