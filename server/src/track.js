@@ -1180,7 +1180,6 @@ async function trackTick() {
             thesesCount: snapNow.thesesCount,
             topDaily: snapNow.topDaily,
             callout100to500: snapNow.callout100to500,
-            posHoldersTotal: snapNow.posHoldersTotal,
           };
           for (const category of TRACK_ENTRY_CATEGORIES) emitTrackEntry(category, alertToken);
         }

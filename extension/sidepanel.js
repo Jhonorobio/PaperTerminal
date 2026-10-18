@@ -703,7 +703,7 @@ function renderConfig() {
       el('p', {
         class: 'note',
         text:
-          'Mismos umbrales que la app y por dispositivo (el server guarda los de este navegador aparte). Las 6 reglas del Track se ' +
+          'Mismos umbrales que la app y por dispositivo (el server guarda los de este navegador aparte). Las 5 reglas del Track se ' +
           'evalúan en el snapshot de ENTRADA del token, una vez por token.',
       }),
       el('div', { class: 'chips' }, [

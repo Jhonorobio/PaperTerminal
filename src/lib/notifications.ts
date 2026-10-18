@@ -4,10 +4,10 @@
  *
  * Categories (the server's alert taxonomy):
  *   fomo_graduated · fomo_trending · pump_trending · photon_new · photon_graduated
- *   track_cal_chat · track_core · track_chat_tesis · track_chat · track_tesis · track_top
+ *   track_cal_chat · track_chat_tesis · track_chat · track_tesis · track_top
  *   track_cal100_pos
  *
- * The six track_* entry alerts fire at the token's ENTRY snapshot (see TRACK_RULES
+ * The five track_* entry alerts fire at the token's ENTRY snapshot (see TRACK_RULES
  * in server/src/notify.js) and the chat/tesis/top thresholds are per device
  * (AlertParams, edited on the Notifications screen).
  *
@@ -60,7 +60,6 @@ export const ALERT_CATEGORIES = [
   'photon_new',
   'photon_graduated',
   'track_cal_chat',
-  'track_core',
   'track_chat_tesis',
   'track_chat',
   'track_tesis',
@@ -72,8 +71,7 @@ export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
 /**
  * Track entry alerts fire at the token's ENTRY snapshot (minute 0). Chat, thesis
  * and top thresholds are per device; the defaults are the measured ones (see
- * TRACK_RULES in server/src/notify.js). `track_core` has no threshold: it is the
- * measured rule as-is (posTot<56 + no thesis).
+ * TRACK_RULES in server/src/notify.js).
  */
 export interface AlertParams {
   chatWalletsMin: number;

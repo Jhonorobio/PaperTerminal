@@ -32,7 +32,6 @@ const LABELS = {
   photon_graduated: 'Photon Graduated',
   // Alertas del Track (ver TRACK_ENTRY_CATEGORIES): se evalúan en la entrada.
   track_cal_chat: 'Track CAL+CHAT',
-  track_core: 'Track CORE',
   track_chat_tesis: 'Track CHAT+TESIS',
   track_chat: 'Track CHAT',
   track_tesis: 'Track TESIS',
@@ -155,18 +154,15 @@ export function emitToken(category, token) {
  * Medido EN LA ENTRADA, que es lo operable:
  *   track_cal_chat   CAL [$100,$500) ≥1 + chat ≥N wallets — n=28: 96% sube,
  *                    18% x2, +30% pico a 10 min. Confirmación: "sube" casi seguro.
- *   track_core       posTot<56 + sin tesis (chico y tranquilo) — n=76: 72% sube,
- *                    29% x2, +47% pico: el mejor x2 con muestra grande.
  *   track_chat_tesis chat ≥N + ≥M tesis — n=22: 95% sube, 27% x2, +65% pico.
  *   track_chat       chat ≥N wallets — n=75 (N=2): 86% sube, 22% x2, +32% pico.
  *   track_tesis      ≥M tesis — n=59: 81% sube pero 12% x2 (sube sí, upside no).
  *   track_top        TOP·D ≥N — n=69: 80% sube, 23% x2, +36% pico.
  *
  * Los umbrales (N/M) son POR DISPOSITIVO (`device.params`, editables en la
- * pantalla Notificaciones); los defaults son los medidos. `track_core` no lleva
- * umbral: es la regla medida tal cual (posTot p25 = 56).
+ * pantalla Notificaciones); los defaults son los medidos.
  */
-export const TRACK_ENTRY_CATEGORIES = ['track_cal_chat', 'track_core', 'track_chat_tesis', 'track_chat', 'track_tesis', 'track_top'];
+export const TRACK_ENTRY_CATEGORIES = ['track_cal_chat', 'track_chat_tesis', 'track_chat', 'track_tesis', 'track_top'];
 
 /**
  * TRACK CAL100+ — la entrada CAL100 (fuente 10, ver track.js) cuando el barrido
@@ -181,7 +177,7 @@ export const TRACK_ENTRY_CATEGORIES = ['track_cal_chat', 'track_core', 'track_ch
  * Sin umbral a propósito (decisión del usuario): avisa CADA wallet que resuelve en
  * verde, sin piso de monto ni de PnL. Medido en prod el 18/oct: ~28 wallets
  * positivas por hora de track —es la categoría más ruidosa de todas; si cansa, el
- * piso natural es un conteo por token, como las otras seis.
+ * piso natural es un conteo por token, como las otras cinco.
  *
  * "Verde" = alguna ventana > 0 (1d o 1w), la MISMA regla que pinta la UI (ver
  * WindowPnl en la app y cal100Cell en el panel): la ventana en rojo no cuenta.
@@ -189,9 +185,6 @@ export const TRACK_ENTRY_CATEGORIES = ['track_cal_chat', 'track_core', 'track_ch
  * 2, 3, … wallets porque la unidad es la entrada, no el token.
  */
 export const TRACK_CAL100_CATEGORY = 'track_cal100_pos';
-
-/** La regla "chico y tranquilo": poca gente con posición abierta y ninguna tesis. */
-const CORE_POS_TOTAL_MAX = 56;
 
 /** Umbrales saneados (defaults medidos, rangos útiles) desde un objeto crudo. */
 export function sanitizeTrackParams(raw) {
@@ -217,11 +210,6 @@ const TRACK_RULES = {
     ready: (t) => t.callout100to500 != null && t.chatWallets != null,
     hit: (t, p) => t.callout100to500 >= 1 && t.chatWallets >= p.chatWalletsMin,
     body: (t, p) => `CAL [$100-500) ×${t.callout100to500} · chat ${t.chatWallets} wallets (≥${p.chatWalletsMin}) · MCap $${compact(t.mcap ?? 0)}`,
-  },
-  track_core: {
-    ready: (t) => t.posHoldersTotal != null && t.thesesCount != null,
-    hit: (t) => t.posHoldersTotal < CORE_POS_TOTAL_MAX && t.thesesCount === 0,
-    body: (t) => `Chico y tranquilo · posTot ${t.posHoldersTotal} (<${CORE_POS_TOTAL_MAX}) · sin tesis · MCap $${compact(t.mcap ?? 0)}`,
   },
   track_chat_tesis: {
     ready: (t) => t.chatWallets != null && t.thesesCount != null,

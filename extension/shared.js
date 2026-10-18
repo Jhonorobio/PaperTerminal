@@ -13,7 +13,7 @@
 /** Server del que cuelga todo (el mismo de la app; en Ajustes se puede cambiar). */
 export const DEFAULT_SERVER = 'https://paperterminal-production.up.railway.app';
 
-/** Taxonomía del server — mismas 12 categorías que la pantalla Notificaciones de la app. */
+/** Taxonomía del server — mismas 11 categorías que la pantalla Notificaciones de la app. */
 export const ALERT_CATEGORIES = [
   'fomo_graduated',
   'fomo_trending',
@@ -21,7 +21,6 @@ export const ALERT_CATEGORIES = [
   'photon_new',
   'photon_graduated',
   'track_cal_chat',
-  'track_core',
   'track_chat_tesis',
   'track_chat',
   'track_tesis',
@@ -30,13 +29,12 @@ export const ALERT_CATEGORIES = [
 ];
 
 /**
- * Las del Track (server-side). Las 6 primeras se evalúan en el snapshot de ENTRADA
+ * Las del Track (server-side). Las 5 primeras se evalúan en el snapshot de ENTRADA
  * del token; `track_cal100_pos` no: avisa cuando el barrido CAL100 le resuelve el
  * PnL a una entrada y la deja en verde (por eso no lleva umbral).
  */
 export const TRACK_CATEGORIES = [
   'track_cal_chat',
-  'track_core',
   'track_chat_tesis',
   'track_chat',
   'track_tesis',
@@ -51,7 +49,6 @@ export const CATEGORY_LABELS = {
   photon_new: 'Photon New',
   photon_graduated: 'Photon Graduated',
   track_cal_chat: 'Track CAL+CHAT',
-  track_core: 'Track CORE',
   track_chat_tesis: 'Track CHAT+TESIS',
   track_chat: 'Track CHAT',
   track_tesis: 'Track TESIS',
@@ -67,7 +64,6 @@ export const CATEGORY_HINTS = {
   photon_new: 'Nuevo en Photon',
   photon_graduated: 'Graduado en Photon',
   track_cal_chat: 'Entrada: CAL [$100-500) + chat',
-  track_core: 'Entrada: chico (posTot<56) y sin tesis',
   track_chat_tesis: 'Entrada: chat + tesis',
   track_chat: 'Entrada: chat',
   track_tesis: 'Entrada: tesis',
@@ -78,7 +74,7 @@ export const CATEGORY_HINTS = {
 /**
  * Defaults del dispositivo. Espejo de la app: Pump Trend. y CAL100+ nacen ON (la
  * primera es la de menor ruido; la segunda la pidió el usuario tal cual, sin piso:
- * ~28 avisos/hora de track); las 6 del Track nacen OFF porque son opt-in con
+ * ~28 avisos/hora de track); las 5 del Track nacen OFF porque son opt-in con
  * umbral propio.
  */
 export const DEFAULT_CATEGORIES = {
@@ -88,7 +84,6 @@ export const DEFAULT_CATEGORIES = {
   photon_new: false,
   photon_graduated: false,
   track_cal_chat: false,
-  track_core: false,
   track_chat_tesis: false,
   track_chat: false,
   track_tesis: false,

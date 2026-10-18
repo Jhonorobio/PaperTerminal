@@ -53,7 +53,7 @@ con `push_token: null` — una extensión no puede tener token de Expo): el serv
 - Las categorías de feeds (FOMO, Photon, Pump Trend.) están en Ajustes y avisan igual, aunque
   el panel no tenga sus tableros.
 
-Las 6 categorías de entrada del Track se evalúan en el **snapshot de entrada** del token, una
+Las 5 categorías de entrada del Track se evalúan en el **snapshot de entrada** del token, una
 vez por token, en el server. O sea: la extensión no calcula nada — solo muestra y avisa.
 
 **`Track CAL100+` es la excepción en las dos cosas**: no se evalúa en el snapshot (el PnL de la

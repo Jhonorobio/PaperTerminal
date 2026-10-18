@@ -25,7 +25,6 @@ const LABELS: Record<string, string> = {
   photon_new: 'Photon New',
   photon_graduated: 'Photon Graduated',
   track_cal_chat: 'Track CAL+CHAT',
-  track_core: 'Track CORE',
   track_chat_tesis: 'Track CHAT+TESIS',
   track_chat: 'Track CHAT',
   track_tesis: 'Track TESIS',
