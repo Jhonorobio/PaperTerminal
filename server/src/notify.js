@@ -199,10 +199,11 @@ export const TRACK_CAL100_CATEGORY = 'track_cal100_pos';
  * TRACK HOLDER — holders de mint-positions con ≥$100 comprados (sin exigir
  * callout, a diferencia de CAL100+).
  *
- *   track_holder_pos  — la cartera de la wallet está en verde en 1D **o** 1W.
- *   track_holder_both — está en verde en 1D **y** 1W (categoría aparte: una
- *                       wallet con las dos positivas avisa por las dos si ambas
- *                       están ON).
+ *   track_holder_pos  — la cartera de la wallet está en verde en 1D **o** 1W y
+ *                       al menos una de esas ventanas llega a su piso.
+ *   track_holder_both — la cartera está en verde en 1D **y** 1W, y **las dos**
+ *                       ventanas llegan a su piso configurado (categoría aparte:
+ *                       una wallet que cumple avisa por las dos si ambas están ON).
  *   track_holder_top  — al aparecer, la wallet estaba en el top 50 daily **o**
  *                       weekly del board global de pump.fun (ver
  *                       pump-leaderboard.js: refresco cada 15 min, match por
@@ -277,8 +278,8 @@ export function sanitizeTrackParams(raw) {
     chatWalletsMin: num(raw?.chatWalletsMin, 2, 50),
     tesisMin: num(raw?.tesisMin, 1, 20),
     topMin: num(raw?.topMin, 1, 10),
-    // Piso de PnL (USD) de las alertas CAL100+ y holder 1D/1W: se envía si
-    // alguna ventana llega a su piso. Son POR DISPOSITIVO, como los de entrada.
+    // Pisos de PnL (USD) por dispositivo. CAL100+ y holder 1D/1W usan OR;
+    // holder 1D+1W exige que las dos ventanas lleguen a su piso.
     pnl1dMinUsd: num(raw?.pnl1dMinUsd, 500, 1_000_000),
     pnl1wMinUsd: num(raw?.pnl1wMinUsd, 1_000, 1_000_000),
     // Piso de PnL 24h de FOMO HOLDER 24H. 0 = cualquier PnL positivo, que es
@@ -294,11 +295,19 @@ export function trackParamsOf(device) {
 
 /**
  * ¿La lectura de PnL de la wallet supera el piso del dispositivo? Es un OR:
- * 1D ≥ piso1D o 1W ≥ piso1W. Se usa en CAL100+ y en holder pos/both.
+ * 1D ≥ piso1D o 1W ≥ piso1W. Se usa en CAL100+ y en holder 1D/1W.
  */
 export function pnlFloorHit(ev, params) {
   return (
     (ev?.pnl1dUsd ?? 0) >= params.pnl1dMinUsd ||
+    (ev?.pnl1wUsd ?? 0) >= params.pnl1wMinUsd
+  );
+}
+
+/** `track_holder_both`: las DOS ventanas tienen que llegar a su piso. */
+export function pnlBothFloorsHit(ev, params) {
+  return (
+    (ev?.pnl1dUsd ?? 0) >= params.pnl1dMinUsd &&
     (ev?.pnl1wUsd ?? 0) >= params.pnl1wMinUsd
   );
 }
@@ -520,12 +529,16 @@ export function emitTrackHolder(token, ev, category) {
   if (category === 'track_holder_both' && !both) return false;
   if (category === 'track_holder_top' && !top) return false;
 
-  // `track_holder_top` no mira PnL; pos/both sí, con el piso de cada dispositivo.
+  // `track_holder_top` no mira PnL. `_pos` usa OR de pisos; `_both` exige los DOS.
   const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[category]);
   const targets =
     category === 'track_holder_top'
       ? devices
-      : devices.filter((d) => pnlFloorHit(ev, trackParamsOf(d)));
+      : devices.filter((d) =>
+          category === 'track_holder_both'
+            ? pnlBothFloorsHit(ev, trackParamsOf(d))
+            : pnlFloorHit(ev, trackParamsOf(d)),
+        );
   const resolved = ev?.pnl1dUsd != null && ev?.pnl1wUsd != null;
   if (category !== 'track_holder_top' && !targets.length && !resolved) return false;
 

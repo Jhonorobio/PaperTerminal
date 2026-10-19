@@ -63,7 +63,7 @@ const CATEGORY_SUBS: Partial<Record<AlertCategory, string>> = {
   track_holder_pos:
     'Holder ≥$100 de mint-positions (sin exigir callout) con 1D o 1W positivo en TODA su cartera y al menos una ventana llega al piso de PnL configurado abajo. Una vez por wallet en cada token.',
   track_holder_both:
-    'Holder ≥$100 con 1D y 1W positivos y al menos una de las dos llega al piso de PnL configurado abajo. Categoría aparte: si cumple las dos, con OR y AND encendidas llegan las dos notificaciones.',
+    'Holder ≥$100 con 1D y 1W positivos, y las DOS ventanas llegan a su piso de PnL configurado abajo (1D ≥ su piso Y 1W ≥ su piso). Categoría aparte: si cumple, con OR y AND encendidas llegan las dos notificaciones.',
   track_holder_top:
     'Holder ≥$100 que al aparecer estaba en el top 50 daily o weekly del board global de pump.fun (refresco cada 15 min). Se evalúa una sola vez: si entra al top después, no avisa.',
 };
@@ -252,9 +252,10 @@ export default function AlertsScreen() {
             </View>
           ))}
           <Text style={styles.fine}>
-            Los pisos 1D/1W se aplican a CAL100+ y a Track HOLDER 1D/1W y 1D+1W: la alerta sale si
-            1D ≥ su piso o 1W ≥ su piso. El piso FOMO 24H aplica sólo a FOMO HOLDER 24H
-            (0 = cualquier PnL positivo). Track HOLDER TOP50 y FOMO HOLDER TOP50 no usan PnL.
+            Los pisos 1D/1W aplican así: CAL100+ y Track HOLDER 1D/1W avisan si 1D ≥ su piso
+            o 1W ≥ su piso; Track HOLDER 1D+1W exige las dos (1D ≥ su piso Y 1W ≥ su piso).
+            El piso FOMO 24H aplica sólo a FOMO HOLDER 24H (0 = cualquier PnL positivo).
+            Track HOLDER TOP50 y FOMO HOLDER TOP50 no usan PnL.
             Los otros tres (chat, tesis y TOP·D) son las alertas de entrada del Track. Todo es por
             dispositivo: el server guarda un valor para cada uno. Defaults: 1D $500, 1W $1.000,
             FOMO 24H $0, chat 2, tesis 1, top 1.

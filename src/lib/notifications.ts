@@ -28,10 +28,10 @@
  * entry, not the token: the same token can alert for 2, 3, … wallets.
  *
  * The track_holder_* alerts are also per wallet, but for EVERY holder ≥$100 of
- * mint-positions (callout not required): `_pos` = 1d or 1w positive, `_both` =
- * both positive, `_top` = the wallet was in the global top 50 daily/weekly when
- * first seen. `_pos` and `_both` use the same per-device PnL floors; `_top` does
- * not. One alert per token+wallet and category.
+ * mint-positions (callout not required): `_pos` = 1d or 1w positive with at least
+ * one floor, `_both` = both positive AND both floors, `_top` = the wallet was in
+ * the global top 50 daily/weekly when first seen. `_top` does not use PnL floors.
+ * One alert per token+wallet and category.
  *
  * There is no filter configuration here anymore: the feed screens own the filters
  * (FOMO pins its tab, the Track page owns the New/Graduated sets) and the server

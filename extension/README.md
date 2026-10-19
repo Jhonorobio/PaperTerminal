@@ -70,7 +70,7 @@ del callout. Es la más ruidosa (medido: ~28 avisos por hora de track) y nace ON
 
 Las 3 de **holder** miran **todos** los holders ≥$100 de `mint-positions`, tengan o no callout:
 `Track HOLDER 1D/1W` (1d o 1w positivo y una ventana sobre el piso), `Track HOLDER 1D+1W` (las
-dos positivas y una sobre el piso; categoría aparte, así que con las dos ON llegan las dos) y
+dos positivas y las dos sobre su piso; categoría aparte, así que con las dos ON llegan las dos) y
 `Track HOLDER TOP50` (al aparecer estaba en el top 50 daily o weekly del board global de
 pump.fun — refresco cada 15 min, match por wallet o `userId`). El PnL se pide **una sola vez por
 token+wallet** y el top 50 se evalúa **una sola vez**: si la wallet entra al top después, no

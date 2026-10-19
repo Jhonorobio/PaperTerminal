@@ -70,7 +70,7 @@ export const CATEGORY_HINTS = {
   track_top: 'Entrada: TOP·D',
   track_cal100_pos: 'Entrada CAL100 en verde: 1D o 1W sobre el piso',
   track_holder_pos: 'Holder ≥$100: 1D o 1W sobre el piso',
-  track_holder_both: 'Holder ≥$100: 1D y 1W, una sobre el piso',
+  track_holder_both: 'Holder ≥$100: 1D y 1W sobre su piso',
   track_holder_top: 'Holder ≥$100 en top 50 daily/weekly',
 };
 
