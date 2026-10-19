@@ -4,6 +4,7 @@
  *   notification_history: every alert delivered (the in-app history)
  *   fomo_filters / photon_filters: per-column filter sets
  *   fomo_seen / photon_seen: addresses already processed per category (no repeats)
+ *   fomo_holder_seen: token+categoría ya avisados por FOMO HOLDER
  *   track_entry_seen: tracked addresses already evaluated for the entry alerts
  *   track_config: the tracker's own filter set (independent from the columns')
  *   track_tokens: address → tracked token + its per-minute snapshots (≤50 c/u)
@@ -20,6 +21,7 @@ export const notificationHistory = new JsonArrayStore('notification_history');
 export const fomoFilters = new JsonStore('fomo_filters');
 export const photonFilters = new JsonStore('photon_filters');
 export const fomoSeen = new JsonStore('fomo_seen');
+export const fomoHolderSeen = new JsonStore('fomo_holder_seen');
 export const photonSeen = new JsonStore('photon_seen');
 export const trackEntrySeen = new JsonStore('track_entry_seen');
 export const trackConfig = new JsonStore('track_config');

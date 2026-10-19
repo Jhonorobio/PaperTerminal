@@ -20,6 +20,8 @@ import { useApp } from '@/state/app';
 
 const LABELS: Record<string, string> = {
   fomo_trending: 'FOMO Trending',
+  fomo_holder_pos: 'FOMO HOLDER 24H',
+  fomo_holder_top: 'FOMO HOLDER TOP50',
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
   track_top: 'Track TOP·D',

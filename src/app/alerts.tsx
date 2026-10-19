@@ -29,6 +29,8 @@ import { useApp } from '@/state/app';
 
 const CATEGORY_LABELS: Record<AlertCategory, string> = {
   fomo_trending: 'FOMO Trend.',
+  fomo_holder_pos: 'FOMO HOLDER 24H',
+  fomo_holder_top: 'FOMO HOLDER TOP50',
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
   track_top: 'Track TOP·D',
@@ -39,13 +41,18 @@ const CATEGORY_LABELS: Record<AlertCategory, string> = {
 };
 
 /**
- * Las reglas del Track se evalúan en el snapshot de ENTRADA del token (su primer
- * minuto) y disparan una vez por token. Los números son los medidos el 17/oct
- * sobre el dump de prod (486 tokens / 8.108 snapshots, pico vs precio de
- * entrada): ver TRACK_RULES en server/src/notify.js. CAL100+ y las tres de
- * holder son la excepción: no salen del snapshot de entrada (ver sus textos).
+ * Las reglas de entrada del Track se evalúan en el snapshot de ENTRADA del token
+ * (su primer minuto) y disparan una vez por token. Los números son los medidos
+ * el 17/oct sobre el dump de prod (486 tokens / 8.108 snapshots, pico vs precio
+ * de entrada): ver TRACK_RULES en server/src/notify.js. CAL100+ y las tres de
+ * holder del Track no salen del snapshot; las dos de FOMO salen de una pasada
+ * de holders al entrar el token a Trending (ver fomo-holders.js).
  */
-const TRACK_SUBS: Partial<Record<AlertCategory, string>> = {
+const CATEGORY_SUBS: Partial<Record<AlertCategory, string>> = {
+  fomo_holder_pos:
+    'Avisa una vez por token cuando alguno de sus holders con ≥$100 comprados tiene PnL de 24h positivo. El body resume hasta 3 holders y el total; FOMO sólo expone la ventana de 24h.',
+  fomo_holder_top:
+    'Avisa una vez por token cuando algún holder ≥$100 pertenece a un clan del top 50 de 24h o 7d (o aparece en sus topMembers). El rank que muestra es el del clan, no el individual.',
   track_cal_chat:
     'Entrada con CAL [$100-500) y chat ≥N wallets: n=28 → 96% sube después, 18% x2, pico mediano +30% a 10min. Confirma el "sube", no el x2.',
   track_chat_tesis: 'Entrada con chat ≥N wallets Y ≥M tesis: n=22 → 95% sube, 27% x2, +65% pico a 10min.',
@@ -195,7 +202,7 @@ export default function AlertsScreen() {
             <View key={id} style={styles.row}>
               <View style={styles.rowLead}>
                 <Text style={styles.rowTitle}>{CATEGORY_LABELS[id]}</Text>
-                <Text style={styles.rowSub}>{TRACK_SUBS[id] ?? 'Te aviso cuando aparezca un token nuevo en ese feed.'}</Text>
+                <Text style={styles.rowSub}>{CATEGORY_SUBS[id] ?? 'Te aviso cuando aparezca un token nuevo en ese feed.'}</Text>
               </View>
               <Switch
                 value={categories[id]}

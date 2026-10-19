@@ -34,6 +34,8 @@ type HistoryMode = 'trades' | 'alerts';
 /** Server alert categories → labels, same taxonomy as the floating panel. */
 const ALERT_LABELS: Record<string, string> = {
   fomo_trending: 'FOMO Trend.',
+  fomo_holder_pos: 'FOMO HOLDER 24H',
+  fomo_holder_top: 'FOMO HOLDER TOP50',
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
   track_top: 'Track TOP·D',

@@ -6,6 +6,7 @@
  *   GET  /api/fomo/trending                 HTTP fallback of the feed (WS is primary)
  *   GET  /api/fomo/filters                  effective filters
  *   PUT  /api/fomo/filters                  { trending: {...} }
+ *   GET  /api/fomo/holders/status           FOMO holder scan queue/health
  *   GET  /api/market/memescope              Photon columns (on-demand, diagnostics)
  *   GET  /api/market/memescope-filters      raw-column filters (legacy, unused by the app)
  *   PUT  /api/market/memescope-filters      { col1: {...}, col3: {...} }
@@ -25,6 +26,7 @@
 import { Router } from 'express';
 
 import { getFomoProxyStatus, getFomoStatus, getFomoTrending, setFomoProxy } from './fomo.js';
+import { getFomoHolderStatus } from './fomo-holders.js';
 import { getFomoFilters, setFomoFilters } from './fomo-filter-store.js';
 import { getMemescope, getPhotonFilters, setPhotonFilters } from './photon.js';
 import { photonLogo } from './logo-proxy.js';
@@ -67,7 +69,7 @@ router.get('/status', (_req, res) => {
   res.json({
     ok: true,
     ws: { clients: clientCount(), topics: [...getSubscriptions()] },
-    fomo: getFomoStatus(),
+    fomo: { ...getFomoStatus(), holders: getFomoHolderStatus() },
   });
 });
 
@@ -93,6 +95,8 @@ router.put('/fomo/proxy', (req, res) => {
 });
 
 router.get('/fomo/filters', (_req, res) => res.json(getFomoFilters()));
+
+router.get('/fomo/holders/status', (_req, res) => res.json(getFomoHolderStatus()));
 
 router.put('/fomo/filters', (req, res) => {
   try {

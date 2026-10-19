@@ -16,7 +16,14 @@
  * Per-device filters (the old alerts-screen config) are no longer read.
  */
 
-import { notificationConfig, notificationHistory, fomoSeen, photonSeen, trackEntrySeen } from './stores.js';
+import {
+  notificationConfig,
+  notificationHistory,
+  fomoSeen,
+  fomoHolderSeen,
+  photonSeen,
+  trackEntrySeen,
+} from './stores.js';
 import { getFomoFilters } from './fomo-filter-store.js';
 import { isValidPushToken, sendPush } from './push.js';
 import { sendToDevice } from './ws.js';
@@ -26,6 +33,8 @@ const SEEN_MAX = 5000;
 
 const LABELS = {
   fomo_trending: 'FOMO Trending',
+  fomo_holder_pos: 'FOMO HOLDER 24H',
+  fomo_holder_top: 'FOMO HOLDER TOP50',
   // Alertas del Track (ver TRACK_ENTRY_CATEGORIES): se evalúan en la entrada.
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
@@ -43,7 +52,7 @@ const LABELS = {
  * pushed by the app. A bound on data the token doesn't carry excludes it — the
  * same rule readFeed applies to the visible list.
  */
-function passesFeedFilters(token) {
+export function passesFomoFilters(token) {
   const feed = getFomoFilters().trending;
   if (!feed) return true;
   const bounds = [
@@ -110,7 +119,7 @@ export function emitToken(category, token) {
   // FOMO's stream is unfiltered, so the feed's own bounds gate it here (the Track
   // applies its bounds in the column query). The token stays seen either way —
   // loosening a filter later must not re-alert tokens that already passed through.
-  if (category.startsWith('fomo') && !passesFeedFilters(token)) return true;
+  if (category.startsWith('fomo') && !passesFomoFilters(token)) return true;
 
   const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[category]);
   for (const device of devices) {
@@ -210,16 +219,51 @@ export const TRACK_HOLDER_CATEGORIES = ['track_holder_pos', 'track_holder_both',
 const HOLDER_TOP_MAX_RANK = 50;
 
 /**
+ * FOMO HOLDER — el equivalente de las alertas de holder del Track, pero con los
+ * datos de FOMO y sobre tokens que entran al feed Trending:
+ *
+ *   fomo_holder_pos — holder con ≥$100 comprados (costBasis del endpoint
+ *                     /hodlers/top) y PnL de 24h positivo (/v2/users). Sólo 24h:
+ *                     FOMO no expone la ventana semanal por usuario.
+ *   fomo_holder_top — holder con ≥$100 que pertenece a un clan del top 50 del
+ *                     leaderboard de clanes de 24h o 7d, o que aparece entre los
+ *                     topMembers de uno de esos clanes.
+ *
+ * El barrido corre al entrar el token al feed (ver fomo-holders.js), no en cada
+ * snapshot: el token de FOMO es efímero y el aviso es de entrada. Una vez por
+ * token+categoría, con un resumen de los holders que cumplen (no una alerta por
+ * wallet: son cientos por minuto). Nacen OFF en app/extensión: FOMO Trending ya
+ * es opt-in y estas dos pueden ser ruidosas; se activan en Notificaciones.
+ */
+export const FOMO_HOLDER_POS_CATEGORY = 'fomo_holder_pos';
+export const FOMO_HOLDER_TOP_CATEGORY = 'fomo_holder_top';
+export const FOMO_HOLDER_CATEGORIES = [FOMO_HOLDER_POS_CATEGORY, FOMO_HOLDER_TOP_CATEGORY];
+/** Mismo corte que el top de Track: rank ≤ 50 en 24h o 7d. */
+const FOMO_HOLDER_TOP_MAX_RANK = 50;
+
+/**
  * Las categorías que existen — única fuente de verdad: routes.js guarda exactamente
  * estas y emitToken ignora cualquier otra (una config vieja con una categoría
  * retirada no puede volver a emitirla).
  */
 export const ALERT_CATEGORIES = [
   'fomo_trending',
+  ...FOMO_HOLDER_CATEGORIES,
   ...TRACK_ENTRY_CATEGORIES,
   TRACK_CAL100_CATEGORY,
   ...TRACK_HOLDER_CATEGORIES,
 ];
+
+/** Categorías de holder de FOMO activas en al menos un dispositivo. */
+export function enabledFomoHolderCategories() {
+  const enabled = new Set();
+  for (const device of Object.values(notificationConfig.getAll())) {
+    for (const category of FOMO_HOLDER_CATEGORIES) {
+      if (device?.categories?.[category]) enabled.add(category);
+    }
+  }
+  return enabled;
+}
 
 /** Umbrales saneados (defaults medidos, rangos útiles) desde un objeto crudo. */
 export function sanitizeTrackParams(raw) {
@@ -466,6 +510,115 @@ export function emitTrackHolder(token, ev, category) {
       symbol: token.symbol ?? null,
       name: token.name ?? null,
       logo: token.logo ?? null,
+      mcap: token.mcap ?? null,
+      liq: null,
+      vol24h: token.volume ?? null,
+      holders: token.holders ?? null,
+      kolCount: null,
+      ageMinutes: null,
+      body,
+      notified_at: new Date().toISOString(),
+    });
+
+    // 1. In-app panel: private WS topic, painted by the app wherever it is.
+    sendToDevice(device.device_id, { event: 'alert', data: entry });
+
+    // 2. System push: for when the app is not in the foreground.
+    if (isValidPushToken(device.push_token)) {
+      void sendPush(device.push_token, {
+        title: `${token.symbol || token.name || 'Token'} — ${LABELS[category]}`,
+        body,
+        data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category },
+      }).catch(() => {});
+    }
+  }
+
+  trimHistory();
+  return true;
+}
+
+/**
+ * Texto del aviso de holder de FOMO. Es un resumen POR TOKEN (no una alerta por
+ * wallet): FOMO mete decenas de tokens por hora y, al entrar, cada token tiene
+ * decenas de holders ≥$100 — avisar uno por uno son cientos de avisos por minuto
+ * (medido: 497 en 13 tokens). El body muestra los 3 mejores y el total.
+ *
+ * Para `fomo_holder_top` el rank es el del CLAN en el leaderboard (el endpoint
+ * /v2/clans/leaderboard es de clanes), no un ranking individual.
+ */
+function fomoHolderBody(token, events, category) {
+  const money = (n) => `$${compact(n)}`;
+  const who = (ev) => (ev.userName ? `@${ev.userName.replace(/^@/, '')}` : shortAddr(ev.address));
+  let list;
+  if (category === FOMO_HOLDER_TOP_CATEGORY) {
+    list = [...events].sort((a, b) => {
+      const rankOf = (ev) => Math.min(ev.top24hRank ?? 999, ev.top7dRank ?? 999);
+      return rankOf(a) - rankOf(b);
+    });
+  } else {
+    list = [...events].sort((a, b) => (b.pnl24h ?? 0) - (a.pnl24h ?? 0));
+  }
+
+  const parts = [`${list.length} holder${list.length === 1 ? '' : 's'} ≥$100 ${category === FOMO_HOLDER_TOP_CATEGORY ? 'en clanes top' : 'en verde'}`];
+  for (const ev of list.slice(0, 3)) {
+    const ranks = [];
+    if (category === FOMO_HOLDER_TOP_CATEGORY) {
+      if (ev.top24hRank != null && ev.top24hRank <= FOMO_HOLDER_TOP_MAX_RANK) {
+        ranks.push(`TOP·24H #${ev.top24hRank}${ev.top24hClan ? ` ${ev.top24hClan}` : ''}`);
+      }
+      if (ev.top7dRank != null && ev.top7dRank <= FOMO_HOLDER_TOP_MAX_RANK) {
+        ranks.push(`TOP·7D #${ev.top7dRank}${ev.top7dClan ? ` ${ev.top7dClan}` : ''}`);
+      }
+      parts.push(`${who(ev)} ${ranks.join(' · ')}`);
+    } else {
+      parts.push(`${who(ev)} +${money(ev.pnl24h)}`);
+    }
+  }
+  if (list.length > 3) parts.push(`+${list.length - 3} más`);
+  if (token.mcap != null) parts.push(`MCap $${compact(token.mcap)}`);
+  return parts.join(' · ');
+}
+
+/**
+ * Avisa una regla de holder de FOMO, UNA vez por token+categoría. La llama
+ * fomo-holders.js después de resolver el costBasis, el PnL de 24h y la
+ * membresía de clan de todos los holders del token. El guard no marca "visto"
+ * si la condición todavía no se cumple (una respuesta parcial se reintenta).
+ *
+ * @param {object} token identidad del token (address/symbol/name/image/mcap/volume/holders)
+ * @param {Array<object>} events [{ address, userName, usd, pnl24h, top24hRank, top24hClan, top7dRank, top7dClan }]
+ * @param {'fomo_holder_pos'|'fomo_holder_top'} category
+ */
+export function emitFomoHolder(token, events, category) {
+  if (!FOMO_HOLDER_CATEGORIES.includes(category)) return false;
+  const list = Array.isArray(events) ? events : [];
+  const qualifying = list.filter((ev) =>
+    category === FOMO_HOLDER_TOP_CATEGORY
+      ? (ev?.top24hRank != null && ev.top24hRank <= FOMO_HOLDER_TOP_MAX_RANK) ||
+        (ev?.top7dRank != null && ev.top7dRank <= FOMO_HOLDER_TOP_MAX_RANK)
+      : (ev?.pnl24h ?? 0) > 0,
+  );
+  if (!qualifying.length) return false;
+
+  const key = `${category}:${token.address}`;
+  if (fomoHolderSeen.has(key)) return false;
+  fomoHolderSeen.set(key, { at: Date.now() });
+
+  const all = fomoHolderSeen.getAll();
+  const keys = Object.keys(all);
+  if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) fomoHolderSeen.delete(k);
+
+  const body = fomoHolderBody(token, qualifying, category);
+  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[category]);
+  for (const device of devices) {
+    const entry = notificationHistory.add({
+      device_id: device.device_id,
+      category,
+      address: token.address,
+      chain: 'sol',
+      symbol: token.symbol ?? null,
+      name: token.name ?? null,
+      logo: token.image ?? token.logo ?? null,
       mcap: token.mcap ?? null,
       liq: null,
       vol24h: token.volume ?? null,

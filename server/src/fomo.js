@@ -10,19 +10,22 @@
  *
  * The app NEVER talks to FOMO: it subscribes to the WS topic `fomo_trending` here
  * and gets everything pushed. Alerts fire from the same stream: every newly-seen
- * token goes through `notify.js` (WS panel + push).
+ * token goes through `notify.js` (WS panel + push). The same fresh-token path
+ * feeds `onFomoToken` (fomo-holders.js: top holders ≥$100, 24h PnL, clan top 50)
+ * without the feed depending on that module.
  *
  * The first snapshot after subscribe seeds the seen-map silently, so connecting
  * does not fire 90 pushes.
  */
 
 import WebSocket from 'ws';
+import initCycleTLS from 'cycletls';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 
 import { getFomoFilters, sanitizeFeedFilters } from './fomo-filter-store.js';
 import { broadcast, registerTopicProvider } from './ws.js';
-import { emitToken, seedSeen } from './notify.js';
+import { emitToken, passesFomoFilters, seedSeen } from './notify.js';
 import { pulseEnrich } from './pulse.js';
 import { JsonStore } from './json-store.js';
 import { getEffectiveProxy, getProxyStatus, setProxy } from './proxy-config.js';
@@ -102,6 +105,103 @@ export function getAccessToken({ force = false } = {}) {
     }
   })();
   return inflight;
+}
+
+// ── Authenticated HTTP (holders / users / clan leaderboard) ──────────────────
+
+/**
+ * FOMO's REST API sits behind the same WAF as the WS: a plain fetch from a
+ * datacenter IP gets 430/431, and only Chrome impersonation passes. The Track
+ * already does this for sortedThesis; holders/users/leaderboard use the same
+ * recipe (proxy first when configured, direct as fallback) and the same Privy
+ * access token as the socket.
+ *
+ * Returns the parsed JSON body, or null on any failure. Callers (fomo-holders.js)
+ * treat null as "no data this time" and retry on a later token / scan.
+ */
+const FOMO_HTTP_TIMEOUT_MS = 10_000;
+const FOMO_HTTP_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36';
+export const FOMO_API = 'https://prod-api.fomo.family';
+
+let fomoHttp = null;
+
+async function getFomoHttp() {
+  if (!fomoHttp) fomoHttp = await initCycleTLS();
+  return fomoHttp;
+}
+
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('FOMO HTTP timeout')), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+function tlsJson(resp) {
+  if (resp?.status !== 200) return null;
+  try {
+    return typeof resp.data === 'string' ? JSON.parse(resp.data) : resp.data;
+  } catch {
+    return null;
+  }
+}
+
+export async function fomoAuthedGetJson(url) {
+  let jwt;
+  try {
+    jwt = await getAccessToken();
+  } catch {
+    return null;
+  }
+  if (!jwt) return null;
+
+  const headers = {
+    accept: '*/*',
+    'app-language': 'es',
+    'content-type': 'application/json',
+    cookie: `privy-session=privy.fomo.family; privy-token=${jwt}`,
+    origin: 'https://fomo.family',
+    referer: 'https://fomo.family/',
+    'user-agent': FOMO_HTTP_UA,
+    'x-supported-chains': '1,56,143,4663,5042,8453,1399811149',
+  };
+
+  const proxyUrl = getEffectiveProxy();
+  const transports = proxyUrl ? [proxyUrl, ''] : [''];
+
+  for (const proxy of transports) {
+    try {
+      const client = await getFomoHttp();
+      const resp = await withTimeout(
+        client(url, { client: 'chrome131', headers, ...(proxy ? { proxy } : {}) }, 'get'),
+        FOMO_HTTP_TIMEOUT_MS,
+      );
+      const json = tlsJson(resp);
+      if (json) return json;
+    } catch {
+      // try the next transport
+    }
+  }
+  return null;
+}
+
+export async function closeFomoHttp() {
+  if (!fomoHttp) return;
+  const client = fomoHttp;
+  fomoHttp = null;
+  try {
+    await client.exit();
+  } catch {}
 }
 
 // ── Feed config ──────────────────────────────────────────────────────────────
@@ -248,6 +348,28 @@ function feedOf(topicType) {
 }
 
 /**
+ * Listeners for tokens that just entered Trending AND pass the FOMO screen's
+ * filters. fomo-holders.js is the only consumer today: it scans the token's top
+ * holders once, without coupling the feed to that module (index.js wires them).
+ */
+const tokenListeners = new Set();
+
+export function onFomoToken(fn) {
+  tokenListeners.add(fn);
+  return () => tokenListeners.delete(fn);
+}
+
+function notifyTokenListeners(token) {
+  for (const fn of tokenListeners) {
+    try {
+      fn(token);
+    } catch {
+      // a holder-scan failure must never break the feed
+    }
+  }
+}
+
+/**
  * New tokens alert through the feed's own filters (the app's FOMO screen pushes them),
  * so a bound on age or KOLs needs the enriched record first: FOMO's raw frames often
  * lack createdAt/kolCount (trending always lacks createdAt) and Pulse fills them —
@@ -263,7 +385,14 @@ function emitFresh(feed, recs) {
   const kol = Boolean(f) && (f.kolMin != null || f.kolMax != null);
   const emit = () => {
     const nowMs = Date.now();
-    for (const rec of list) emitToken(feed.category, alertToken(rec, nowMs));
+    for (const rec of list) {
+      const token = alertToken(rec, nowMs);
+      // emitToken marks the address seen even when the filter excludes it (so
+      // loosening a bound cannot re-alert an old token). The holder scan only
+      // runs for the tokens actually visible in the feed.
+      emitToken(feed.category, token);
+      if (passesFomoFilters(token)) notifyTokenListeners(token);
+    }
   };
   if (!age && !kol) return emit();
   void pulseEnrich(list, { age, kol }).then(emit, emit);

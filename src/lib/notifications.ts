@@ -3,10 +3,18 @@
  * per-category toggles in sync.
  *
  * Categories (the server's alert taxonomy):
- *   fomo_trending
+ *   fomo_trending · fomo_holder_pos · fomo_holder_top
  *   track_cal_chat · track_chat_tesis · track_top
  *   track_cal100_pos
  *   track_holder_pos · track_holder_both · track_holder_top
+ *
+ * fomo_holder_pos/_top son el equivalente FOMO de las alertas de holder del
+ * Track: se evalúan al entrar un token a Trending (ver fomo-holders.js), sobre
+ * holders con ≥$100 comprados. `_pos` = PnL de 24h positivo (FOMO sólo expone
+ * 24h por usuario); `_top` = el clan del holder está en el top 50 de 24h o 7d
+ * (o el holder aparece en los topMembers de ese clan). Avisan UNA vez por
+ * token+categoría con un resumen de hasta 3 holders: una alerta por wallet
+ * serían cientos por minuto.
  *
  * The three track_* entry alerts fire at the token's ENTRY snapshot (see
  * TRACK_RULES in server/src/notify.js) and the chat/tesis/top thresholds are per
@@ -61,6 +69,8 @@ async function notifications() {
 
 export const ALERT_CATEGORIES = [
   'fomo_trending',
+  'fomo_holder_pos',
+  'fomo_holder_top',
   'track_cal_chat',
   'track_chat_tesis',
   'track_top',
@@ -73,8 +83,9 @@ export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
 
 /**
  * Defaults per category — la fuente de verdad de la app (la extensión la espeja
- * en extension/shared.js). CAL100+ y las 3 de holder nacen ON; las 3 de entrada
- * del Track nacen OFF porque son opt-in con umbral propio.
+ * en extension/shared.js). CAL100+ y las 3 de holder del Track nacen ON; las 3
+ * de entrada del Track y las 2 de holder de FOMO nacen OFF porque son opt-in
+ * (FOMO Trending ya es opt-in y sus holders pueden ser ruidosos).
  *
  * `registerDevice` los mezcla al abrir la app: una categoría nueva que este
  * dispositivo todavía no guardó entra con su default (y se sincroniza al server),
@@ -82,6 +93,8 @@ export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
  */
 export const DEFAULT_CATEGORIES: Record<AlertCategory, boolean> = {
   fomo_trending: false,
+  fomo_holder_pos: false,
+  fomo_holder_top: false,
   track_cal_chat: false,
   track_chat_tesis: false,
   track_top: false,
@@ -298,8 +311,9 @@ export interface AlertHistoryEntry {
   ageMinutes: number | null;
   /**
    * Texto armado por el server cuando el detalle no entra en los campos fijos
-   * (CAL100+ y las alertas de holder: wallet, lo que metió, ventanas/ranks). El
-   * panel flotante y la timeline lo prefieren sobre su propio resumen.
+   * (CAL100+ y las alertas de holder: wallets, montos, ventanas/ranks; en FOMO
+   * es un resumen por token con los 3 mejores). El panel flotante y la timeline
+   * lo prefieren sobre su propio resumen.
    */
   body?: string | null;
   notified_at: string;

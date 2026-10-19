@@ -13,9 +13,11 @@
 /** Server del que cuelga todo (el mismo de la app; en Ajustes se puede cambiar). */
 export const DEFAULT_SERVER = 'https://paperterminal-production.up.railway.app';
 
-/** Taxonomía del server — mismas 8 categorías que la pantalla Notificaciones de la app. */
+/** Taxonomía del server — mismas 10 categorías que la pantalla Notificaciones de la app. */
 export const ALERT_CATEGORIES = [
   'fomo_trending',
+  'fomo_holder_pos',
+  'fomo_holder_top',
   'track_cal_chat',
   'track_chat_tesis',
   'track_top',
@@ -43,6 +45,8 @@ export const TRACK_CATEGORIES = [
 
 export const CATEGORY_LABELS = {
   fomo_trending: 'FOMO Trending',
+  fomo_holder_pos: 'FOMO HOLDER 24H',
+  fomo_holder_top: 'FOMO HOLDER TOP50',
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
   track_top: 'Track TOP·D',
@@ -55,6 +59,8 @@ export const CATEGORY_LABELS = {
 /** La regla detrás de cada categoría — va como primera línea del cuerpo del aviso. */
 export const CATEGORY_HINTS = {
   fomo_trending: 'Trending en FOMO',
+  fomo_holder_pos: 'Token con holder ≥$100 y PnL 24h positivo',
+  fomo_holder_top: 'Token con holder ≥$100 en clan top 50 (24h/7d)',
   track_cal_chat: 'Entrada: CAL [$100-500) + chat',
   track_chat_tesis: 'Entrada: chat + tesis',
   track_top: 'Entrada: TOP·D',
@@ -65,12 +71,15 @@ export const CATEGORY_HINTS = {
 };
 
 /**
- * Defaults del dispositivo. Espejo de la app: CAL100+ y las 3 de holder nacen ON
- * (decisión del usuario, sin piso); las 3 de entrada del Track nacen OFF porque
- * son opt-in con umbral propio.
+ * Defaults del dispositivo. Espejo de la app: CAL100+ y las 3 de holder del Track
+ * nacen ON (decisión del usuario, sin piso); las 3 de entrada del Track y las 2
+ * de holder de FOMO nacen OFF porque son opt-in (FOMO Trending ya es opt-in y sus
+ * holders pueden ser ruidosos).
  */
 export const DEFAULT_CATEGORIES = {
   fomo_trending: false,
+  fomo_holder_pos: false,
+  fomo_holder_top: false,
   track_cal_chat: false,
   track_chat_tesis: false,
   track_top: false,
