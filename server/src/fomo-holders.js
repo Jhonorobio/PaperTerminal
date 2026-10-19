@@ -3,7 +3,7 @@
  *
  * El disparador NO es el feed de Trending: cada 30s se leen los tokens de
  * `trackTokens` con status === 'active' y se encola el que no se haya barrido
- * en las últimas 2 h. Para cada token se hace UNA pasada:
+ * en el último minuto. Para cada token se hace UNA pasada:
  *
  *   1. GET /hodlers/top?tokens=[{address, networkId}]  → top ~100 holders
  *      con `costBasis` (lo que metió cada wallet) y su `user` (id, address,
@@ -21,8 +21,8 @@
  * holders que cumplen (notify.js muestra los 3 mejores y el total): avisar una
  * vez por wallet son cientos de avisos por minuto. Si una respuesta viene
  * incompleta, la condición no se marca y un barrido posterior del mismo token
- * puede reintentar. Mientras el token siga activo en Track se revisa cada 2 h;
- * si sale del Track (status 'done' o se borra), deja de escanearse.
+ * puede reintentar. Mientras el token siga activo en Track se revisa cada
+ * minuto; si sale del Track (status 'done' o se borra), deja de escanearse.
  */
 
 import { FOMO_API, fomoAuthedGetJson } from './fomo.js';
@@ -41,7 +41,8 @@ const USER_TTL_MS = 10 * 60_000;
 const USER_FAIL_TTL_MS = 2 * 60_000;
 const BOARD_TTL_MS = 15 * 60_000;
 const SCAN_DELAY_MS = 350;
-const SCANNED_TTL_MS = 2 * 60 * 60_000;
+/** Re-barrido de un token activo: cada minuto (el aviso no se repite). */
+const SCANNED_TTL_MS = 60_000;
 const SEEN_MAX = 5_000;
 /** Cada cuánto se miran los tokens activos del Track (los nuevos entran acá). */
 const TRACK_SWEEP_MS = 30_000;
@@ -228,7 +229,7 @@ async function ensureBoards() {
 
 const queue = [];
 const queued = new Set();
-const scanned = new Map(); // address → at (no repetir el mismo token cada 2 h)
+const scanned = new Map(); // address → at (no repetir el mismo token antes de 1 min)
 let running = false;
 let started = false;
 let scans = 0;
@@ -329,7 +330,7 @@ async function pump() {
 }
 
 /**
- * Cada 30s: tokens activos del Track que no se hayan barrido en 2 h. `enqueue`
+ * Cada 30s: tokens activos del Track que no se hayan barrido en el último minuto. `enqueue`
  * vuelve a chequear categorías/cola/`scanned`, así que esto es barato cuando no
  * hay nada nuevo o las alertas están apagadas.
  */

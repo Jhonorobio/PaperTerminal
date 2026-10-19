@@ -230,7 +230,7 @@ const HOLDER_TOP_MAX_RANK = 50;
  *                     topMembers de uno de esos clanes.
  *
  * fomo-holders.js recorre `trackTokens` cada 30s y barre los que tienen
- * status === 'active'; no escucha el feed de Trending. Una vez por
+ * status === 'active' cada minuto; no escucha el feed de Trending. Una vez por
  * token+categoría, con un resumen de los holders que cumplen (no una alerta por
  * wallet: son cientos por minuto). Nacen OFF en app/extensión: son opt-in y
  * pueden ser ruidosas; se activan en Notificaciones.

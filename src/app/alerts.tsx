@@ -50,9 +50,9 @@ const CATEGORY_LABELS: Record<AlertCategory, string> = {
  */
 const CATEGORY_SUBS: Partial<Record<AlertCategory, string>> = {
   fomo_holder_pos:
-    'Avisa una vez por token activo en Track cuando alguno de sus holders con ≥$100 comprados tiene PnL de 24h positivo. El body resume hasta 3 holders y el total; FOMO sólo expone la ventana de 24h.',
+    'Avisa una vez por token activo en Track cuando alguno de sus holders con ≥$100 comprados tiene PnL de 24h positivo. Se revisa cada minuto mientras siga activo; el body resume hasta 3 holders y el total. FOMO sólo expone la ventana de 24h.',
   fomo_holder_top:
-    'Avisa una vez por token activo en Track cuando algún holder ≥$100 pertenece a un clan del top 50 de 24h o 7d (o aparece en sus topMembers). El rank que muestra es el del clan, no el individual.',
+    'Avisa una vez por token activo en Track cuando algún holder ≥$100 pertenece a un clan del top 50 de 24h o 7d (o aparece en sus topMembers). Se revisa cada minuto mientras siga activo; el rank es el del clan, no el individual.',
   track_cal_chat:
     'Entrada con CAL [$100-500) y chat ≥N wallets: n=28 → 96% sube después, 18% x2, pico mediano +30% a 10min. Confirma el "sube", no el x2.',
   track_chat_tesis: 'Entrada con chat ≥N wallets Y ≥M tesis: n=22 → 95% sube, 27% x2, +65% pico a 10min.',

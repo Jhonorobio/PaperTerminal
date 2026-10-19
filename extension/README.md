@@ -54,9 +54,9 @@ con `push_token: null` — una extensión no puede tener token de Expo): el serv
   su tablero.
 - Las 2 de **FOMO HOLDER** miran los tokens **activos del Track** (no el feed de Trending):
   holder con ≥$100 comprados, con PnL de 24h positivo (`FOMO HOLDER 24H`) o perteneciente a
-  un clan del top 50 de 24h/7d (`FOMO HOLDER TOP50`). Avisan una sola vez por token+categoría,
-  con un resumen de hasta 3 holders (una alerta por wallet serían cientos por minuto), y
-  nacen OFF.
+  un clan del top 50 de 24h/7d (`FOMO HOLDER TOP50`). Mientras el token siga activo se revisan
+  cada minuto; avisan una sola vez por token+categoría, con un resumen de hasta 3 holders (una
+  alerta por wallet serían cientos por minuto), y nacen OFF.
 
 Las 3 categorías de entrada del Track se evalúan en el **snapshot de entrada** del token, una
 vez por token, en el server. O sea: la extensión no calcula nada — solo muestra y avisa.

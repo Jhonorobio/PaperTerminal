@@ -10,11 +10,12 @@
  *
  * fomo_holder_pos/_top son el equivalente FOMO de las alertas de holder del
  * Track, pero SÓLO se evalúan sobre tokens activos en Track (no sobre el feed
- * de Trending; ver fomo-holders.js), con holders de ≥$100 comprados. `_pos` =
- * PnL de 24h positivo (FOMO sólo expone 24h por usuario); `_top` = el clan del
- * holder está en el top 50 de 24h o 7d (o el holder aparece en los topMembers
- * de ese clan). Avisan UNA vez por token+categoría con un resumen de hasta 3
- * holders: una alerta por wallet serían cientos por minuto.
+ * de Trending; ver fomo-holders.js), con holders de ≥$100 comprados. Se revisan
+ * cada minuto mientras el token siga activo. `_pos` = PnL de 24h positivo (FOMO
+ * sólo expone 24h por usuario); `_top` = el clan del holder está en el top 50
+ * de 24h o 7d (o el holder aparece en los topMembers de ese clan). Avisan UNA
+ * vez por token+categoría con un resumen de hasta 3 holders: una alerta por
+ * wallet serían cientos por minuto.
  *
  * The three track_* entry alerts fire at the token's ENTRY snapshot (see
  * TRACK_RULES in server/src/notify.js) and the chat/tesis/top thresholds are per
