@@ -223,8 +223,10 @@ const HOLDER_TOP_MAX_RANK = 50;
  * datos de FOMO y SÓLO sobre los tokens que están activos en el Track:
  *
  *   fomo_holder_pos — holder con ≥$100 comprados (costBasis del endpoint
- *                     /hodlers/top) y PnL de 24h positivo (/v2/users). Sólo 24h:
- *                     FOMO no expone la ventana semanal por usuario.
+ *                     /hodlers/top) y PnL de 24h positivo (/v2/users) que además
+ *                     llega al piso `pnl24hMinUsd` del dispositivo (default 0 =
+ *                     cualquier positivo). Sólo 24h: FOMO no expone la ventana
+ *                     semanal por usuario.
  *   fomo_holder_top — holder con ≥$100 que pertenece a un clan del top 50 del
  *                     leaderboard de clanes de 24h o 7d, o que aparece entre los
  *                     topMembers de uno de esos clanes.
@@ -267,9 +269,9 @@ export function enabledFomoHolderCategories() {
 
 /** Umbrales saneados (defaults medidos, rangos útiles) desde un objeto crudo. */
 export function sanitizeTrackParams(raw) {
-  const num = (v, def, max) => {
+  const num = (v, def, max, min = 1) => {
     const n = Number(v);
-    return Number.isFinite(n) ? Math.min(Math.max(Math.round(n), 1), max) : def;
+    return Number.isFinite(n) ? Math.min(Math.max(Math.round(n), min), max) : def;
   };
   return {
     chatWalletsMin: num(raw?.chatWalletsMin, 2, 50),
@@ -279,6 +281,9 @@ export function sanitizeTrackParams(raw) {
     // alguna ventana llega a su piso. Son POR DISPOSITIVO, como los de entrada.
     pnl1dMinUsd: num(raw?.pnl1dMinUsd, 500, 1_000_000),
     pnl1wMinUsd: num(raw?.pnl1wMinUsd, 1_000, 1_000_000),
+    // Piso de PnL 24h de FOMO HOLDER 24H. 0 = cualquier PnL positivo, que es
+    // la regla histórica; el usuario puede subirlo desde Notificaciones.
+    pnl24hMinUsd: num(raw?.pnl24hMinUsd, 0, 1_000_000, 0),
   };
 }
 
@@ -616,6 +621,8 @@ function fomoHolderBody(token, events, category) {
  * fomo-holders.js después de resolver el costBasis, el PnL de 24h y la
  * membresía de clan de todos los holders del token. El guard no marca "visto"
  * si la condición todavía no se cumple (una respuesta parcial se reintenta).
+ * Para `fomo_holder_pos`, cada dispositivo recibe el body con los holders que
+ * llegan a SU piso `pnl24hMinUsd` (0 = cualquier positivo).
  *
  * @param {object} token identidad del token (address/symbol/name/image/mcap/volume/holders)
  * @param {Array<object>} events [{ address, userName, usd, pnl24h, top24hRank, top24hClan, top7dRank, top7dClan }]
@@ -624,6 +631,9 @@ function fomoHolderBody(token, events, category) {
 export function emitFomoHolder(token, events, category) {
   if (!FOMO_HOLDER_CATEGORIES.includes(category)) return false;
   const list = Array.isArray(events) ? events : [];
+  // Condición base (sin piso): positivo para POS, rank para TOP. El piso 24h
+  // se aplica por dispositivo más abajo, así que el body de POS puede cambiar
+  // de un dispositivo a otro.
   const qualifying = list.filter((ev) =>
     category === FOMO_HOLDER_TOP_CATEGORY
       ? (ev?.top24hRank != null && ev.top24hRank <= FOMO_HOLDER_TOP_MAX_RANK) ||
@@ -634,15 +644,32 @@ export function emitFomoHolder(token, events, category) {
 
   const key = `${category}:${token.address}`;
   if (fomoHolderSeen.has(key)) return false;
-  fomoHolderSeen.set(key, { at: Date.now() });
 
+  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[category]);
+  const targets =
+    category === FOMO_HOLDER_TOP_CATEGORY
+      ? devices.map((device) => ({ device, events: qualifying }))
+      : devices
+          .map((device) => {
+            const min = trackParamsOf(device).pnl24hMinUsd;
+            return {
+              device,
+              events: qualifying.filter((ev) => (ev.pnl24h ?? 0) >= min),
+            };
+          })
+          .filter((target) => target.events.length);
+
+  // Sin ningún dispositivo que alcance el piso, NO se marca visto: el próximo
+  // barrido puede encontrar un PnL más alto y recién ahí avisar.
+  if (!targets.length) return false;
+
+  fomoHolderSeen.set(key, { at: Date.now() });
   const all = fomoHolderSeen.getAll();
   const keys = Object.keys(all);
   if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) fomoHolderSeen.delete(k);
 
-  const body = fomoHolderBody(token, qualifying, category);
-  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[category]);
-  for (const device of devices) {
+  for (const { device, events: hits } of targets) {
+    const body = fomoHolderBody(token, hits, category);
     const entry = notificationHistory.add({
       device_id: device.device_id,
       category,

@@ -11,7 +11,8 @@
  *   2. Sólo quedan los holders con costBasis ≥ $100 (decisión del usuario:
  *      "los que compraron 100 o más USD").
  *   3. Para `fomo_holder_pos`: GET /v2/users?userIds=… en lotes de 100 y se
- *      mira `pnl24h > 0` (FOMO no expone 7d por usuario; sólo 24h).
+ *      mira `pnl24h > 0` + el piso `pnl24hMinUsd` del dispositivo (FOMO no
+ *      expone 7d por usuario; sólo 24h).
  *   4. Para `fomo_holder_top`: GET /v2/clans/leaderboard?window=24h|7d&limit=50
  *      (cache 15 min) y se mira si el clan del holder está en el top 50, o si
  *      el holder aparece en los topMembers de uno de esos clanes. El rank que

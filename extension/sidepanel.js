@@ -699,6 +699,7 @@ function renderConfig() {
       el('h3', { text: 'Umbrales de alertas' }),
       paramRow('pnl1dMinUsd', 'PnL 1D ≥ $', 1, 1_000_000),
       paramRow('pnl1wMinUsd', 'PnL 1W ≥ $', 1, 1_000_000),
+      paramRow('pnl24hMinUsd', 'FOMO 24H ≥ $', 0, 1_000_000),
       paramRow('chatWalletsMin', 'Chat ≥ wallets', 1, 50),
       paramRow('tesisMin', 'Tesis ≥', 1, 20),
       paramRow('topMin', 'TOP·D ≥', 1, 10),
@@ -706,9 +707,10 @@ function renderConfig() {
         class: 'note',
         text:
           'Mismos umbrales que la app y por dispositivo (el server guarda los de este navegador aparte). Los pisos 1D/1W aplican a ' +
-          'CAL100+ y a Track HOLDER 1D/1W y 1D+1W: la alerta sale si 1D ≥ su piso o 1W ≥ su piso. TOP50 no usa PnL. Las 3 reglas de ' +
-          'entrada del Track se evalúan en el snapshot de ENTRADA del token, una vez por token. Las 3 de holder se evalúan una vez por ' +
-          'wallet ≥$100 dentro de cada token; el top 50 usa el board global, que se refresca cada 15 min.',
+          'CAL100+ y a Track HOLDER 1D/1W y 1D+1W: la alerta sale si 1D ≥ su piso o 1W ≥ su piso. El piso FOMO 24H aplica sólo a ' +
+          'FOMO HOLDER 24H (0 = cualquier PnL positivo). Los TOP50 no usan PnL. Las 3 reglas de entrada del Track se evalúan en el ' +
+          'snapshot de ENTRADA del token, una vez por token. Las 3 de holder se evalúan una vez por wallet ≥$100 dentro de cada token; ' +
+          'el top 50 usa el board global, que se refresca cada 15 min.',
       }),
       el('div', { class: 'chips' }, [
         el('button', { class: 'ghost', text: 'Probar alerta', onclick: () => void testAlert() }),

@@ -63,7 +63,7 @@ export const CATEGORY_LABELS = {
 /** La regla detrás de cada categoría — va como primera línea del cuerpo del aviso. */
 export const CATEGORY_HINTS = {
   fomo_trending: 'Trending en FOMO',
-  fomo_holder_pos: 'Track activo: holder ≥$100 y PnL 24h positivo',
+  fomo_holder_pos: 'Track activo: holder ≥$100 y PnL 24h sobre el mínimo',
   fomo_holder_top: 'Track activo: holder ≥$100 en clan top 50 (24h/7d)',
   track_cal_chat: 'Entrada: CAL [$100-500) + chat',
   track_chat_tesis: 'Entrada: chat + tesis',
@@ -78,7 +78,8 @@ export const CATEGORY_HINTS = {
  * Defaults del dispositivo. Espejo de la app: CAL100+ y las 3 de holder del Track
  * nacen ON (con piso de PnL configurable en CAL100+ y holder pos/both); las 3 de
  * entrada del Track y las 2 de holder de FOMO nacen OFF porque son opt-in (miran
- * los holders de los tokens activos del Track y pueden ser ruidosas).
+ * los holders de los tokens activos del Track y pueden ser ruidosas). FOMO 24H
+ * tiene además su propio mínimo de PnL configurable.
  */
 export const DEFAULT_CATEGORIES = {
   fomo_trending: false,
@@ -93,20 +94,21 @@ export const DEFAULT_CATEGORIES = {
   track_holder_top: true,
 };
 
-/** Umbrales por dispositivo en el server. PnL en USD (CAL100+ y holder pos/both). */
+/** Umbrales por dispositivo en el server. PnL en USD (CAL100+, holder pos/both y FOMO 24H). */
 export const DEFAULT_ALERT_PARAMS = {
   chatWalletsMin: 2,
   tesisMin: 1,
   topMin: 1,
   pnl1dMinUsd: 500,
   pnl1wMinUsd: 1_000,
+  pnl24hMinUsd: 0,
 };
 
 /** Rangos útiles — el server los vuelve a sanear del otro lado. */
 export function sanitizeAlertParams(raw) {
-  const num = (value, fallback, max) => {
+  const num = (value, fallback, max, min = 1) => {
     const n = Number(value);
-    return Number.isFinite(n) ? Math.min(Math.max(Math.round(n), 1), max) : fallback;
+    return Number.isFinite(n) ? Math.min(Math.max(Math.round(n), min), max) : fallback;
   };
   return {
     chatWalletsMin: num(raw?.chatWalletsMin, DEFAULT_ALERT_PARAMS.chatWalletsMin, 50),
@@ -114,6 +116,7 @@ export function sanitizeAlertParams(raw) {
     topMin: num(raw?.topMin, DEFAULT_ALERT_PARAMS.topMin, 10),
     pnl1dMinUsd: num(raw?.pnl1dMinUsd, DEFAULT_ALERT_PARAMS.pnl1dMinUsd, 1_000_000),
     pnl1wMinUsd: num(raw?.pnl1wMinUsd, DEFAULT_ALERT_PARAMS.pnl1wMinUsd, 1_000_000),
+    pnl24hMinUsd: num(raw?.pnl24hMinUsd, DEFAULT_ALERT_PARAMS.pnl24hMinUsd, 1_000_000, 0),
   };
 }
 

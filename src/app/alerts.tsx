@@ -50,7 +50,7 @@ const CATEGORY_LABELS: Record<AlertCategory, string> = {
  */
 const CATEGORY_SUBS: Partial<Record<AlertCategory, string>> = {
   fomo_holder_pos:
-    'Avisa una vez por token activo en Track cuando alguno de sus holders con ≥$100 comprados tiene PnL de 24h positivo. Se revisa cada minuto mientras siga activo; el body resume hasta 3 holders y el total. FOMO sólo expone la ventana de 24h.',
+    'Avisa una vez por token activo en Track cuando alguno de sus holders con ≥$100 comprados tiene PnL de 24h positivo y llega al mínimo configurado abajo. Se revisa cada minuto mientras siga activo; el body resume hasta 3 holders y el total. FOMO sólo expone la ventana de 24h.',
   fomo_holder_top:
     'Avisa una vez por token activo en Track cuando algún holder ≥$100 pertenece a un clan del top 50 de 24h o 7d (o aparece en sus topMembers). Se revisa cada minuto mientras siga activo; el rank es el del clan, no el individual.',
   track_cal_chat:
@@ -71,6 +71,7 @@ const CATEGORY_SUBS: Partial<Record<AlertCategory, string>> = {
 const PARAM_FIELDS: { key: keyof AlertParams; label: string; hint: string }[] = [
   { key: 'pnl1dMinUsd', label: '1D ≥ $', hint: 'PnL de la cartera, en USD' },
   { key: 'pnl1wMinUsd', label: '1W ≥ $', hint: 'PnL de la cartera, en USD' },
+  { key: 'pnl24hMinUsd', label: 'FOMO 24H ≥ $', hint: '0 = cualquier PnL positivo' },
   { key: 'chatWalletsMin', label: 'Chat ≥', hint: 'wallets hablando del token' },
   { key: 'tesisMin', label: 'Tesis ≥', hint: 'tesis de FOMO' },
   { key: 'topMin', label: 'TOP·D ≥', hint: 'top traders del día' },
@@ -85,6 +86,7 @@ export default function AlertsScreen() {
   const [paramText, setParamText] = useState<Record<keyof AlertParams, string>>({
     pnl1dMinUsd: String(DEFAULT_ALERT_PARAMS.pnl1dMinUsd),
     pnl1wMinUsd: String(DEFAULT_ALERT_PARAMS.pnl1wMinUsd),
+    pnl24hMinUsd: String(DEFAULT_ALERT_PARAMS.pnl24hMinUsd),
     chatWalletsMin: String(DEFAULT_ALERT_PARAMS.chatWalletsMin),
     tesisMin: String(DEFAULT_ALERT_PARAMS.tesisMin),
     topMin: String(DEFAULT_ALERT_PARAMS.topMin),
@@ -120,6 +122,7 @@ export default function AlertsScreen() {
           setParamText({
             pnl1dMinUsd: String(mergedParams.pnl1dMinUsd),
             pnl1wMinUsd: String(mergedParams.pnl1wMinUsd),
+            pnl24hMinUsd: String(mergedParams.pnl24hMinUsd),
             chatWalletsMin: String(mergedParams.chatWalletsMin),
             tesisMin: String(mergedParams.tesisMin),
             topMin: String(mergedParams.topMin),
@@ -250,9 +253,11 @@ export default function AlertsScreen() {
           ))}
           <Text style={styles.fine}>
             Los pisos 1D/1W se aplican a CAL100+ y a Track HOLDER 1D/1W y 1D+1W: la alerta sale si
-            1D ≥ su piso o 1W ≥ su piso. Track HOLDER TOP50 no usa PnL. Los otros tres (chat, tesis y TOP·D)
-            son las alertas de entrada del Track. Todo es por dispositivo: el server guarda un valor para
-            cada uno. Defaults: 1D $500, 1W $1.000, chat 2, tesis 1, top 1.
+            1D ≥ su piso o 1W ≥ su piso. El piso FOMO 24H aplica sólo a FOMO HOLDER 24H
+            (0 = cualquier PnL positivo). Track HOLDER TOP50 y FOMO HOLDER TOP50 no usan PnL.
+            Los otros tres (chat, tesis y TOP·D) son las alertas de entrada del Track. Todo es por
+            dispositivo: el server guarda un valor para cada uno. Defaults: 1D $500, 1W $1.000,
+            FOMO 24H $0, chat 2, tesis 1, top 1.
           </Text>
         </Card>
       </ScrollView>

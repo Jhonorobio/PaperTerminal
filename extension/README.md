@@ -48,16 +48,16 @@ con `push_token: null` — una extensión no puede tener token de Expo): el serv
   mientras estaba dormido. El dedupe es por `id` del historial del server.
 - Click en la notificación → abre el panel en el token; si Chrome no deja abrir el panel sin
   gesto, cae a abrir GMGN en una pestaña.
-- Los **umbrales de alertas** (chat ≥ wallets, tesis ≥, TOP·D ≥ y los pisos de PnL 1D/1W) son por
-  dispositivo y viven en el server, igual que en la app: podés tener el teléfono y el navegador
-  con reglas distintas.
+- Los **umbrales de alertas** (chat ≥ wallets, tesis ≥, TOP·D ≥, los pisos de PnL 1D/1W y el
+  mínimo de PnL 24H de FOMO) son por dispositivo y viven en el server, igual que en la app:
+  podés tener el teléfono y el navegador con reglas distintas.
 - La categoría de FOMO Trending está en Ajustes y avisa igual, aunque el panel no tenga
   su tablero.
 - Las 2 de **FOMO HOLDER** miran los tokens **activos del Track** (no el feed de Trending):
-  holder con ≥$100 comprados, con PnL de 24h positivo (`FOMO HOLDER 24H`) o perteneciente a
-  un clan del top 50 de 24h/7d (`FOMO HOLDER TOP50`). Mientras el token siga activo se revisan
-  cada minuto; avisan una sola vez por token+categoría, con un resumen de hasta 3 holders (una
-  alerta por wallet serían cientos por minuto), y nacen OFF.
+  holder con ≥$100 comprados, con PnL de 24h positivo y sobre el mínimo configurado
+  (`FOMO HOLDER 24H`) o perteneciente a un clan del top 50 de 24h/7d (`FOMO HOLDER TOP50`).
+  Mientras el token siga activo se revisan cada minuto; avisan una sola vez por token+categoría,
+  con un resumen de hasta 3 holders (una alerta por wallet serían cientos por minuto), y nacen OFF.
 
 Las 3 categorías de entrada del Track se evalúan en el **snapshot de entrada** del token, una
 vez por token, en el server. O sea: la extensión no calcula nada — solo muestra y avisa.

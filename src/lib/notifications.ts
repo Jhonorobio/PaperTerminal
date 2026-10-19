@@ -11,11 +11,11 @@
  * fomo_holder_pos/_top son el equivalente FOMO de las alertas de holder del
  * Track, pero SÓLO se evalúan sobre tokens activos en Track (no sobre el feed
  * de Trending; ver fomo-holders.js), con holders de ≥$100 comprados. Se revisan
- * cada minuto mientras el token siga activo. `_pos` = PnL de 24h positivo (FOMO
- * sólo expone 24h por usuario); `_top` = el clan del holder está en el top 50
- * de 24h o 7d (o el holder aparece en los topMembers de ese clan). Avisan UNA
- * vez por token+categoría con un resumen de hasta 3 holders: una alerta por
- * wallet serían cientos por minuto.
+ * cada minuto mientras el token siga activo. `_pos` = PnL de 24h positivo que
+ * además llega al piso `pnl24hMinUsd` del dispositivo (FOMO sólo expone 24h por
+ * usuario); `_top` = el clan del holder está en el top 50 de 24h o 7d (o el
+ * holder aparece en los topMembers de ese clan). Avisan UNA vez por token+categoría
+ * con un resumen de hasta 3 holders: una alerta por wallet serían cientos por minuto.
  *
  * The three track_* entry alerts fire at the token's ENTRY snapshot (see
  * TRACK_RULES in server/src/notify.js) and the chat/tesis/top thresholds are per
@@ -120,6 +120,8 @@ export interface AlertParams {
   pnl1dMinUsd: number;
   /** Piso de PnL (USD) de CAL100+ y holder 1D/1W: 1W ≥ este valor. */
   pnl1wMinUsd: number;
+  /** Piso de PnL (USD) de FOMO HOLDER 24H. 0 = cualquier PnL positivo. */
+  pnl24hMinUsd: number;
 }
 
 export const DEFAULT_ALERT_PARAMS: AlertParams = {
@@ -128,13 +130,14 @@ export const DEFAULT_ALERT_PARAMS: AlertParams = {
   topMin: 1,
   pnl1dMinUsd: 500,
   pnl1wMinUsd: 1_000,
+  pnl24hMinUsd: 0,
 };
 
 /** Clamps raw values to the useful ranges the server also enforces. */
 export function sanitizeAlertParams(raw?: Partial<AlertParams> | null): AlertParams {
-  const num = (v: unknown, def: number, max: number) => {
+  const num = (v: unknown, def: number, max: number, min = 1) => {
     const n = Number(v);
-    return Number.isFinite(n) ? Math.min(Math.max(Math.round(n), 1), max) : def;
+    return Number.isFinite(n) ? Math.min(Math.max(Math.round(n), min), max) : def;
   };
   return {
     chatWalletsMin: num(raw?.chatWalletsMin, DEFAULT_ALERT_PARAMS.chatWalletsMin, 50),
@@ -142,6 +145,7 @@ export function sanitizeAlertParams(raw?: Partial<AlertParams> | null): AlertPar
     topMin: num(raw?.topMin, DEFAULT_ALERT_PARAMS.topMin, 10),
     pnl1dMinUsd: num(raw?.pnl1dMinUsd, DEFAULT_ALERT_PARAMS.pnl1dMinUsd, 1_000_000),
     pnl1wMinUsd: num(raw?.pnl1wMinUsd, DEFAULT_ALERT_PARAMS.pnl1wMinUsd, 1_000_000),
+    pnl24hMinUsd: num(raw?.pnl24hMinUsd, DEFAULT_ALERT_PARAMS.pnl24hMinUsd, 1_000_000, 0),
   };
 }
 
