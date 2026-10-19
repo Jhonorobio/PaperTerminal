@@ -31,7 +31,8 @@ export const ALERT_CATEGORIES = [
  * Las del Track (server-side). Las 3 primeras se evalúan en el snapshot de ENTRADA
  * del token. `track_cal100_pos` y las 3 de holder no: avisan cuando el barrido
  * resuelve el PnL de una wallet (y, en holder_top, cuando el match contra el board
- * global da top 50 la primera vez que aparece). Ninguna lleva umbral.
+ * global da top 50 la primera vez que aparece). Los umbrales de entrada son
+ * configurables; CAL100+ y holder pos/both usan además el piso de PnL 1D/1W.
  *
  * Las 2 de FOMO HOLDER no están en esta lista (su id es fomo_*), pero la UI las
  * agrupa con el Track porque sólo miran tokens ACTIVOS del Track.
@@ -67,17 +68,17 @@ export const CATEGORY_HINTS = {
   track_cal_chat: 'Entrada: CAL [$100-500) + chat',
   track_chat_tesis: 'Entrada: chat + tesis',
   track_top: 'Entrada: TOP·D',
-  track_cal100_pos: 'Entrada: wallet CAL100 en verde',
-  track_holder_pos: 'Holder ≥$100: 1D o 1W positivo',
-  track_holder_both: 'Holder ≥$100: 1D y 1W positivos',
+  track_cal100_pos: 'Entrada CAL100 en verde: 1D o 1W sobre el piso',
+  track_holder_pos: 'Holder ≥$100: 1D o 1W sobre el piso',
+  track_holder_both: 'Holder ≥$100: 1D y 1W, una sobre el piso',
   track_holder_top: 'Holder ≥$100 en top 50 daily/weekly',
 };
 
 /**
  * Defaults del dispositivo. Espejo de la app: CAL100+ y las 3 de holder del Track
- * nacen ON (decisión del usuario, sin piso); las 3 de entrada del Track y las 2
- * de holder de FOMO nacen OFF porque son opt-in (miran los holders de los tokens
- * activos del Track y pueden ser ruidosas).
+ * nacen ON (con piso de PnL configurable en CAL100+ y holder pos/both); las 3 de
+ * entrada del Track y las 2 de holder de FOMO nacen OFF porque son opt-in (miran
+ * los holders de los tokens activos del Track y pueden ser ruidosas).
  */
 export const DEFAULT_CATEGORIES = {
   fomo_trending: false,
@@ -92,8 +93,14 @@ export const DEFAULT_CATEGORIES = {
   track_holder_top: true,
 };
 
-/** Umbrales del Track (por dispositivo en el server); defaults = los medidos. */
-export const DEFAULT_ALERT_PARAMS = { chatWalletsMin: 2, tesisMin: 1, topMin: 1 };
+/** Umbrales por dispositivo en el server. PnL en USD (CAL100+ y holder pos/both). */
+export const DEFAULT_ALERT_PARAMS = {
+  chatWalletsMin: 2,
+  tesisMin: 1,
+  topMin: 1,
+  pnl1dMinUsd: 500,
+  pnl1wMinUsd: 1_000,
+};
 
 /** Rangos útiles — el server los vuelve a sanear del otro lado. */
 export function sanitizeAlertParams(raw) {
@@ -105,6 +112,8 @@ export function sanitizeAlertParams(raw) {
     chatWalletsMin: num(raw?.chatWalletsMin, DEFAULT_ALERT_PARAMS.chatWalletsMin, 50),
     tesisMin: num(raw?.tesisMin, DEFAULT_ALERT_PARAMS.tesisMin, 20),
     topMin: num(raw?.topMin, DEFAULT_ALERT_PARAMS.topMin, 10),
+    pnl1dMinUsd: num(raw?.pnl1dMinUsd, DEFAULT_ALERT_PARAMS.pnl1dMinUsd, 1_000_000),
+    pnl1wMinUsd: num(raw?.pnl1wMinUsd, DEFAULT_ALERT_PARAMS.pnl1wMinUsd, 1_000_000),
   };
 }
 

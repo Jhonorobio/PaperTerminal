@@ -847,9 +847,9 @@ function emitResolved(token, row, kind) {
     // Aviso CAL100+ (ver emitTrackCal100Pos en notify.js): la fila quedó EN
     // VERDE —alguna ventana > 0, la misma regla que pinta la UI— y este es el
     // único momento en que eso se sabe: el PnL no está en el snapshot, lo trajo
-    // este barrido. Sin umbral (decisión del usuario) y una vez por token+wallet
-    // (dedupe del emisor): una fila con una ventana null se reintenta y esa
-    // segunda lectura no debe avisar de nuevo.
+    // este barrido. El emisor aplica el piso de PnL del dispositivo y dedupe
+    // por token+wallet: una fila con una ventana null se reintenta y esa segunda
+    // lectura no debe avisar de nuevo.
     if ((row.pnl1dUsd ?? 0) > 0 || (row.pnl1wUsd ?? 0) > 0) emitTrackCal100Pos(token, row);
     return;
   }

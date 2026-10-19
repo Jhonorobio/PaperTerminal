@@ -1,6 +1,6 @@
 // Notification settings — which categories alert this device, plus the Track entry
-// alerts' thresholds. The alert history moved to the History tab ("Alertas"), where
-// trades and alerts share one timeline.
+// alerts' thresholds and the 1D/1W PnL floors. The alert history moved to the
+// History tab ("Alertas"), where trades and alerts share one timeline.
 // Filters are NOT configured here: the feed screens own them (FOMO pins its tab,
 // the Track page owns its New/Graduated sets) and the server notifies on exactly
 // what those screens show.
@@ -59,16 +59,18 @@ const CATEGORY_SUBS: Partial<Record<AlertCategory, string>> = {
   track_top:
     'TOP·D ≥N en la entrada: n=69 → 80% sube, 23% x2, +36% pico a 10min (y 32% x2 / +55% a 30min).',
   track_cal100_pos:
-    'Avisa cada wallet con callout ≥$100 que entra al token y queda EN VERDE (1d o 1w de TODA su cartera) — la misma lectura que las entradas CAL100 del detalle. Sin umbral y por entrada, no por token: el mismo token avisa por 2, 3, … wallets (medido: ~28 avisos por hora de track).',
+    'Avisa cada wallet con callout ≥$100 que entra al token y queda EN VERDE (1d o 1w de TODA su cartera) y llega al piso de PnL configurado abajo (1D o 1W). Por entrada, no por token: el mismo token avisa por 2, 3, … wallets.',
   track_holder_pos:
-    'Holder ≥$100 de mint-positions (sin exigir callout) con 1D o 1W positivo en TODA su cartera. Sin umbral; una vez por wallet en cada token.',
+    'Holder ≥$100 de mint-positions (sin exigir callout) con 1D o 1W positivo en TODA su cartera y al menos una ventana llega al piso de PnL configurado abajo. Una vez por wallet en cada token.',
   track_holder_both:
-    'Holder ≥$100 con 1D y 1W positivos. Categoría aparte: si cumple las dos, con OR y AND encendidas llegan las dos notificaciones.',
+    'Holder ≥$100 con 1D y 1W positivos y al menos una de las dos llega al piso de PnL configurado abajo. Categoría aparte: si cumple las dos, con OR y AND encendidas llegan las dos notificaciones.',
   track_holder_top:
     'Holder ≥$100 que al aparecer estaba en el top 50 daily o weekly del board global de pump.fun (refresco cada 15 min). Se evalúa una sola vez: si entra al top después, no avisa.',
 };
 
 const PARAM_FIELDS: { key: keyof AlertParams; label: string; hint: string }[] = [
+  { key: 'pnl1dMinUsd', label: '1D ≥ $', hint: 'PnL de la cartera, en USD' },
+  { key: 'pnl1wMinUsd', label: '1W ≥ $', hint: 'PnL de la cartera, en USD' },
   { key: 'chatWalletsMin', label: 'Chat ≥', hint: 'wallets hablando del token' },
   { key: 'tesisMin', label: 'Tesis ≥', hint: 'tesis de FOMO' },
   { key: 'topMin', label: 'TOP·D ≥', hint: 'top traders del día' },
@@ -81,6 +83,8 @@ export default function AlertsScreen() {
   // Texto en edición de cada umbral: deja borrar el campo mientras se escribe y se
   // sanea (1..máximo) recién al salir — lo que se guarda siempre es un número válido.
   const [paramText, setParamText] = useState<Record<keyof AlertParams, string>>({
+    pnl1dMinUsd: String(DEFAULT_ALERT_PARAMS.pnl1dMinUsd),
+    pnl1wMinUsd: String(DEFAULT_ALERT_PARAMS.pnl1wMinUsd),
     chatWalletsMin: String(DEFAULT_ALERT_PARAMS.chatWalletsMin),
     tesisMin: String(DEFAULT_ALERT_PARAMS.tesisMin),
     topMin: String(DEFAULT_ALERT_PARAMS.topMin),
@@ -114,6 +118,8 @@ export default function AlertsScreen() {
           const mergedParams = sanitizeAlertParams(config.params);
           setParams(mergedParams);
           setParamText({
+            pnl1dMinUsd: String(mergedParams.pnl1dMinUsd),
+            pnl1wMinUsd: String(mergedParams.pnl1wMinUsd),
             chatWalletsMin: String(mergedParams.chatWalletsMin),
             tesisMin: String(mergedParams.tesisMin),
             topMin: String(mergedParams.topMin),
@@ -222,7 +228,7 @@ export default function AlertsScreen() {
         </Card>
 
         <Card style={{ padding: 14, gap: 12 }}>
-          <Text style={styles.groupTitle}>Umbrales del Track</Text>
+          <Text style={styles.groupTitle}>Umbrales de alertas</Text>
           {PARAM_FIELDS.map(({ key, label, hint }) => (
             <View key={key} style={styles.row}>
               <View style={styles.rowLead}>
@@ -243,11 +249,10 @@ export default function AlertsScreen() {
             </View>
           ))}
           <Text style={styles.fine}>
-            Se aplican a las 3 alertas de entrada del Track (CAL+CHAT, CHAT+TESIS y TOP·D) y son por
-            dispositivo: el server guarda un valor para cada uno. Defaults = los medidos (chat 2, tesis 1, top 1). Esas 3 se
-            evalúan en el snapshot de entrada del token y disparan una vez por token. CAL100+ no lleva umbral: avisa por cada
-            wallet que el barrido deja en verde. Las 3 de holder (1D/1W, 1D+1W y TOP50) tampoco llevan umbral: se evalúan
-            una vez por wallet ≥$100 dentro de cada token, y el top 50 usa el board global de pump.fun (refresco cada 15 min).
+            Los pisos 1D/1W se aplican a CAL100+ y a Track HOLDER 1D/1W y 1D+1W: la alerta sale si
+            1D ≥ su piso o 1W ≥ su piso. Track HOLDER TOP50 no usa PnL. Los otros tres (chat, tesis y TOP·D)
+            son las alertas de entrada del Track. Todo es por dispositivo: el server guarda un valor para
+            cada uno. Defaults: 1D $500, 1W $1.000, chat 2, tesis 1, top 1.
           </Text>
         </Card>
       </ScrollView>
@@ -270,7 +275,7 @@ const styles = StyleSheet.create({
   rowSub: { fontSize: 11, color: Palette.textTertiary },
 
   input: {
-    minWidth: 56,
+    minWidth: 84,
     paddingHorizontal: 10,
     paddingVertical: 6,
     textAlign: 'center',

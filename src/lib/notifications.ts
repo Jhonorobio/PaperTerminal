@@ -23,13 +23,15 @@
  *
  * track_cal100_pos is the exception: it is NOT evaluated at a snapshot — it fires
  * when the CAL100 sweep resolves a wallet's portfolio PnL and finds it green in
- * 1d or 1w (TRACK_CAL100_CATEGORY in server/src/notify.js). No threshold, and its
- * unit is the entry, not the token: the same token can alert for 2, 3, … wallets.
+ * 1d or 1w (TRACK_CAL100_CATEGORY in server/src/notify.js). It also needs the
+ * device's PnL floor: 1D ≥ pnl1dMinUsd OR 1W ≥ pnl1wMinUsd. Its unit is the
+ * entry, not the token: the same token can alert for 2, 3, … wallets.
  *
  * The track_holder_* alerts are also per wallet, but for EVERY holder ≥$100 of
  * mint-positions (callout not required): `_pos` = 1d or 1w positive, `_both` =
  * both positive, `_top` = the wallet was in the global top 50 daily/weekly when
- * first seen. No thresholds; one alert per token+wallet and category.
+ * first seen. `_pos` and `_both` use the same per-device PnL floors; `_top` does
+ * not. One alert per token+wallet and category.
  *
  * There is no filter configuration here anymore: the feed screens own the filters
  * (FOMO pins its tab, the Track page owns the New/Graduated sets) and the server
@@ -106,17 +108,27 @@ export const DEFAULT_CATEGORIES: Record<AlertCategory, boolean> = {
 };
 
 /**
- * Track entry alerts fire at the token's ENTRY snapshot (minute 0). Chat, thesis
- * and top thresholds are per device; the defaults are the measured ones (see
- * TRACK_RULES in server/src/notify.js).
+ * Track entry alerts fire at the token's ENTRY snapshot (minute 0). Chat, thesis,
+ * top and the PnL 1D/1W floors are per device; the defaults are the measured ones
+ * (see TRACK_RULES and sanitizeTrackParams in server/src/notify.js).
  */
 export interface AlertParams {
   chatWalletsMin: number;
   tesisMin: number;
   topMin: number;
+  /** Piso de PnL (USD) de CAL100+ y holder 1D/1W: 1D ≥ este valor. */
+  pnl1dMinUsd: number;
+  /** Piso de PnL (USD) de CAL100+ y holder 1D/1W: 1W ≥ este valor. */
+  pnl1wMinUsd: number;
 }
 
-export const DEFAULT_ALERT_PARAMS: AlertParams = { chatWalletsMin: 2, tesisMin: 1, topMin: 1 };
+export const DEFAULT_ALERT_PARAMS: AlertParams = {
+  chatWalletsMin: 2,
+  tesisMin: 1,
+  topMin: 1,
+  pnl1dMinUsd: 500,
+  pnl1wMinUsd: 1_000,
+};
 
 /** Clamps raw values to the useful ranges the server also enforces. */
 export function sanitizeAlertParams(raw?: Partial<AlertParams> | null): AlertParams {
@@ -128,6 +140,8 @@ export function sanitizeAlertParams(raw?: Partial<AlertParams> | null): AlertPar
     chatWalletsMin: num(raw?.chatWalletsMin, DEFAULT_ALERT_PARAMS.chatWalletsMin, 50),
     tesisMin: num(raw?.tesisMin, DEFAULT_ALERT_PARAMS.tesisMin, 20),
     topMin: num(raw?.topMin, DEFAULT_ALERT_PARAMS.topMin, 10),
+    pnl1dMinUsd: num(raw?.pnl1dMinUsd, DEFAULT_ALERT_PARAMS.pnl1dMinUsd, 1_000_000),
+    pnl1wMinUsd: num(raw?.pnl1wMinUsd, DEFAULT_ALERT_PARAMS.pnl1wMinUsd, 1_000_000),
   };
 }
 

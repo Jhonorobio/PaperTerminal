@@ -24,7 +24,7 @@ Requiere Chrome 120+ (usa `chrome.sidePanel` y `chrome.alarms` con período de 1
 | --- | --- |
 | **Alertas** | `GET /api/notifications/history` + el push en vivo del topic `alerts:{deviceId}` |
 | **Track** | topic `track`; el detalle de un token (tabla de snapshots) va por `GET /api/track/:address` |
-| **Ajustes** | server, categorías de alerta, umbrales del Track y "Probar alerta" |
+| **Ajustes** | server, categorías de alerta, umbrales de alertas y "Probar alerta" |
 
 Click en una fila de **Track** → tabla de snapshots minuto a minuto del token (mcap, volumen,
 holders, TP, bundle%, chat, tesis, TOP·D, CAL, salud y señal). Arriba de la tabla van las
@@ -48,8 +48,9 @@ con `push_token: null` — una extensión no puede tener token de Expo): el serv
   mientras estaba dormido. El dedupe es por `id` del historial del server.
 - Click en la notificación → abre el panel en el token; si Chrome no deja abrir el panel sin
   gesto, cae a abrir GMGN en una pestaña.
-- Los **umbrales del Track** (chat ≥ wallets, tesis ≥, TOP·D ≥) son por dispositivo y viven en
-  el server, igual que en la app: podés tener el teléfono y el navegador con reglas distintas.
+- Los **umbrales de alertas** (chat ≥ wallets, tesis ≥, TOP·D ≥ y los pisos de PnL 1D/1W) son por
+  dispositivo y viven en el server, igual que en la app: podés tener el teléfono y el navegador
+  con reglas distintas.
 - La categoría de FOMO Trending está en Ajustes y avisa igual, aunque el panel no tenga
   su tablero.
 - Las 2 de **FOMO HOLDER** miran los tokens **activos del Track** (no el feed de Trending):
@@ -64,14 +65,16 @@ vez por token, en el server. O sea: la extensión no calcula nada — solo muest
 **`Track CAL100+` y las 3 de holder son la excepción**: no se evalúan en el snapshot (el PnL de
 la wallet no está ahí, lo trae el barrido unos segundos después) y **no son una vez por token
 sino por cada wallet**. CAL100+ avisa cada entrada con callout ≥$100 que queda en verde en 1d o
-1w, sin piso de monto; es la más ruidosa (medido: ~28 avisos por hora de track) y nace ON.
+1w **y llega al piso de PnL configurado** (por defecto 1D $500 o 1W $1.000); sin piso de monto
+del callout. Es la más ruidosa (medido: ~28 avisos por hora de track) y nace ON.
 
 Las 3 de **holder** miran **todos** los holders ≥$100 de `mint-positions`, tengan o no callout:
-`Track HOLDER 1D/1W` (1d o 1w positivo), `Track HOLDER 1D+1W` (las dos positivas; categoría
-aparte, así que con las dos ON llegan las dos) y `Track HOLDER TOP50` (al aparecer estaba en el
-top 50 daily o weekly del board global de pump.fun — refresco cada 15 min, match por wallet o
-`userId`). El PnL se pide **una sola vez por token+wallet** y el top 50 se evalúa **una sola
-vez**: si la wallet entra al top después, no vuelve a avisar. Las tres nacen ON.
+`Track HOLDER 1D/1W` (1d o 1w positivo y una ventana sobre el piso), `Track HOLDER 1D+1W` (las
+dos positivas y una sobre el piso; categoría aparte, así que con las dos ON llegan las dos) y
+`Track HOLDER TOP50` (al aparecer estaba en el top 50 daily o weekly del board global de
+pump.fun — refresco cada 15 min, match por wallet o `userId`). El PnL se pide **una sola vez por
+token+wallet** y el top 50 se evalúa **una sola vez**: si la wallet entra al top después, no
+vuelve a avisar. Las tres nacen ON.
 
 ## Permisos
 

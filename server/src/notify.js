@@ -184,10 +184,9 @@ export const TRACK_ENTRY_CATEGORIES = ['track_cal_chat', 'track_chat_tesis', 'tr
  * en paralelo. ESE es el momento en que se conoce el signo, así que el aviso sale
  * desde el barrido (ver el gancho en track.js).
  *
- * Sin umbral a propósito (decisión del usuario): avisa CADA wallet que resuelve en
- * verde, sin piso de monto ni de PnL. Medido en prod el 18/oct: ~28 wallets
- * positivas por hora de track —es la categoría más ruidosa de todas; si cansa, el
- * piso natural es un conteo por token, como las otras tres.
+ * Piso de PnL POR DISPOSITIVO (params pnl1dMinUsd / pnl1wMinUsd, defaults
+ * $500 / $1,000): avisa cada wallet que resuelve en verde y además llega al piso
+ * en 1D **o** 1W. Sin piso de monto de la entrada (el callout sigue siendo ≥$100).
  *
  * "Verde" = alguna ventana > 0 (1d o 1w), la MISMA regla que pinta la UI (ver
  * WindowPnl en la app y cal100Cell en el panel): la ventana en rojo no cuenta.
@@ -211,8 +210,9 @@ export const TRACK_CAL100_CATEGORY = 'track_cal100_pos';
  *
  * El PnL se pide UNA vez por token+wallet (2 requests) y el top 50 se evalúa
  * UNA vez, con el board vigente en ese momento: si la wallet entra al top
- * después, no vuelve a avisar (decisión del usuario). Sin umbrales; las tres
- * nacen ON en app y extensión.
+ * después, no vuelve a avisar (decisión del usuario). `_pos` y `_both` tienen
+ * piso de PnL POR DISPOSITIVO (defaults $500 1D / $1,000 1W); `_top` no.
+ * Las tres nacen ON en app y extensión.
  */
 export const TRACK_HOLDER_CATEGORIES = ['track_holder_pos', 'track_holder_both', 'track_holder_top'];
 /** Corte del aviso TOP de holder: rank ≤ 50 en daily o weekly. */
@@ -275,12 +275,27 @@ export function sanitizeTrackParams(raw) {
     chatWalletsMin: num(raw?.chatWalletsMin, 2, 50),
     tesisMin: num(raw?.tesisMin, 1, 20),
     topMin: num(raw?.topMin, 1, 10),
+    // Piso de PnL (USD) de las alertas CAL100+ y holder 1D/1W: se envía si
+    // alguna ventana llega a su piso. Son POR DISPOSITIVO, como los de entrada.
+    pnl1dMinUsd: num(raw?.pnl1dMinUsd, 500, 1_000_000),
+    pnl1wMinUsd: num(raw?.pnl1wMinUsd, 1_000, 1_000_000),
   };
 }
 
 /** Umbrales de un dispositivo, con los defaults medidos y saneados al rango útil. */
 export function trackParamsOf(device) {
   return sanitizeTrackParams(device?.params);
+}
+
+/**
+ * ¿La lectura de PnL de la wallet supera el piso del dispositivo? Es un OR:
+ * 1D ≥ piso1D o 1W ≥ piso1W. Se usa en CAL100+ y en holder pos/both.
+ */
+export function pnlFloorHit(ev, params) {
+  return (
+    (ev?.pnl1dUsd ?? 0) >= params.pnl1dMinUsd ||
+    (ev?.pnl1wUsd ?? 0) >= params.pnl1wMinUsd
+  );
 }
 
 /** ready = la fuente ya trajo el dato. Si no, el token NO se marca (se reintenta). */
@@ -387,9 +402,9 @@ function cal100Body(token, ev) {
 }
 
 /**
- * Avisa que una entrada CAL100 quedó en verde. La llama sweepPnl (track.js) en
- * el momento en que el barrido escribe el PnL — el único punto donde se conoce el
- * signo. Sin umbral: el llamador ya decidió que hay verde.
+ * Avisa que una entrada CAL100 quedó en verde y llegó al piso de PnL del
+ * dispositivo. La llama sweepPnl (track.js) en el momento en que el barrido
+ * escribe el PnL — el único punto donde se conoce el signo.
  *
  * `token` es la identidad del token (symbol/name/logo/mcap/volume/holders) y `ev`
  * la fila de la entrada (ver TrackCall100Event en src/lib/track.ts).
@@ -400,6 +415,16 @@ function cal100Body(token, ev) {
 export function emitTrackCal100Pos(token, ev) {
   const key = `${TRACK_CAL100_CATEGORY}:${token.address}:${ev.address}`;
   if (trackEntrySeen.has(key)) return false;
+
+  // Piso POR DISPOSITIVO. Si todavía falta una ventana y ningún dispositivo
+  // llega al piso, no se marca visto: la lectura parcial se reintenta y puede
+  // calificar cuando llegue la otra ventana.
+  const devices = Object.values(notificationConfig.getAll())
+    .filter((d) => d?.categories?.[TRACK_CAL100_CATEGORY])
+    .filter((d) => pnlFloorHit(ev, trackParamsOf(d)));
+  const resolved = ev?.pnl1dUsd != null && ev?.pnl1wUsd != null;
+  if (!devices.length && !resolved) return false;
+
   trackEntrySeen.set(key, { at: Date.now() });
 
   const all = trackEntrySeen.getAll();
@@ -407,7 +432,6 @@ export function emitTrackCal100Pos(token, ev) {
   if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) trackEntrySeen.delete(k);
 
   const body = cal100Body(token, ev);
-  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[TRACK_CAL100_CATEGORY]);
   for (const device of devices) {
     const entry = notificationHistory.add({
       device_id: device.device_id,
@@ -491,6 +515,15 @@ export function emitTrackHolder(token, ev, category) {
   if (category === 'track_holder_both' && !both) return false;
   if (category === 'track_holder_top' && !top) return false;
 
+  // `track_holder_top` no mira PnL; pos/both sí, con el piso de cada dispositivo.
+  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[category]);
+  const targets =
+    category === 'track_holder_top'
+      ? devices
+      : devices.filter((d) => pnlFloorHit(ev, trackParamsOf(d)));
+  const resolved = ev?.pnl1dUsd != null && ev?.pnl1wUsd != null;
+  if (category !== 'track_holder_top' && !targets.length && !resolved) return false;
+
   const key = `${category}:${token.address}:${ev.address}`;
   if (trackEntrySeen.has(key)) return false;
   trackEntrySeen.set(key, { at: Date.now() });
@@ -500,8 +533,7 @@ export function emitTrackHolder(token, ev, category) {
   if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) trackEntrySeen.delete(k);
 
   const body = holderBody(token, ev, category);
-  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[category]);
-  for (const device of devices) {
+  for (const device of targets) {
     const entry = notificationHistory.add({
       device_id: device.device_id,
       category,

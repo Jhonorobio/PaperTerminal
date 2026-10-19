@@ -151,8 +151,8 @@ router.get('/notifications/config', (req, res) => {
       registered: true,
       has_push: isValidPushToken(entry.push_token),
       categories: entry.categories,
-      // Umbrales de las alertas de entrada del Track (chat/tesis/top) — la app
-      // los edita en la pantalla Notificaciones.
+      // Umbrales por dispositivo: entrada del Track (chat/tesis/top) y pisos de
+      // PnL 1D/1W de CAL100+ y holders. La app los edita en Notificaciones.
       params: sanitizeTrackParams(entry.params),
     });
   } catch (err) {
@@ -192,8 +192,8 @@ router.put('/notifications/config', (req, res) => {
       device_id: id,
       push_token: hasPush ? push_token : null,
       categories: cats,
-      // Umbrales de las alertas de entrada del Track (chat/tesis/top): saneados
-      // acá para que lo guardado sea siempre un número válido.
+      // Umbrales de entrada (chat/tesis/top) y pisos de PnL 1D/1W: saneados acá
+      // para que lo guardado sea siempre un número válido.
       params: sanitizeTrackParams(params),
       updated_at: new Date().toISOString(),
     };
