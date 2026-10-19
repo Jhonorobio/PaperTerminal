@@ -365,6 +365,8 @@ export function getFomoHolderStatus() {
     running,
     source: 'track',
     activeTrackTokens: trackHolderTargets().length,
+    sweepMs: TRACK_SWEEP_MS,
+    rescanMs: SCANNED_TTL_MS,
     queue: queue.length,
     scanned: scanned.size,
     scans,
