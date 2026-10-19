@@ -11,8 +11,8 @@
  * Filters come from the feed screens, one configuration for the list and the alert:
  *   - FOMO: the stream carries everything, so the stored feed filters (pushed by the
  *     app via PUT /api/fomo/filters) gate the token before any device sees it;
- *   - Track: the server queries New/Graduated with the Track page's per-source
- *     filters, so only tokens that pass ever enter the tracker (and its alerts).
+ *   - Track: the server queries Graduated with the Track page's filters, so only
+ *     tokens that pass ever enter the tracker (and its alerts).
  * Per-device filters (the old alerts-screen config) are no longer read.
  */
 

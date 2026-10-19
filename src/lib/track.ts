@@ -50,10 +50,9 @@ export interface TrackFilterPair {
   max?: string;
 }
 
-/** Photon's two lanes, each with its own filter set. */
+/** La única fuente del track (Photon Graduated), con su propio filtro. */
 export const TRACK_SOURCES = [
   { key: 'graduated', label: 'Graduated' },
-  { key: 'new', label: 'New' },
 ] as const;
 export type TrackSource = (typeof TRACK_SOURCES)[number]['key'];
 
@@ -63,30 +62,24 @@ export interface TrackConfig {
   enabled: boolean;
   /** The track's OWN proxy — never the shared FOMO one. '' = not configured. */
   proxy: string;
-  /** Per-source filters: filters.graduated and filters.new are independent. */
+  /** Filtros de Graduated (la única fuente desde que se quitó New). */
   filters: TrackFilters;
 }
 
-const EMPTY_TRACK_FILTERS = (): TrackFilters => ({ graduated: {}, new: {} });
+const EMPTY_TRACK_FILTERS = (): TrackFilters => ({ graduated: {} });
 
 /**
- * Normalizes a stored/remote config to the per-source shape. The old config was
- * one flat filter object and the tracker only pulled Graduated, so a flat object
- * is migrated to `filters.graduated`; `filters.new` starts empty.
+ * Normalizes a stored/remote config to the Graduated shape. La config vieja podía
+ * ser un objeto plano (pertenece a Graduated) o traer `{ graduated, new }`: la
+ * parte `new` se descarta porque esa fuente ya no existe.
  */
 export function normalizeTrackFilters(raw: unknown): TrackFilters {
   const out = EMPTY_TRACK_FILTERS();
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
   const obj = raw as Record<string, unknown>;
-  const perSource =
-    Object.prototype.hasOwnProperty.call(obj, 'graduated') ||
-    Object.prototype.hasOwnProperty.call(obj, 'new');
-  if (perSource) {
-    out.graduated = (obj.graduated && typeof obj.graduated === 'object' ? obj.graduated : {}) as TrackFilters['graduated'];
-    out.new = (obj.new && typeof obj.new === 'object' ? obj.new : {}) as TrackFilters['new'];
-  } else {
-    out.graduated = obj as TrackFilters['graduated'];
-  }
+  const perSource = Object.prototype.hasOwnProperty.call(obj, 'graduated');
+  const graduated = perSource ? obj.graduated : obj;
+  out.graduated = (graduated && typeof graduated === 'object' ? graduated : {}) as TrackFilters['graduated'];
   return out;
 }
 
@@ -107,7 +100,7 @@ export function normalizeTrackConfig(raw: unknown): TrackConfig {
 const pairCount = (set: Partial<Record<TrackFilterKey, TrackFilterPair>> | null | undefined) =>
   Object.values(set ?? {}).filter((range) => Boolean(range?.min || range?.max)).length;
 
-/** Total configured fields across both sources (the "Filtros · N" count). */
+/** Total configured fields (the "Filtros · N" count). */
 export function trackFilterCount(filters: TrackFilters | null | undefined): number {
   if (!filters) return 0;
   return TRACK_SOURCES.reduce((total, source) => total + pairCount(filters[source.key]), 0);
@@ -317,7 +310,7 @@ export interface TrackTokenSummary {
   turnover: number | null;
   /** 'active' = the track is still open (< 50 snapshots); 'done' = cut at 50. */
   status: 'active' | 'done';
-  /** Lane it entered from (stable): Photon New or Graduated. */
+  /** Siempre 'graduated' (la única lane desde que se quitó New). */
   source: TrackSource;
   firstSeenAt: string;
   lastSeenAt: string;
@@ -371,7 +364,7 @@ export interface TrackGate {
   proxy: { ok: boolean; url: string };
   filters: {
     ok: boolean;
-    /** Total fields across both active sources. */
+    /** Total fields configurados (hoy solo Graduated). */
     count: number;
     bySource: Record<TrackSource, number>;
   };

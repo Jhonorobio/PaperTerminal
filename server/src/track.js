@@ -2,17 +2,16 @@
  * Token tracker — a SECOND Photon poller that snapshots the tokens you care
  * about, once a minute, so a migration can be analysed after the fact.
  *
- * Sources: Photon's New (col1) and Graduated (col3) columns. Each one has its
- * OWN filter set (filters.new and filters.graduated), independent from the
- * app's former Photon columns. The tracker rotates one column per 1.3s pull, so
- * the upstream request rate stays the same with both sources active.
+ * Source: Photon's Graduated (col3) column, with its OWN filter set
+ * (filters.graduated), independent from the app's former Photon columns. (La
+ * columna New se quitó: lo que entra por New no se trackea.)
  *
  * Lifecycle:
- *   enter   — a token shows up in New or Graduated after Photon filters it with
- *             that source's own filter set. The filters travel as query params —
- *             the exact mechanism the old Photon screen used — so "pasa el
- *             filtro" means the same thing on both sides. `source` remembers the
- *             lane it entered from (it does not flip if it later graduates).
+ *   enter   — a token shows up in Graduated after Photon filters it with that
+ *             source's own filter set. The filters travel as query params — the
+ *             exact mechanism the old Photon screen used — so "pasa el filtro"
+ *             means the same thing on both sides. Los tokens viejos que
+ *             entraron cuando existía New quedan con su label hasta cortarse.
  *   capture — while it stays visible in its column: one snapshot per minute with
  *             top holders %, holders, snipers %, snipers, bundle %, bundle count,
  *             buys, sells, market cap, volume and tp holders ("bots"). Además,
@@ -31,9 +30,9 @@
  * migrations.
  *
  * Hard gate: the poller idles until the track's OWN proxy (configured in the
- * app, never the shared FOMO one) is saved, and at least one source has a
- * filter — no proxy, no entries; no filters, no entries. A source with no
- * filters is never fetched (that would pull the whole column).
+ * app, never the shared FOMO one) is saved, and Graduated has a filter — no
+ * proxy, no entries; no filters, no entries. Sin filtros no se pide la columna
+ * entera.
  *
  * Own CycleTLS client + own backoff, so the app feed's rate limit and transport
  * never interact with tracking. Egress ONLY rides the track's own proxy — a dead
@@ -89,38 +88,32 @@ const numOrNull = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
-// The two Photon lanes the tracker follows. `source` on a token is the lane it
-// ENTERED from and never flips (a New token that graduates stays labeled New).
+// La única columna que sigue el tracker. `source` sobre un token queda por
+// compatibilidad con el payload viejo (siempre 'graduated' ahora).
 export const TRACK_SOURCES = [
   { key: 'graduated', column: 'col3', label: 'Graduated' },
-  { key: 'new', column: 'col1', label: 'New' },
 ];
 const TRACK_SOURCE_KEYS = TRACK_SOURCES.map((s) => s.key);
 
-const emptyTrackFilters = () => ({ graduated: {}, new: {} });
+const emptyTrackFilters = () => ({ graduated: {} });
 
 /**
- * Normalizes the stored filters to the per-source shape. The old config was a
- * single flat set and the tracker only pulled Graduated, so a flat object is
- * treated as the Graduated set (New starts empty). Missing keys are filled with
- * `{}` so the app can always read both sources.
+ * Normalizes the stored filters to the Graduated set. La config vieja podía ser
+ * un objeto plano (pertenece a Graduated) o traer `{ graduated, new }`: la parte
+ * `new` se descarta porque esa columna ya no se sigue. Siempre devuelve
+ * `{ graduated }` para que la app lea un solo set.
  */
 export function normalizeTrackFilters(raw) {
   const out = emptyTrackFilters();
   if (!raw || typeof raw !== 'object') return out;
-  const perSource =
-    Object.prototype.hasOwnProperty.call(raw, 'graduated') ||
-    Object.prototype.hasOwnProperty.call(raw, 'new');
-  if (perSource) {
-    out.graduated = sanitizeColumnFilters(raw.graduated);
-    out.new = sanitizeColumnFilters(raw.new);
-  } else {
-    out.graduated = sanitizeColumnFilters(raw);
-  }
+  const perSource = Object.prototype.hasOwnProperty.call(raw, 'graduated');
+  out.graduated = sanitizeColumnFilters(perSource ? raw.graduated : raw);
   return out;
 }
 
-const sourceOf = (tracked) => (tracked?.source === 'new' ? 'new' : 'graduated');
+// Una sola lane: los tokens viejos que guardaron `source: 'new'` salen como
+// Graduated (New ya no se sigue).
+const sourceOf = () => 'graduated';
 
 // ── config (its own proxy + filters, both independent from the app columns) ──
 
@@ -141,7 +134,6 @@ export function getTrackConfig() {
     // redeploy can't silently lose the setup the user saved from the app.
     filters: {
       graduated: Object.keys(storedFilters.graduated).length ? storedFilters.graduated : envFilters('TRACK_FILTERS'),
-      new: Object.keys(storedFilters.new).length ? storedFilters.new : envFilters('TRACK_FILTERS_NEW'),
     },
   };
 }
@@ -156,9 +148,8 @@ function envProxy() {
 }
 
 /**
- * TRACK_FILTERS / TRACK_FILTERS_NEW — restart-safe env fallback, same flat shape
- * as one source's filters, sanitized. `TRACK_FILTERS` predates the New lane, so
- * it remains the Graduated fallback.
+ * TRACK_FILTERS — restart-safe env fallback, same flat shape as the Graduated
+ * filter set, sanitized.
  */
 function envFilters(name) {
   try {
@@ -180,26 +171,17 @@ export function setTrackConfig(raw) {
     }
   }
 
-  // Accept both shapes: the app now sends { new, graduated }, while an older
-  // build (or a mirror saved before this change) sends one flat set — that one
-  // belongs to Graduated, the only lane the old tracker knew.
+  // Acepta las dos formas: un cliente viejo podía mandar { new, graduated } y
+  // otro (o un espejo guardado antes) un set plano. En ambos casos solo se toma
+  // Graduated; `new` se descarta porque esa columna ya no se sigue.
   const previous = normalizeTrackFilters(stored.filters);
-  let filters = previous;
+  let filters = { graduated: previous.graduated };
   if (raw?.filters !== undefined) {
     const perSource =
-      raw.filters &&
-      typeof raw.filters === 'object' &&
-      (Object.prototype.hasOwnProperty.call(raw.filters, 'graduated') ||
-        Object.prototype.hasOwnProperty.call(raw.filters, 'new'));
-    filters = perSource
-      ? {
-          graduated:
-            raw.filters.graduated !== undefined
-              ? sanitizeColumnFilters(raw.filters.graduated)
-              : previous.graduated,
-          new: raw.filters.new !== undefined ? sanitizeColumnFilters(raw.filters.new) : previous.new,
-        }
-      : { graduated: sanitizeColumnFilters(raw.filters), new: previous.new };
+      raw.filters && typeof raw.filters === 'object' && Object.prototype.hasOwnProperty.call(raw.filters, 'graduated');
+    filters = {
+      graduated: sanitizeColumnFilters(perSource ? raw.filters.graduated : raw.filters),
+    };
   }
 
   trackConfig.set('global', {
@@ -1028,9 +1010,8 @@ export async function fetchPumpTopTraders(address) {
 
 /**
  * Hard gate: the tracker idles until its OWN proxy is saved (never the shared
- * FOMO one — the track doesn't egress without its own) and at least one source
- * has a filter. A source with no filters is skipped by the tick, so an empty
- * New set doesn't force tracking the whole New column.
+ * FOMO one — the track doesn't egress without its own) and Graduated has a
+ * filter. Sin filtros el tick no pide la columna entera.
  */
 export function getTrackGate() {
   const config = getTrackConfig();
@@ -1067,8 +1048,8 @@ let cycleTLS = null;
 let transport = 'direct';
 let poller = null;
 let trackInflight = null;
-// Rotates New/Graduated one per 1.3s pull: both refresh every ~2.6s while
-// keeping Photon's single-request cadence (two per tick would risk 429s).
+// Una sola columna (Graduated): el cursor se conserva por si vuelve a haber
+// más de una fuente, pero hoy sólo gira sobre ella.
 let sourceCursor = 0;
 const missCount = new Map(); // address → consecutive pulls absent (pause grace, in-memory)
 let backoffUntil = 0;
@@ -1142,9 +1123,8 @@ async function requestColumn(source, proxyUrl, filters, timeoutMs) {
 }
 
 /**
- * Fetches one source (New or Graduated) with that source's own filters. The
- * rotating tick calls it once per pull; each active source refreshes every
- * ~2.6s when both are configured.
+ * Fetches Graduated with its own filters. The rotating tick calls it once per
+ * pull (hoy la única fuente).
  */
 async function fetchTrackColumn(sourceKey) {
   const source = TRACK_SOURCES.find((s) => s.key === sourceKey);
@@ -1212,7 +1192,7 @@ export async function testTrackProxy(rawProxy, rawFilters) {
       ok: false,
       stage: 'config',
       ms: 0,
-      error: 'poné al menos un filtro en Graduated o New',
+      error: 'poné al menos un filtro en Graduated',
     };
   }
 
@@ -1266,7 +1246,7 @@ async function trackTick() {
     if (!gate.ok) {
       if (!gateLogged) {
         gateLogged = true;
-        const missing = [!gate.proxy.ok ? 'proxy' : null, !gate.filters.ok ? 'filtro en New o Graduated' : null]
+        const missing = [!gate.proxy.ok ? 'proxy' : null, !gate.filters.ok ? 'filtro en Graduated' : null]
           .filter(Boolean)
           .join(' + ');
         console.log(`[track] en espera — falta configurar: ${missing}`);
@@ -1432,13 +1412,13 @@ async function trackTick() {
 
     // Tracked tokens missing from the column fetched this tick: paused after a
     // couple of misses — at 1.3s pulls a single partial/reshuffled response must
-    // not flip the list. With both lanes active the rotation means a token alive
-    // in the other lane gets ONE miss and resets on its own tick; a token that
-    // really left gets a miss on both lanes and pauses. Missing also covers
-    // "stopped passing the filters": the column is filtered upstream, so a token
-    // out of range simply isn't returned. Data is kept; capture resumes on the
-    // next appearance. A token out for 30 continuous minutes is done for good
-    // (its run ended), even if it never hit the snapshot cap.
+    // not flip the list. Con una sola lane (Graduated) el token que salió de la
+    // columna junta misses seguidos y pausa; los viejos de New, que ya no se
+    // piden, también caen por acá hasta cortarse. Missing also covers "stopped
+    // passing the filters": the column is filtered upstream, so a token out of
+    // range simply isn't returned. Data is kept; capture resumes on the next
+    // appearance. A token out for 30 continuous minutes is done for good (its run
+    // ended), even if it never hit the snapshot cap.
     for (const [address, tracked] of Object.entries(trackTokens.getAll())) {
       if (byAddress.has(address)) {
         missCount.delete(address);
@@ -1510,7 +1490,7 @@ export function startTrackPoller() {
   // paralelo, y las filas nuevas se resuelven sin tocar el camino del snapshot.
   call100Timer = setInterval(sweepPnl, CALL100_SWEEP_MS);
   console.log(
-    `[track] poller started (New/Graduated rotating every ${PULL_MS}ms, 1 snap/${SNAPSHOT_MS / 1000}s per token, ≤${TRACK_SNAPSHOT_MAX} snaps/token, ≤${TRACK_TOKENS_MAX} tokens, wallet PnL every ${CALL100_SWEEP_MS / 1000}s)`
+    `[track] poller started (Graduated every ${PULL_MS}ms, 1 snap/${SNAPSHOT_MS / 1000}s per token, ≤${TRACK_SNAPSHOT_MAX} snaps/token, ≤${TRACK_TOKENS_MAX} tokens, wallet PnL every ${CALL100_SWEEP_MS / 1000}s)`
   );
 }
 
@@ -1804,7 +1784,7 @@ export function summarizeTrackToken(t) {
     symbol: t.symbol ?? null,
     name: t.name ?? null,
     logo: t.logo ?? null,
-    // Lane it entered from (stable): 'new' or 'graduated'.
+    // Siempre 'graduated' (la única lane desde que se quitó New).
     source: sourceOf(t),
     status: t.status,
     firstSeenAt: t.firstSeenAt,

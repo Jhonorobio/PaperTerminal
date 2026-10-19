@@ -34,8 +34,8 @@
  * One alert per token+wallet and category.
  *
  * There is no filter configuration here anymore: the feed screens own the filters
- * (FOMO pins its tab, the Track page owns the New/Graduated sets) and the server
- * gates the alerts with those — what fires is exactly what the phone shows.
+ * (FOMO pins its tab, the Track page owns its Graduated set) and the server gates
+ * the alerts with those — what fires is exactly what the phone shows.
  */
 
 import Constants from 'expo-constants';

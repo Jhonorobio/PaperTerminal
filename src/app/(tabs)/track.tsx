@@ -1,9 +1,9 @@
 /**
- * Track — the token tracker: Photon's New and Graduated columns, each with its
- * own filter set, snapshotted once a minute (up to 50 per token).
+ * Track — the token tracker: Photon's Graduated column, with its own filter set,
+ * snapshotted once a minute (up to 50 per token).
  *
  * The tracker runs on the server; this screen paints its state and owns the
- * config (own proxy + per-source filters). It used to live inside History; the
+ * config (own proxy + Graduated filters). It used to live inside History; the
  * Photon memescope screen that previously owned this tab is gone.
  */
 
@@ -52,7 +52,7 @@ const time24 = (iso: string) =>
 const sourceLabel = (source: TrackSource) =>
   TRACK_SOURCES.find((s) => s.key === source)?.label ?? source;
 
-const emptyTrackConfig = (): TrackConfig => ({ enabled: false, proxy: '', filters: { graduated: {}, new: {} } });
+const emptyTrackConfig = (): TrackConfig => ({ enabled: false, proxy: '', filters: { graduated: {} } });
 
 /**
  * The tracked list is virtualized and every row is memoized, so a poll must NOT
@@ -354,13 +354,8 @@ export default function TrackScreen() {
   // Optional chaining on the new fields too: a phone can hit the previous server
   // during a deploy, and "undefined visibles" is worse than a zero.
   const activeSources = status?.gate?.activeSources ?? [];
-  const bySource = {
-    graduated: status?.counts?.bySource?.graduated ?? 0,
-    new: status?.counts?.bySource?.new ?? 0,
-  };
-  const visibleStatus = activeSources.length === 1
-    ? `${status?.counts.visible ?? 0} en ${sourceLabel(activeSources[0])} ahora`
-    : `${status?.counts.visible ?? 0} visibles ahora · G ${bySource.graduated} / N ${bySource.new}`;
+  // Una sola fuente desde que se quitó New: siempre se resume en Graduated.
+  const visibleStatus = `${status?.counts.visible ?? 0} en ${sourceLabel(activeSources[0] ?? 'graduated')} ahora`;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -439,25 +434,26 @@ export default function TrackScreen() {
                   {proxyTest.result ? (
                     <Text style={[styles.detailHint, { color: proxyTest.result.ok ? Palette.green : Palette.red }]}>
                       {proxyTest.result.ok
-                        ? `✓ responde en ${proxyTest.result.ms} ms — New ${proxyTest.result.sources?.new ?? 0} · Graduated ${proxyTest.result.sources?.graduated ?? 0} con tus filtros`
+                        ? `✓ responde en ${proxyTest.result.ms} ms — Graduated ${proxyTest.result.sources?.graduated ?? 0} con tus filtros`
                         : `✗ ${proxyTest.result.error}`}
                     </Text>
                   ) : null}
                 </View>
 
                 <View style={{ gap: 6 }}>
-                  <Text style={styles.filterLabel}>Filtros por fuente</Text>
-                  <SegTabs
-                    value={filterSource}
-                    onChange={setFilterSource}
-                    options={TRACK_SOURCES.map((s) => {
-                      const count = sourceFilterCount(trackDraft.filters, s.key);
-                      return { value: s.key, label: `${s.label}${count ? ` · ${count}` : ''}` };
-                    })}
-                  />
+                  <Text style={styles.filterLabel}>{TRACK_SOURCES.length > 1 ? 'Filtros por fuente' : 'Filtros'}</Text>
+                  {TRACK_SOURCES.length > 1 ? (
+                    <SegTabs
+                      value={filterSource}
+                      onChange={setFilterSource}
+                      options={TRACK_SOURCES.map((s) => {
+                        const count = sourceFilterCount(trackDraft.filters, s.key);
+                        return { value: s.key, label: `${s.label}${count ? ` · ${count}` : ''}` };
+                      })}
+                    />
+                  ) : null}
                   <Text style={styles.detailHint}>
-                    Cada fuente tiene sus propios filtros. Una fuente sin filtros no se trackea; la
-                    otra sigue funcionando. MC en miles: 150 = $150.000.
+                    Sin filtros no se trackea. MC en miles: 150 = $150.000.
                   </Text>
                 </View>
 
@@ -508,7 +504,7 @@ export default function TrackScreen() {
                     ? 'Poné el proxy propio del track (no el de FOMO) en Filtros'
                     : null,
                   !status.gate.filters.ok
-                    ? 'poné al menos un filtro en Graduated o New'
+                    ? 'poné al menos un filtro en Graduated'
                     : null,
                 ]
                   .filter(Boolean)
@@ -571,7 +567,7 @@ export default function TrackScreen() {
             <Card style={{ padding: 16 }}>
               <Empty
                 title="Sin tokens trackeados"
-                body="El server les pide a Photon las columnas New y Graduated con los filtros de cada fuente y les saca un snapshot por minuto, hasta 50 por token. Una fuente sin filtros no se trackea."
+                body="El server le pide a Photon la columna Graduated con tus filtros y le saca un snapshot por minuto, hasta 50 por token. Sin filtros no se trackea."
               />
             </Card>
           )
@@ -629,9 +625,7 @@ const TrackRow = memo(function TrackRow({
             <Text style={styles.rowName} numberOfLines={1}>
               {t.symbol ?? t.name ?? `${t.address.slice(0, 4)}…`}
             </Text>
-            <Text style={[styles.sourceBadge, t.source === 'new' ? styles.sourceNew : styles.sourceGrad]}>
-              {t.source === 'new' ? 'NEW' : 'GRAD'}
-            </Text>
+            <Text style={[styles.sourceBadge, styles.sourceGrad]}>GRAD</Text>
           </View>
           <Text style={styles.rowSub}>
             MC {formatCompactUsd(t.mcap)} · VOL {formatCompactUsd(t.volume)}
@@ -1033,6 +1027,5 @@ const styles = StyleSheet.create({
   gmgn: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, backgroundColor: Palette.paperT },
   gmgnText: { fontSize: 9, fontWeight: '800', color: Palette.paper, letterSpacing: 0.5 },
   sourceBadge: { fontSize: 8, fontWeight: '800', letterSpacing: 0.5, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, overflow: 'hidden' },
-  sourceNew: { color: Palette.bgPrimary, backgroundColor: Palette.paper },
   sourceGrad: { color: Palette.textSecondary, backgroundColor: Palette.bgTertiarySolid },
 });

@@ -36,7 +36,7 @@ export interface Settings {
   feedProxyUrl?: string;
   feedProxyOn?: boolean;
   /**
-   * Mirror of the Track config as last saved here — proxy + per-source filters.
+   * Mirror of the Track config as last saved here — proxy + Graduated filters.
    * A restarted server loses its store; the Track tab re-applies this mirror on
    * load, so the setup survives Railway redeploys without re-saving.
    */

@@ -2,8 +2,8 @@
 // alerts' thresholds and the 1D/1W PnL floors. The alert history moved to the
 // History tab ("Alertas"), where trades and alerts share one timeline.
 // Filters are NOT configured here: the feed screens own them (FOMO pins its tab,
-// the Track page owns its New/Graduated sets) and the server notifies on exactly
-// what those screens show.
+// the Track page owns its Graduated set) and the server notifies on exactly what
+// those screens show.
 
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';

@@ -17,7 +17,7 @@
  *   POST /api/notifications/test            fire a test alert (panel + push)
  *   GET  /api/track                         tracked tokens (summary) + config + status
  *   GET  /api/track/export                  everything WITH snapshots (analysis)
- *   GET  /api/track/config · PUT            the tracker's own proxy + per-source filters
+ *   GET  /api/track/config · PUT            the tracker's own proxy + Graduated filters
  *   POST /api/track/proxy-test              prove a proxy with one real fetch per active source
  *   GET  /api/track/:address                one tracked token + its snapshots
  *   DELETE /api/track                       clear every tracked token
@@ -185,7 +185,7 @@ router.put('/notifications/config', (req, res) => {
     }
 
     // No filters here on purpose: the feed screens own them (FOMO pins its tab,
-    // the Track page owns its per-source sets) and notify.js gates the alerts with
+    // the Track page owns its Graduated set) and notify.js gates the alerts with
     // those — this config only says which categories the device wants. Any
     // `filters` an older client still sends are dropped with the entry rewrite below.
     const entry = {

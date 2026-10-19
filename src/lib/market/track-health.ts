@@ -1,7 +1,7 @@
 /**
  * Health chips of the TRACKED tokens, shared by Trade and FOMO.
  *
- * The tracker only knows the tokens it follows (Photon's New/Graduated columns ∩
+ * The tracker only knows the tokens it follows (Photon's Graduated column ∩
  * the matching source's filters), so the chip only exists where that address is
  * being tracked —
  * everywhere else there is no series and thus no chip (no data, not a bug).
