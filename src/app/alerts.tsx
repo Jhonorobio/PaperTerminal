@@ -15,6 +15,7 @@ import { Palette } from '@/constants/paper';
 import {
   ALERT_CATEGORIES,
   DEFAULT_ALERT_PARAMS,
+  DEFAULT_CATEGORIES,
   loadConfig,
   pushAvailable,
   registerDevice,
@@ -32,30 +33,17 @@ const CATEGORY_LABELS: Record<AlertCategory, string> = {
   track_chat_tesis: 'Track CHAT+TESIS',
   track_top: 'Track TOP·D',
   track_cal100_pos: 'Track CAL100+',
-};
-
-/**
- * Defaults per category. CAL100+ nace ON (la migración del effect de carga la
- * sincroniza al server la primera vez que se abre esta pantalla, si no el switch
- * diría ON pero el server no la emitiría). Las tres de entrada del Track nacen
- * OFF: son opt-in con umbral propio y cada una dispara sobre una porción grande
- * del universo trackeado.
- */
-const DEFAULT_CATEGORIES: Record<AlertCategory, boolean> = {
-  fomo_trending: false,
-  photon_graduated: false,
-  track_cal_chat: false,
-  track_chat_tesis: false,
-  track_top: false,
-  track_cal100_pos: true,
+  track_holder_pos: 'Track HOLDER 1D/1W',
+  track_holder_both: 'Track HOLDER 1D+1W',
+  track_holder_top: 'Track HOLDER TOP50',
 };
 
 /**
  * Las reglas del Track se evalúan en el snapshot de ENTRADA del token (su primer
  * minuto) y disparan una vez por token. Los números son los medidos el 17/oct
  * sobre el dump de prod (486 tokens / 8.108 snapshots, pico vs precio de
- * entrada): ver TRACK_RULES en server/src/notify.js. CAL100+ es la excepción
- * (ver su texto): no sale del snapshot y no dispara una vez por token.
+ * entrada): ver TRACK_RULES en server/src/notify.js. CAL100+ y las tres de
+ * holder son la excepción: no salen del snapshot de entrada (ver sus textos).
  */
 const TRACK_SUBS: Partial<Record<AlertCategory, string>> = {
   track_cal_chat:
@@ -65,6 +53,12 @@ const TRACK_SUBS: Partial<Record<AlertCategory, string>> = {
     'TOP·D ≥N en la entrada: n=69 → 80% sube, 23% x2, +36% pico a 10min (y 32% x2 / +55% a 30min).',
   track_cal100_pos:
     'Avisa cada wallet con callout ≥$100 que entra al token y queda EN VERDE (1d o 1w de TODA su cartera) — la misma lectura que las entradas CAL100 del detalle. Sin umbral y por entrada, no por token: el mismo token avisa por 2, 3, … wallets (medido: ~28 avisos por hora de track).',
+  track_holder_pos:
+    'Holder ≥$100 de mint-positions (sin exigir callout) con 1D o 1W positivo en TODA su cartera. Sin umbral; una vez por wallet en cada token.',
+  track_holder_both:
+    'Holder ≥$100 con 1D y 1W positivos. Categoría aparte: si cumple las dos, con OR y AND encendidas llegan las dos notificaciones.',
+  track_holder_top:
+    'Holder ≥$100 que al aparecer estaba en el top 50 daily o weekly del board global de pump.fun (refresco cada 15 min). Se evalúa una sola vez: si entra al top después, no avisa.',
 };
 
 const PARAM_FIELDS: { key: keyof AlertParams; label: string; hint: string }[] = [
@@ -244,7 +238,8 @@ export default function AlertsScreen() {
             Se aplican a las 3 alertas de entrada del Track (CAL+CHAT, CHAT+TESIS y TOP·D) y son por
             dispositivo: el server guarda un valor para cada uno. Defaults = los medidos (chat 2, tesis 1, top 1). Esas 3 se
             evalúan en el snapshot de entrada del token y disparan una vez por token. CAL100+ no lleva umbral: avisa por cada
-            wallet que el barrido deja en verde.
+            wallet que el barrido deja en verde. Las 3 de holder (1D/1W, 1D+1W y TOP50) tampoco llevan umbral: se evalúan
+            una vez por wallet ≥$100 dentro de cada token, y el top 50 usa el board global de pump.fun (refresco cada 15 min).
           </Text>
         </Card>
       </ScrollView>

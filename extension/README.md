@@ -56,11 +56,17 @@ con `push_token: null` — una extensión no puede tener token de Expo): el serv
 Las 3 categorías de entrada del Track se evalúan en el **snapshot de entrada** del token, una
 vez por token, en el server. O sea: la extensión no calcula nada — solo muestra y avisa.
 
-**`Track CAL100+` es la excepción en las dos cosas**: no se evalúa en el snapshot (el PnL de la
-wallet no está ahí, lo trae el barrido de entradas CAL100 unos segundos después) y **no es una
-vez por token sino por cada wallet**: avisa cada entrada que el barrido deja en verde, en 1d o
-en 1w, sin piso de monto. Es la categoría más ruidosa (medido: ~28 avisos por hora de track) y
-nace ON porque la pediste así; el interruptor está en Ajustes, junto a las demás.
+**`Track CAL100+` y las 3 de holder son la excepción**: no se evalúan en el snapshot (el PnL de
+la wallet no está ahí, lo trae el barrido unos segundos después) y **no son una vez por token
+sino por cada wallet**. CAL100+ avisa cada entrada con callout ≥$100 que queda en verde en 1d o
+1w, sin piso de monto; es la más ruidosa (medido: ~28 avisos por hora de track) y nace ON.
+
+Las 3 de **holder** miran **todos** los holders ≥$100 de `mint-positions`, tengan o no callout:
+`Track HOLDER 1D/1W` (1d o 1w positivo), `Track HOLDER 1D+1W` (las dos positivas; categoría
+aparte, así que con las dos ON llegan las dos) y `Track HOLDER TOP50` (al aparecer estaba en el
+top 50 daily o weekly del board global de pump.fun — refresco cada 15 min, match por wallet o
+`userId`). El PnL se pide **una sola vez por token+wallet** y el top 50 se evalúa **una sola
+vez**: si la wallet entra al top después, no vuelve a avisar. Las tres nacen ON.
 
 ## Permisos
 

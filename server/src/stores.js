@@ -10,6 +10,8 @@
  *     + call100Seen (wallet → minuto en que se vio: línea base del primer
  *       snapshot + dedupe) y call100Events (una fila por wallet con callout
  *       ≥$100 que APARECIÓ después, con su PnL de portfolio 1d/1w al entrar)
+ *     + holderSeen / holderEvents (lo mismo para TODOS los holders ≥$100, sin
+ *       exigir callout: línea base incluida, PnL una vez y top 50 una vez)
  */
 import { JsonArrayStore, JsonStore } from './json-store.js';
 

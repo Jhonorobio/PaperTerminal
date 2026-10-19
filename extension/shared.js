@@ -13,7 +13,7 @@
 /** Server del que cuelga todo (el mismo de la app; en Ajustes se puede cambiar). */
 export const DEFAULT_SERVER = 'https://paperterminal-production.up.railway.app';
 
-/** Taxonomía del server — mismas 6 categorías que la pantalla Notificaciones de la app. */
+/** Taxonomía del server — mismas 9 categorías que la pantalla Notificaciones de la app. */
 export const ALERT_CATEGORIES = [
   'fomo_trending',
   'photon_graduated',
@@ -21,18 +21,25 @@ export const ALERT_CATEGORIES = [
   'track_chat_tesis',
   'track_top',
   'track_cal100_pos',
+  'track_holder_pos',
+  'track_holder_both',
+  'track_holder_top',
 ];
 
 /**
  * Las del Track (server-side). Las 3 primeras se evalúan en el snapshot de ENTRADA
- * del token; `track_cal100_pos` no: avisa cuando el barrido CAL100 le resuelve el
- * PnL a una entrada y la deja en verde (por eso no lleva umbral).
+ * del token. `track_cal100_pos` y las 3 de holder no: avisan cuando el barrido
+ * resuelve el PnL de una wallet (y, en holder_top, cuando el match contra el board
+ * global da top 50 la primera vez que aparece). Ninguna lleva umbral.
  */
 export const TRACK_CATEGORIES = [
   'track_cal_chat',
   'track_chat_tesis',
   'track_top',
   'track_cal100_pos',
+  'track_holder_pos',
+  'track_holder_both',
+  'track_holder_top',
 ];
 
 export const CATEGORY_LABELS = {
@@ -42,6 +49,9 @@ export const CATEGORY_LABELS = {
   track_chat_tesis: 'Track CHAT+TESIS',
   track_top: 'Track TOP·D',
   track_cal100_pos: 'Track CAL100+',
+  track_holder_pos: 'Track HOLDER 1D/1W',
+  track_holder_both: 'Track HOLDER 1D+1W',
+  track_holder_top: 'Track HOLDER TOP50',
 };
 
 /** La regla detrás de cada categoría — va como primera línea del cuerpo del aviso. */
@@ -52,12 +62,15 @@ export const CATEGORY_HINTS = {
   track_chat_tesis: 'Entrada: chat + tesis',
   track_top: 'Entrada: TOP·D',
   track_cal100_pos: 'Entrada: wallet CAL100 en verde',
+  track_holder_pos: 'Holder ≥$100: 1D o 1W positivo',
+  track_holder_both: 'Holder ≥$100: 1D y 1W positivos',
+  track_holder_top: 'Holder ≥$100 en top 50 daily/weekly',
 };
 
 /**
- * Defaults del dispositivo. Espejo de la app: sólo CAL100+ nace ON (la pidió el
- * usuario tal cual, sin piso: ~28 avisos/hora de track); las 3 del Track nacen OFF
- * porque son opt-in con umbral propio.
+ * Defaults del dispositivo. Espejo de la app: CAL100+ y las 3 de holder nacen ON
+ * (decisión del usuario, sin piso); las 3 de entrada del Track nacen OFF porque
+ * son opt-in con umbral propio.
  */
 export const DEFAULT_CATEGORIES = {
   fomo_trending: false,
@@ -66,6 +79,9 @@ export const DEFAULT_CATEGORIES = {
   track_chat_tesis: false,
   track_top: false,
   track_cal100_pos: true,
+  track_holder_pos: true,
+  track_holder_both: true,
+  track_holder_top: true,
 };
 
 /** Umbrales del Track (por dispositivo en el server); defaults = los medidos. */

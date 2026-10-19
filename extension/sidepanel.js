@@ -103,8 +103,8 @@ function tokenRow({ symbol, sub, chips = [], side = [], tone, onClick, title, no
         sub ? el('span', { class: 'sub', text: sub }) : null,
       ]),
       chips.filter(Boolean).length ? el('div', { class: 'chips' }, chips.filter(Boolean)) : null,
-      // Línea suelta para lo que no entra en chips (hoy: el detalle de la entrada
-      // CAL100+ que arma el server en `body`).
+      // Línea suelta para lo que no entra en chips (el detalle de las alertas de
+      // CAL100+ / holder que arma el server en `body`).
       note ? el('span', { class: 'row-note', text: note }) : null,
     ]),
     el('div', { class: 'row-side' }, side.filter(Boolean)),
@@ -368,8 +368,8 @@ function renderAlerts() {
           ],
           side: [el('span', { class: 'muted', text: timeAgo(alert.notified_at) }), el('span', { class: 'muted', text: '↗' })],
           title: CATEGORY_HINTS[alert.category] ?? '',
-          // CAL100+ manda el detalle armado (wallet, montos, PnL) en `body`; el resto
-          // de las categorías no lo trae y la fila queda como estaba.
+          // CAL100+ y las de holder mandan el detalle armado (wallet, montos, PnL)
+          // en `body`; el resto de las categorías no lo trae.
           note: alert.body ?? '',
           onClick: () => openOnGmgn(alert.address),
         }),
@@ -703,8 +703,9 @@ function renderConfig() {
       el('p', {
         class: 'note',
         text:
-          'Mismos umbrales que la app y por dispositivo (el server guarda los de este navegador aparte). Las 3 reglas del Track se ' +
-          'evalúan en el snapshot de ENTRADA del token, una vez por token.',
+          'Mismos umbrales que la app y por dispositivo (el server guarda los de este navegador aparte). Las 3 reglas de entrada del Track se ' +
+          'evalúan en el snapshot de ENTRADA del token, una vez por token. Las 3 de holder (1D/1W, 1D+1W y TOP50) se evalúan una vez por ' +
+          'wallet ≥$100 dentro de cada token; el top 50 usa el board global, que se refresca cada 15 min.',
       }),
       el('div', { class: 'chips' }, [
         el('button', { class: 'ghost', text: 'Probar alerta', onclick: () => void testAlert() }),

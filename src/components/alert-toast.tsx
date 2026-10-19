@@ -25,6 +25,9 @@ const LABELS: Record<string, string> = {
   track_chat_tesis: 'Track CHAT+TESIS',
   track_top: 'Track TOP·D',
   track_cal100_pos: 'Track CAL100+',
+  track_holder_pos: 'Track HOLDER 1D/1W',
+  track_holder_both: 'Track HOLDER 1D+1W',
+  track_holder_top: 'Track HOLDER TOP50',
 };
 
 export function AlertOverlay() {

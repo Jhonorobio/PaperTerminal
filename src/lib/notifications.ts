@@ -6,6 +6,7 @@
  *   fomo_trending · photon_graduated
  *   track_cal_chat · track_chat_tesis · track_top
  *   track_cal100_pos
+ *   track_holder_pos · track_holder_both · track_holder_top
  *
  * The three track_* entry alerts fire at the token's ENTRY snapshot (see
  * TRACK_RULES in server/src/notify.js) and the chat/tesis/top thresholds are per
@@ -15,6 +16,11 @@
  * when the CAL100 sweep resolves a wallet's portfolio PnL and finds it green in
  * 1d or 1w (TRACK_CAL100_CATEGORY in server/src/notify.js). No threshold, and its
  * unit is the entry, not the token: the same token can alert for 2, 3, … wallets.
+ *
+ * The track_holder_* alerts are also per wallet, but for EVERY holder ≥$100 of
+ * mint-positions (callout not required): `_pos` = 1d or 1w positive, `_both` =
+ * both positive, `_top` = the wallet was in the global top 50 daily/weekly when
+ * first seen. No thresholds; one alert per token+wallet and category.
  *
  * There is no filter configuration here anymore: the feed screens own the filters
  * (FOMO pushes both tabs, Photon pushes its columns) and the server gates the
@@ -60,8 +66,32 @@ export const ALERT_CATEGORIES = [
   'track_chat_tesis',
   'track_top',
   'track_cal100_pos',
+  'track_holder_pos',
+  'track_holder_both',
+  'track_holder_top',
 ] as const;
 export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
+
+/**
+ * Defaults per category — la fuente de verdad de la app (la extensión la espeja
+ * en extension/shared.js). CAL100+ y las 3 de holder nacen ON; las 3 de entrada
+ * del Track nacen OFF porque son opt-in con umbral propio.
+ *
+ * `registerDevice` los mezcla al abrir la app: una categoría nueva que este
+ * dispositivo todavía no guardó entra con su default (y se sincroniza al server),
+ * sin tocar los `false` explícitos que el usuario ya eligió.
+ */
+export const DEFAULT_CATEGORIES: Record<AlertCategory, boolean> = {
+  fomo_trending: false,
+  photon_graduated: false,
+  track_cal_chat: false,
+  track_chat_tesis: false,
+  track_top: false,
+  track_cal100_pos: true,
+  track_holder_pos: true,
+  track_holder_both: true,
+  track_holder_top: true,
+};
 
 /**
  * Track entry alerts fire at the token's ENTRY snapshot (minute 0). Chat, thesis
@@ -243,7 +273,11 @@ export async function registerDevice(base: string): Promise<string | null> {
   try {
     const cfg = await loadConfig(base);
     if (!cfg.categories) return null;
-    return await saveCategories(base, cfg.categories, cfg.params);
+    // Una categoría nueva (agregada después del último sync de este dispositivo)
+    // entra con su default —CAL100+ y las de holder, ON— para que el server la
+    // emita sin esperar a que alguien abra Notificaciones. Un `false` guardado se
+    // respeta: el spread de cfg.categories pisa el default.
+    return await saveCategories(base, { ...DEFAULT_CATEGORIES, ...cfg.categories }, cfg.params);
   } catch (err) {
     // Server unreachable or the PUT was rejected (e.g. token format) — report it.
     return err instanceof Error ? err.message : String(err);
@@ -266,8 +300,8 @@ export interface AlertHistoryEntry {
   ageMinutes: number | null;
   /**
    * Texto armado por el server cuando el detalle no entra en los campos fijos
-   * (hoy sólo CAL100+: wallet, lo que metió y las ventanas en verde). El panel
-   * flotante y la timeline lo prefieren sobre su propio resumen.
+   * (CAL100+ y las alertas de holder: wallet, lo que metió, ventanas/ranks). El
+   * panel flotante y la timeline lo prefieren sobre su propio resumen.
    */
   body?: string | null;
   notified_at: string;

@@ -32,6 +32,11 @@ const LABELS = {
   track_chat_tesis: 'Track CHAT+TESIS',
   track_top: 'Track TOP',
   track_cal100_pos: 'Track CAL100+',
+  // Alertas de holders (ver TRACK_HOLDER_CATEGORIES): una vez por wallet en
+  // cada token; el top 50 sale del board global de pump.fun (15 min).
+  track_holder_pos: 'Track HOLDER 1D/1W',
+  track_holder_both: 'Track HOLDER 1D+1W',
+  track_holder_top: 'Track HOLDER TOP50',
 };
 
 /**
@@ -167,7 +172,7 @@ export const TRACK_ENTRY_CATEGORIES = ['track_cal_chat', 'track_chat_tesis', 'tr
  *
  * No vive en TRACK_ENTRY_CATEGORIES por una razón dura: las de arriba se evalúan
  * en el snapshot de ENTRADA, y acá el dato no está en el snapshot — el PnL lo trae
- * sweepCall100 segundos (o un par de minutos) después, 2 requests por wallet y 3
+ * sweepPnl segundos (o un par de minutos) después, 2 requests por wallet y 3
  * en paralelo. ESE es el momento en que se conoce el signo, así que el aviso sale
  * desde el barrido (ver el gancho en track.js).
  *
@@ -184,6 +189,28 @@ export const TRACK_ENTRY_CATEGORIES = ['track_cal_chat', 'track_chat_tesis', 'tr
 export const TRACK_CAL100_CATEGORY = 'track_cal100_pos';
 
 /**
+ * TRACK HOLDER — holders de mint-positions con ≥$100 comprados (sin exigir
+ * callout, a diferencia de CAL100+).
+ *
+ *   track_holder_pos  — la cartera de la wallet está en verde en 1D **o** 1W.
+ *   track_holder_both — está en verde en 1D **y** 1W (categoría aparte: una
+ *                       wallet con las dos positivas avisa por las dos si ambas
+ *                       están ON).
+ *   track_holder_top  — al aparecer, la wallet estaba en el top 50 daily **o**
+ *                       weekly del board global de pump.fun (ver
+ *                       pump-leaderboard.js: refresco cada 15 min, match por
+ *                       wallet y userId).
+ *
+ * El PnL se pide UNA vez por token+wallet (2 requests) y el top 50 se evalúa
+ * UNA vez, con el board vigente en ese momento: si la wallet entra al top
+ * después, no vuelve a avisar (decisión del usuario). Sin umbrales; las tres
+ * nacen ON en app y extensión.
+ */
+export const TRACK_HOLDER_CATEGORIES = ['track_holder_pos', 'track_holder_both', 'track_holder_top'];
+/** Corte del aviso TOP de holder: rank ≤ 50 en daily o weekly. */
+const HOLDER_TOP_MAX_RANK = 50;
+
+/**
  * Las categorías que existen — única fuente de verdad: routes.js guarda exactamente
  * estas y emitToken ignora cualquier otra (una config vieja con una categoría
  * retirada no puede volver a emitirla).
@@ -193,6 +220,7 @@ export const ALERT_CATEGORIES = [
   'photon_graduated',
   ...TRACK_ENTRY_CATEGORIES,
   TRACK_CAL100_CATEGORY,
+  ...TRACK_HOLDER_CATEGORIES,
 ];
 
 /** Umbrales saneados (defaults medidos, rangos útiles) desde un objeto crudo. */
@@ -317,7 +345,7 @@ function cal100Body(token, ev) {
 }
 
 /**
- * Avisa que una entrada CAL100 quedó en verde. La llama sweepCall100 (track.js) en
+ * Avisa que una entrada CAL100 quedó en verde. La llama sweepPnl (track.js) en
  * el momento en que el barrido escribe el PnL — el único punto donde se conoce el
  * signo. Sin umbral: el llamador ya decidió que hay verde.
  *
@@ -368,6 +396,97 @@ export function emitTrackCal100Pos(token, ev) {
         title: `${token.symbol || token.name || 'Token'} — ${LABELS[TRACK_CAL100_CATEGORY]}`,
         body,
         data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category: TRACK_CAL100_CATEGORY },
+      }).catch(() => {});
+    }
+  }
+
+  trimHistory();
+  return true;
+}
+
+/**
+ * Texto del aviso de holder: wallet (y @usuario si lo hay), lo que metió y el
+ * detalle que corresponde a la categoría — las ventanas EN VERDE para
+ * pos/both, los puestos ≤50 para top. Mismo formato de montos que CAL100+.
+ */
+function holderBody(token, ev, category) {
+  const money = (n) => (Math.abs(n) >= 1000 ? `$${compact(n)}` : `$${Math.round(n)}`);
+  const parts = [ev.userName ? `${shortAddr(ev.address)} @${ev.userName}` : shortAddr(ev.address)];
+  if (ev.usd != null) parts.push(`metió ${money(ev.usd)}`);
+  if (category === 'track_holder_top') {
+    const tops = [];
+    if (ev.topDailyRank != null && ev.topDailyRank <= HOLDER_TOP_MAX_RANK) tops.push(`TOP·D #${ev.topDailyRank}`);
+    if (ev.topWeeklyRank != null && ev.topWeeklyRank <= HOLDER_TOP_MAX_RANK) tops.push(`TOP·W #${ev.topWeeklyRank}`);
+    if (tops.length) parts.push(tops.join(' · '));
+  } else {
+    const wins = [];
+    if ((ev.pnl1dUsd ?? 0) > 0) wins.push(`1D +${money(ev.pnl1dUsd)}`);
+    if ((ev.pnl1wUsd ?? 0) > 0) wins.push(`1W +${money(ev.pnl1wUsd)}`);
+    if (wins.length) parts.push(wins.join(' · '));
+  }
+  if (token.mcap != null) parts.push(`MCap $${compact(token.mcap)}`);
+  return parts.join(' · ');
+}
+
+/**
+ * Avisa una de las tres reglas de holder (ver TRACK_HOLDER_CATEGORIES). La llama
+ * el tracker: `track_holder_top` en el barrido que evalúa el board una sola vez,
+ * y `track_holder_pos` / `track_holder_both` en el momento en que el PnL de la
+ * wallet queda resuelto. El guard de abajo evita marcar "visto" si la condición
+ * todavía no se cumple (una lectura parcial se reintenta).
+ *
+ * Una vez por token+wallet+categoría. La unidad es la wallet, no el token: el
+ * mismo token puede avisar por 2, 3, … holders.
+ */
+export function emitTrackHolder(token, ev, category) {
+  if (!TRACK_HOLDER_CATEGORIES.includes(category)) return false;
+  const pos = (ev?.pnl1dUsd ?? 0) > 0 || (ev?.pnl1wUsd ?? 0) > 0;
+  const both = (ev?.pnl1dUsd ?? 0) > 0 && (ev?.pnl1wUsd ?? 0) > 0;
+  const top =
+    (ev?.topDailyRank != null && ev.topDailyRank <= HOLDER_TOP_MAX_RANK) ||
+    (ev?.topWeeklyRank != null && ev.topWeeklyRank <= HOLDER_TOP_MAX_RANK);
+  if (category === 'track_holder_pos' && !pos) return false;
+  if (category === 'track_holder_both' && !both) return false;
+  if (category === 'track_holder_top' && !top) return false;
+
+  const key = `${category}:${token.address}:${ev.address}`;
+  if (trackEntrySeen.has(key)) return false;
+  trackEntrySeen.set(key, { at: Date.now() });
+
+  const all = trackEntrySeen.getAll();
+  const keys = Object.keys(all);
+  if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) trackEntrySeen.delete(k);
+
+  const body = holderBody(token, ev, category);
+  const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[category]);
+  for (const device of devices) {
+    const entry = notificationHistory.add({
+      device_id: device.device_id,
+      category,
+      address: token.address,
+      chain: 'sol',
+      symbol: token.symbol ?? null,
+      name: token.name ?? null,
+      logo: token.logo ?? null,
+      mcap: token.mcap ?? null,
+      liq: null,
+      vol24h: token.volume ?? null,
+      holders: token.holders ?? null,
+      kolCount: null,
+      ageMinutes: null,
+      body,
+      notified_at: new Date().toISOString(),
+    });
+
+    // 1. In-app panel: private WS topic, painted by the app wherever it is.
+    sendToDevice(device.device_id, { event: 'alert', data: entry });
+
+    // 2. System push: for when the app is not in the foreground.
+    if (isValidPushToken(device.push_token)) {
+      void sendPush(device.push_token, {
+        title: `${token.symbol || token.name || 'Token'} — ${LABELS[category]}`,
+        body,
+        data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category },
       }).catch(() => {});
     }
   }

@@ -209,8 +209,8 @@ function normalizeEntry(raw) {
     mcap: numOrNull(raw.mcap),
     vol24h: numOrNull(raw.vol24h),
     holders: numOrNull(raw.holders),
-    // Texto del aviso cuando el server lo manda ya armado (CAL100+: wallet, montos
-    // y PnL no entran en los campos fijos del historial).
+    // Texto del aviso cuando el server lo manda ya armado (CAL100+ y las alertas
+    // de holder: wallet, montos y PnL no entran en los campos fijos del historial).
     body: typeof raw.body === 'string' && raw.body ? raw.body : null,
     notified_at: raw.notified_at ?? new Date().toISOString(),
   };
@@ -223,7 +223,7 @@ function numOrNull(value) {
 
 /**
  * Cuerpo del aviso: la regla que disparó + los números del token. Si el server ya
- * mandó el texto armado (`entry.body`, hoy sólo CAL100+), ese manda.
+ * mandó el texto armado (`entry.body`: CAL100+ y las alertas de holder), ese manda.
  */
 function alertBody(entry) {
   const bits = [];

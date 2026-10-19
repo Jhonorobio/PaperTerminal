@@ -13,7 +13,9 @@
  *             buys, sells, market cap, volume and tp holders ("bots"). Además,
  *             cada wallet con callout ≥$100 que APARECE después de la línea base
  *             deja su fila (el minuto + el PnL de su portfolio 1d/1w) — ver
- *             "Entradas CAL100" más abajo.
+ *             "Entradas CAL100" más abajo. Los holders ≥$100 sin callout también
+ *             dejan fila (línea base incluida) para las alertas de holder: PnL
+ *             una vez por token+wallet y TOP 50 una vez contra el board global.
  *   pause   — it dropped out of the column: capture stops, the data stays; if it
  *             reappears capture resumes, over and over.
  *   cut     — 50 snapshots reached: the track is over for that token (its data is
@@ -36,7 +38,8 @@ import initCycleTLS from 'cycletls';
 import { buildQuery, HEADERS, SEARCH_URL, sanitizeColumnFilters } from './photon.js';
 import { getAccessToken } from './fomo.js';
 import { getEffectiveProxy } from './proxy-config.js';
-import { emitTrackEntry, TRACK_ENTRY_CATEGORIES, emitTrackCal100Pos } from './notify.js';
+import { emitTrackEntry, TRACK_ENTRY_CATEGORIES, emitTrackCal100Pos, emitTrackHolder } from './notify.js';
+import { getLeaderboard, startLeaderboard, stopLeaderboard } from './pump-leaderboard.js';
 import { broadcast, getSubscriptions, registerTopicProvider } from './ws.js';
 import { normalizeProxy } from './proxy-config.js';
 import { trackConfig, trackTokens } from './stores.js';
@@ -602,6 +605,25 @@ export async function fetchPumpPositions(address) {
     if (usd >= PUMP_POS_MID_USD) callout500 += 1;
     else if (usd >= PUMP_POS_TOP_USD) callout100to500 += 1;
   }
+  // Holders ≥$100 SIN exigir callout (las alertas de holder): la fila completa
+  // —wallet, cuenta y nombre— para pedir el PnL una sola vez por token+wallet y
+  // matchear el top 50 del board global por wallet o userId. Viene en la misma
+  // respuesta de mint-positions: no cuesta ningún request extra.
+  const holders100 = [];
+  const seenWallets = new Set();
+  for (const p of positions) {
+    const usd = numOrNull(p.amountBoughtUsd) ?? 0;
+    if (usd < PUMP_POS_TOP_USD) continue;
+    const wallet = String(p.walletAddress ?? '');
+    if (!wallet || seenWallets.has(wallet)) continue;
+    seenWallets.add(wallet);
+    holders100.push({
+      address: wallet,
+      userId: p.userId ?? null,
+      userName: p.userName ?? null,
+      usd: Math.round(usd),
+    });
+  }
   return {
     holders: positions.length, // visibles en la página (hasta 50)
     holdersTotal: numOrNull(j.totalCount),
@@ -610,6 +632,7 @@ export async function fetchPumpPositions(address) {
     callout100to500,
     callout500,
     call100Wallets,
+    holders100,
   };
 }
 
@@ -640,6 +663,10 @@ const CALL100_CONCURRENCY = 3; // wallets en paralelo (2 requests c/u)
 const CALL100_MAX_TRIES = 2; // 2 intentos y la fila queda sin dato
 const CALL100_EVENTS_MAX = 100; // tope de filas por token (el dedupe va en call100Seen)
 const CALL100_SWEEP_MS = 2_000; // ritmo del barrido de filas sin PnL
+// Holders ≥$100 de mint-positions (sin exigir callout): misma idea, una fila
+// por wallet y token para pedir su PnL una sola vez y evaluar el top 50.
+const HOLDER_EVENTS_MAX = 100; // tope de filas por token (el dedupe va en holderSeen)
+const HOLDER_TOP_MAX_RANK = 50; // top 50 daily/weekly del board global
 
 const call100Cache = new Map(); // wallet → lectura (at + 1d/1w)
 const call100Inflight = new Set(); // "token|wallet" en vuelo (no vive en el store)
@@ -681,7 +708,7 @@ async function fetchWalletPnl(wallet) {
  * que ya estaba cuando empezamos a mirar no es una entrada — tampoco al
  * desplegar sobre tokens que vienen corriendo), y `call100Seen` es el dedupe: una
  * wallet ya vista no vuelve a contar aunque el top-50 se reordene. La fila nace
- * sin PnL y sweepCall100 la completa.
+ * sin PnL y sweepPnl la completa.
  */
 function detectCall100Entries(tracked, wallets, minute, at) {
   const firstLook = !tracked.call100Seen;
@@ -715,71 +742,199 @@ function detectCall100Entries(tracked, wallets, minute, at) {
 }
 
 /**
- * Un barrido resuelve hasta CALL100_CONCURRENCY filas sin datos, reintentando
- * las que fallaron hasta CALL100_MAX_TRIES. Lo corre su propio timer
- * (CALL100_SWEEP_MS) y NO el tick: así el PnL de una wallet nunca demora un
- * snapshot ni la siguiente vuelta de la columna, y las filas pendientes se
- * resuelven aunque el track esté pausado. Nada de requests si el tracker está
- * apagado. `get()` devuelve el MISMO objeto del store, así que escribir la
- * lectura es mutar la fila y marcar el store para persistir.
+ * Holders ≥$100 de mint-positions (sin exigir callout): una fila por wallet
+ * NUEVA en ese token. A diferencia de CAL100, la línea base del primer snapshot
+ * TAMBIÉN entra: acá se quiere el estado actual de los holders, no sólo las
+ * entradas. `holderSeen` es el dedupe: una wallet ya vista no vuelve a pedir
+ * PnL en ese token. La fila nace sin PnL y con `topChecked: false`; sweepPnl la
+ * completa y evalúa el top 50 una sola vez (si el board aún no está, reintenta).
  */
-function sweepCall100() {
+function detectHolderWallets(tracked, holders, minute, at) {
+  const seen = (tracked.holderSeen = tracked.holderSeen ?? {});
+  const events = (tracked.holderEvents = Array.isArray(tracked.holderEvents) ? tracked.holderEvents : []);
+  const added = [];
+  for (const h of Array.isArray(holders) ? holders : []) {
+    const address = String(h?.address ?? '');
+    if (!address || seen[address] != null) continue;
+    if (events.length >= HOLDER_EVENTS_MAX) break; // la wallet no se marca: se reintenta
+    seen[address] = minute;
+    const event = {
+      minute,
+      at,
+      address,
+      userId: h?.userId ?? null,
+      userName: h?.userName ?? null,
+      usd: h?.usd ?? null,
+      tries: 0,
+      pnl1dUsd: null,
+      pnl1dPct: null,
+      tokens1d: null,
+      pnl1wUsd: null,
+      pnl1wPct: null,
+      tokens1w: null,
+      topChecked: false,
+      topDailyRank: null,
+      topWeeklyRank: null,
+    };
+    events.push(event);
+    added.push(event);
+  }
+  return added;
+}
+
+/** Identidad del token para los avisos: symbol/name/logo viven en el tracked y
+ * el mcap/vol/holders en su último snapshot (la fila no los trae). */
+function tokenIdentityOf(tracked) {
+  const lastSnap = tracked?.snapshots?.[tracked.snapshots.length - 1];
+  return {
+    address: tracked.address,
+    symbol: tracked.symbol ?? null,
+    name: tracked.name ?? null,
+    logo: tracked.logo ?? null,
+    mcap: lastSnap?.mcap ?? null,
+    volume: lastSnap?.volume ?? null,
+    holders: lastSnap?.holders ?? null,
+  };
+}
+
+/** Copia una lectura de PnL a la fila y cuenta el intento (para el tope de reintentos). */
+function applyPnl(row, read) {
+  row.pnl1dUsd = read.pnl1dUsd;
+  row.pnl1dPct = read.pnl1dPct;
+  row.tokens1d = read.tokens1d;
+  row.pnl1wUsd = read.pnl1wUsd;
+  row.pnl1wPct = read.pnl1wPct;
+  row.tokens1w = read.tokens1w;
+  row.tries = (row.tries ?? 0) + 1;
+}
+
+/** Emite lo que corresponda a una fila ya resuelta, según su cola. */
+function emitResolved(token, row, kind) {
+  if (kind === 'cal100') {
+    // Aviso CAL100+ (ver emitTrackCal100Pos en notify.js): la fila quedó EN
+    // VERDE —alguna ventana > 0, la misma regla que pinta la UI— y este es el
+    // único momento en que eso se sabe: el PnL no está en el snapshot, lo trajo
+    // este barrido. Sin umbral (decisión del usuario) y una vez por token+wallet
+    // (dedupe del emisor): una fila con una ventana null se reintenta y esa
+    // segunda lectura no debe avisar de nuevo.
+    if ((row.pnl1dUsd ?? 0) > 0 || (row.pnl1wUsd ?? 0) > 0) emitTrackCal100Pos(token, row);
+    return;
+  }
+  // Holders ≥$100: OR y AND son categorías separadas (decisión del usuario). Si
+  // cumple las dos, avisa por las dos; los guards del emisor evitan marcar visto
+  // cuando la condición todavía no se cumple.
+  emitTrackHolder(token, row, 'track_holder_pos');
+  emitTrackHolder(token, row, 'track_holder_both');
+}
+
+/**
+ * Un barrido resuelve hasta CALL100_CONCURRENCY filas sin PnL, reintentando las
+ * que fallaron hasta CALL100_MAX_TRIES. Lo corre su propio timer
+ * (CALL100_SWEEP_MS) y NO el tick: el PnL de una wallet nunca demora un snapshot
+ * ni la siguiente vuelta de la columna, y las filas pendientes se resuelven
+ * aunque el track esté pausado. Nada de requests si el tracker está apagado.
+ * `get()` devuelve el MISMO objeto del store, así que escribir la lectura es
+ * mutar la fila y marcar el store para persistir.
+ *
+ * Cubre CALL100 (entradas) y holders ≥$100 (estado actual): para estos últimos
+ * evalúa además el TOP 50 una sola vez contra el board global (matching local,
+ * sin requests por wallet).
+ */
+function sweepPnl() {
   if (!getTrackConfig().enabled) return; // apagado = ni un request
+  const board = getLeaderboard();
+
+  // 1) TOP 50 de holders: una sola vez, sin depender de que el PnL se resuelva.
+  // Es matching local contra el board (2 requests/15 min): no cuesta requests
+  // por wallet. Si el board todavía no está, la fila queda topChecked=false y
+  // se reintenta en el próximo barrido.
+  if (board) {
+    for (const t of Object.values(trackTokens.getAll())) {
+      let touched = false;
+      for (const e of t?.holderEvents ?? []) {
+        if (e.topChecked) continue;
+        const daily = board.dailyByWallet.get(e.address) ?? (e.userId ? board.dailyByUser.get(e.userId) : null);
+        const weekly = board.weeklyByWallet.get(e.address) ?? (e.userId ? board.weeklyByUser.get(e.userId) : null);
+        e.topDailyRank = daily?.rank ?? null;
+        e.topWeeklyRank = weekly?.rank ?? null;
+        e.topChecked = true;
+        touched = true;
+        if (
+          (e.topDailyRank != null && e.topDailyRank <= HOLDER_TOP_MAX_RANK) ||
+          (e.topWeeklyRank != null && e.topWeeklyRank <= HOLDER_TOP_MAX_RANK)
+        ) {
+          emitTrackHolder(tokenIdentityOf(t), e, 'track_holder_top');
+        }
+      }
+      if (touched) trackTokens.set(t.address, t);
+    }
+  }
+
+  // 2) PnL pendiente (CAL100 + holders ≥$100). Una lectura por token+wallet:
+  // las dos reglas comparten la misma respuesta, así que la clave NO lleva el
+  // tipo de fila.
   const slots = CALL100_CONCURRENCY - call100Inflight.size;
   if (slots <= 0) return;
-  const jobs = [];
+  const call100Jobs = [];
+  const holderJobs = [];
   for (const t of Object.values(trackTokens.getAll())) {
     for (const e of t?.call100Events ?? []) {
       if (e.pnl1dUsd != null && e.pnl1wUsd != null) continue; // completa
       if ((e.tries ?? 0) >= CALL100_MAX_TRIES) continue; // sin dato, no insistir
-      const key = `${t.address}|${e.address}`;
-      if (call100Inflight.has(key)) continue;
-      // Sin reparto por token: un token con muchas entradas (medido: hasta 45
-      // callouts ≥$100 en un snapshot) se vacía a la velocidad del paralelismo,
-      // no una por vuelta.
-      jobs.push({ key, address: t.address, wallet: e.address });
-      if (jobs.length >= slots) break;
+      call100Jobs.push({ kind: 'cal100', key: `${t.address}|${e.address}`, address: t.address, wallet: e.address });
     }
-    if (jobs.length >= slots) break;
+    for (const e of t?.holderEvents ?? []) {
+      if (e.pnl1dUsd != null && e.pnl1wUsd != null) continue; // completa
+      if ((e.tries ?? 0) >= CALL100_MAX_TRIES) continue;
+      holderJobs.push({ kind: 'holder', key: `${t.address}|${e.address}`, address: t.address, wallet: e.address });
+    }
+  }
+  // Turnos: una de CAL100, una de holder, … así una cola grande no deja a la
+  // otra sin paralelismo. La misma wallet en el mismo token no se repite (key).
+  const jobs = [];
+  const seenJobs = new Set();
+  for (let i = 0; jobs.length < slots && (i < call100Jobs.length || i < holderJobs.length); i += 1) {
+    for (const candidate of [call100Jobs[i], holderJobs[i]]) {
+      if (!candidate || jobs.length >= slots) continue;
+      if (seenJobs.has(candidate.key) || call100Inflight.has(candidate.key)) continue;
+      seenJobs.add(candidate.key);
+      jobs.push(candidate);
+    }
   }
   for (const job of jobs) {
     call100Inflight.add(job.key);
     void fetchWalletPnl(job.wallet)
       .then((read) => {
         const live = trackTokens.get(job.address);
-        const event = live?.call100Events?.find((x) => x.address === job.wallet);
-        if (!event) return;
-        event.pnl1dUsd = read.pnl1dUsd;
-        event.pnl1dPct = read.pnl1dPct;
-        event.tokens1d = read.tokens1d;
-        event.pnl1wUsd = read.pnl1wUsd;
-        event.pnl1wPct = read.pnl1wPct;
-        event.tokens1w = read.tokens1w;
-        event.tries = (event.tries ?? 0) + 1;
+        if (!live) return;
+        const token = tokenIdentityOf(live);
+        const primaryList = job.kind === 'cal100' ? live.call100Events : live.holderEvents;
+        const siblingList = job.kind === 'cal100' ? live.holderEvents : live.call100Events;
+        const primary = primaryList?.find((x) => x.address === job.wallet);
+        const sibling = siblingList?.find((x) => x.address === job.wallet);
+        let touched = false;
+        let cal100Touched = false;
+        if (primary) {
+          applyPnl(primary, read);
+          touched = true;
+          if (job.kind === 'cal100') cal100Touched = true;
+        }
+        // La MISMA lectura sirve para la otra fila del token: la wallet es una
+        // sola y el PnL es el mismo. No se pide dos veces.
+        if (sibling && (sibling.pnl1dUsd == null || sibling.pnl1wUsd == null)) {
+          applyPnl(sibling, read);
+          touched = true;
+          if (job.kind === 'holder') cal100Touched = true;
+        }
+        if (!touched) return;
         trackTokens.set(job.address, live);
-        maybeBroadcast(true);
-        // Aviso CAL100+ (ver emitTrackCal100Pos en notify.js): la fila quedó EN
-        // VERDE —alguna ventana > 0, la misma regla que pinta la UI— y este es el
-        // único momento en que eso se sabe: el PnL no está en el snapshot, lo trajo
-        // este barrido. Sin umbral (decisión del usuario) y una vez por token+wallet
-        // (dedupe del emisor): una fila con una ventana null se reintenta y esa
-        // segunda lectura no debe avisar de nuevo.
-        if ((event.pnl1dUsd ?? 0) > 0 || (event.pnl1wUsd ?? 0) > 0) {
-          const lastSnap = live?.snapshots?.[live.snapshots.length - 1];
-          // Identidad del token para el aviso: symbol/name/logo viven en el tracked
-          // y el mcap/vol/holders en su último snapshot (la fila no los trae).
-          emitTrackCal100Pos(
-            {
-              address: job.address,
-              symbol: live?.symbol ?? null,
-              name: live?.name ?? null,
-              logo: live?.logo ?? null,
-              mcap: lastSnap?.mcap ?? null,
-              volume: lastSnap?.volume ?? null,
-              holders: lastSnap?.holders ?? null,
-            },
-            event,
-          );
+        // El snapshot del Track no lleva las filas de holder: no hace falta
+        // re-emitir 500 tokens por cada lectura de holder. El aviso va por
+        // notify (WS/push). Sólo se refresca la UI cuando se resolvió un CAL100.
+        if (cal100Touched) maybeBroadcast(true);
+        if (primary) emitResolved(token, primary, job.kind);
+        if (sibling && sibling.pnl1dUsd != null) {
+          emitResolved(token, sibling, job.kind === 'cal100' ? 'holder' : 'cal100');
         }
       })
       .catch(() => {
@@ -885,6 +1040,7 @@ export async function closeTrack() {
   poller = null;
   if (call100Timer) clearInterval(call100Timer);
   call100Timer = null;
+  stopLeaderboard();
   if (cycleTLS) {
     const c = cycleTLS;
     cycleTLS = null;
@@ -1158,8 +1314,15 @@ async function trackTick() {
         const snapNow = tracked.snapshots[tracked.snapshots.length - 1];
         // ENTRADAS CAL100 (fuente 10): una wallet con callout ≥$100 que aparece
         // DESPUÉS de la línea base es un evento del token (minuto N). La fila nace
-        // sin PnL y sweepCall100 la completa con 2 requests.
+        // sin PnL y sweepPnl la completa con 2 requests.
         if (detectCall100Entries(tracked, extra.positions?.call100Wallets, tracked.snapshots.length, snapNow.at)) {
+          changed = true;
+        }
+        // HOLDERS ≥$100 (sin exigir callout): una fila por wallet nueva en el
+        // token, incluida la línea base del primer snapshot. El PnL se pide una
+        // sola vez por token+wallet; sweepPnl lo resuelve y evalúa el top 50 una
+        // sola vez (no en el tick).
+        if (detectHolderWallets(tracked, extra.positions?.holders100, tracked.snapshots.length, snapNow.at)) {
           changed = true;
         }
         // Alertas de ENTRADA del Track (ver TRACK_ENTRY_CATEGORIES en notify.js):
@@ -1258,16 +1421,19 @@ export function startTrackPoller() {
   // Trade/FOMO/Photon subscribe to the chips-only topic — same instant snapshot.
   registerTopicProvider(TRACK_HEALTH_TOPIC, () => ({ event: 'track_health', data: { tokens: healthList() } }));
   if (poller) return;
+  // Board global de pump.fun (top 100 daily/weekly) para el aviso TOP 50 de los
+  // holders: 2 requests cada 15 min, aparte del tick (ver pump-leaderboard.js).
+  startLeaderboard();
   // A short delay so booting doesn't race Photon's own warm-up with a second
   // cold CycleTLS init.
   setTimeout(() => void trackTick(), 5_000);
   poller = setInterval(pollTick, PULL_MS);
-  // Las ENTRADAS CAL100 (fuente 10) tienen su propio ritmo, aparte del tick: 2
-  // requests por wallet (1d + 1w), 3 wallets en paralelo, y las filas nuevas se
-  // resuelven sin tocar el camino del snapshot.
-  call100Timer = setInterval(sweepCall100, CALL100_SWEEP_MS);
+  // El PnL de las wallets (entradas CAL100 + holders ≥$100) tiene su propio
+  // ritmo, aparte del tick: 2 requests por wallet (1d + 1w), 3 wallets en
+  // paralelo, y las filas nuevas se resuelven sin tocar el camino del snapshot.
+  call100Timer = setInterval(sweepPnl, CALL100_SWEEP_MS);
   console.log(
-    `[track] poller started (col3 every ${PULL_MS}ms, 1 snap/${SNAPSHOT_MS / 1000}s per token, ≤${TRACK_SNAPSHOT_MAX} snaps/token, ≤${TRACK_TOKENS_MAX} tokens, CAL100 every ${CALL100_SWEEP_MS / 1000}s)`
+    `[track] poller started (col3 every ${PULL_MS}ms, 1 snap/${SNAPSHOT_MS / 1000}s per token, ≤${TRACK_SNAPSHOT_MAX} snaps/token, ≤${TRACK_TOKENS_MAX} tokens, wallet PnL every ${CALL100_SWEEP_MS / 1000}s)`
   );
 }
 

@@ -165,8 +165,20 @@ router.put('/notifications/config', (req, res) => {
     const hasPush = isValidPushToken(push_token);
     if (push_token && !hasPush) throw Object.assign(new Error('Invalid Expo push token'), { status: 400 });
 
+    const previous = notificationConfig.get(id);
     const cats = {};
-    for (const key of CATEGORIES) cats[key] = Boolean(categories?.[key]);
+    for (const key of CATEGORIES) {
+      // Sólo se toca lo que el cliente mandó. Un build viejo no conoce las
+      // categorías nuevas: si no vinieran en el body, apagarlas acá las dejaría
+      // en false para siempre (la app las trata como una elección del usuario).
+      // Se conserva lo guardado; si tampoco estaba, queda ausente y el cliente
+      // nuevo la migra con su default (holder/CAL100+ nacen ON).
+      if (categories && Object.prototype.hasOwnProperty.call(categories, key)) {
+        cats[key] = Boolean(categories[key]);
+      } else if (previous?.categories && Object.prototype.hasOwnProperty.call(previous.categories, key)) {
+        cats[key] = Boolean(previous.categories[key]);
+      }
+    }
 
     // No filters here on purpose: the feed screens own them (FOMO pushes both tabs,
     // Photon its columns) and notify.js gates the alerts with those — this config only
