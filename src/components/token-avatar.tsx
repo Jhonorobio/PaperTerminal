@@ -8,7 +8,7 @@ interface Props {
   symbol?: string | null;
   chainId?: string | null;
   address?: string | null;
-  /** A known logo URL (Photon sends one with the token) — skips the lookup. */
+  /** A known logo URL (the tracker sends one with the token) — skips the lookup. */
   logo?: string | null;
   size?: number;
   /** A round ring in the position's profit/loss tone, as the extension drew it. */

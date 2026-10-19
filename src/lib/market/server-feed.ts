@@ -1,27 +1,26 @@
 /**
- * Server feed client — the app's only door to FOMO and Photon.
+ * Server feed client — the app's only door to FOMO.
  *
  * One WebSocket to the feed server (settings.serverBase, http→ws). Topics:
  *   fomo_trending         → { event: 'fomo_trending_updated', data: { tokens, savedAt, snapshot } }
- *   memescope             → { event: 'memescope_updated',    data: { columns: { col1, col3 }, … } }
  *   alerts:{deviceId}     → { event: 'alert',                data: <history entry> }
+ *   track / track:health  → the tracker's full state / health chips
  *
- * The phone no longer talks to FOMO or Photon directly: no Privy token, no
- * Cloudflare — the server keeps those connections and pushes here. Every
- * broadcast carries the topic's full list (snapshot semantics), so a reconnect
- * or a dropped frame self-heals on the next push.
+ * The phone no longer talks to FOMO directly: no Privy token, no Cloudflare —
+ * the server keeps that connection and pushes here. Every broadcast carries the
+ * topic's full list (snapshot semantics), so a reconnect or a dropped frame
+ * self-heals on the next push.
  */
 
 import { getDeviceId } from '../device-id';
-import type { FomoToken, PhotonSnapshot } from '../types';
+import type { FomoToken } from '../types';
 
 export const TOPICS = {
   trending: 'fomo_trending',
-  memescope: 'memescope',
   alerts: 'alerts',
-  /** Token tracker state (History → Track) — subscribed only while that tab is open. */
+  /** Token tracker state (Track tab) — subscribed only while that tab is open. */
   track: 'track',
-  /** Health chips of the tracked tokens (Trade/FOMO/Photon) — light payload. */
+  /** Health chips of the tracked tokens (Trade/FOMO) — light payload. */
   trackHealth: 'track:health',
 } as const;
 
@@ -59,9 +58,6 @@ class ServerFeed {
 
   /** address → token, the trending feed. */
   private readonly trending = new Map<string, FomoToken>();
-  private memescope: PhotonSnapshot | null = null;
-  /** Local clock of the last memescope frame — the app's freshness signal. */
-  private memescopeAt = 0;
   /** Local clock of the last trending push. */
   private trendingAt = 0;
   private readonly listeners = new Set<Listener>();
@@ -137,7 +133,6 @@ class ServerFeed {
       this.lastPongAt = Date.now();
       const deviceId = this.deviceId as string;
       this.send({ action: 'subscribe', topic: TOPICS.trending });
-      this.send({ action: 'subscribe', topic: TOPICS.memescope });
       this.send({ action: 'subscribe', topic: `${TOPICS.alerts}:${deviceId}` });
       // Optional topics (track, …) must survive reconnects too.
       for (const topic of this.stickyTopics) this.send({ action: 'subscribe', topic });
@@ -199,7 +194,6 @@ class ServerFeed {
     const topic = msg.topic ?? '';
     const data = (msg.data ?? {}) as {
       tokens?: FomoToken[];
-      columns?: Record<string, { data?: { attributes?: Record<string, unknown> }[] }>;
       address?: string;
       symbol?: string;
       mcap?: number;
@@ -212,9 +206,6 @@ class ServerFeed {
         for (const token of data.tokens) this.trending.set(token.address, token);
       }
       this.trendingAt = Date.now();
-    } else if (topic === TOPICS.memescope) {
-      this.memescope = data as unknown as PhotonSnapshot;
-      this.memescopeAt = Date.now();
     } else if (topic.startsWith(`${TOPICS.alerts}:`)) {
       for (const listener of [...this.alertListeners]) listener(data);
       return; // alerts do not repaint the feed lists
@@ -233,15 +224,6 @@ class ServerFeed {
 
   tokens(): FomoToken[] {
     return [...this.trending.values()];
-  }
-
-  memescopeSnapshot(): PhotonSnapshot | null {
-    return this.memescope;
-  }
-
-  /** Epoch ms of the last memescope push (0 = never). */
-  memescopeReceivedAt(): number {
-    return this.memescopeAt;
   }
 
   /** Epoch ms of the last trending push (0 = never). */

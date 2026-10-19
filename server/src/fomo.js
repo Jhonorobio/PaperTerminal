@@ -27,11 +27,11 @@ import { pulseEnrich } from './pulse.js';
 import { JsonStore } from './json-store.js';
 import { getEffectiveProxy, getProxyStatus, setProxy } from './proxy-config.js';
 
-// ── egress proxy (shared with Photon — see proxy-config.js) ──────────────────
+// ── egress proxy (FOMO-only — the Track has its own; see proxy-config.js) ────
 
 /**
- * Saves the shared proxy (URL + the Settings switch) and reconnects the socket so
- * it applies immediately. Photon picks the new value up on its next poll.
+ * Saves the FOMO proxy (URL + the Settings switch) and reconnects the socket so
+ * it applies immediately.
  */
 export function setFomoProxy(raw, enabled) {
   const status = setProxy(raw, enabled);

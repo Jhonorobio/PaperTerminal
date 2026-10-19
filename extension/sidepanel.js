@@ -8,10 +8,10 @@
  *   2. El TRACK: la lista del tracker en vivo (topic `track`) y el detalle minuto a
  *      minuto de un token (HTTP).
  *
- * Los tableros de FOMO y Photon NO están acá a propósito: los filtros de
- * esos feeds viven en el teléfono (se aplican localmente por dispositivo), así que un
- * espejo en el navegador mostraría otra cosa. Sus alertas, en cambio, sí están: llegan
- * del server y se configuran en Ajustes como cualquier otra.
+ * El tablero de FOMO NO está acá a propósito: sus filtros viven en el teléfono (se
+ * aplican localmente por dispositivo), así que un espejo en el navegador mostraría
+ * otra cosa. Su alerta, en cambio, sí está: llega del server y se configura en
+ * Ajustes como cualquier otra.
  */
 
 import {
@@ -721,7 +721,7 @@ function renderConfig() {
         class: 'note',
         text:
           'Este panel hace dos cosas: las alertas de este dispositivo (con sus categorías y sus umbrales) y el tracker. No hay ' +
-          'cuenta ni cartera acá — el trading sigue en la app, y los tableros de FOMO/Photon tampoco están: sus filtros se ' +
+          'cuenta ni cartera acá — el trading sigue en la app, y el tablero de FOMO tampoco está: sus filtros se ' +
           'aplican en el teléfono, así que un espejo mostraría otra cosa. Las alertas se avisan con una notificación de Chrome; ' +
           'hacer click abre este panel en el token (o GMGN si Chrome no lo permite).',
       }),

@@ -3,7 +3,7 @@
  * per-category toggles in sync.
  *
  * Categories (the server's alert taxonomy):
- *   fomo_trending · photon_graduated
+ *   fomo_trending
  *   track_cal_chat · track_chat_tesis · track_top
  *   track_cal100_pos
  *   track_holder_pos · track_holder_both · track_holder_top
@@ -23,8 +23,8 @@
  * first seen. No thresholds; one alert per token+wallet and category.
  *
  * There is no filter configuration here anymore: the feed screens own the filters
- * (FOMO pushes both tabs, Photon pushes its columns) and the server gates the
- * alerts with those — what fires is exactly what the phone shows.
+ * (FOMO pins its tab, the Track page owns the New/Graduated sets) and the server
+ * gates the alerts with those — what fires is exactly what the phone shows.
  */
 
 import Constants from 'expo-constants';
@@ -61,7 +61,6 @@ async function notifications() {
 
 export const ALERT_CATEGORIES = [
   'fomo_trending',
-  'photon_graduated',
   'track_cal_chat',
   'track_chat_tesis',
   'track_top',
@@ -83,7 +82,6 @@ export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
  */
 export const DEFAULT_CATEGORIES: Record<AlertCategory, boolean> = {
   fomo_trending: false,
-  photon_graduated: false,
   track_cal_chat: false,
   track_chat_tesis: false,
   track_top: false,

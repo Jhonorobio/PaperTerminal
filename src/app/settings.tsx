@@ -74,7 +74,7 @@ export default function SettingsScreen() {
   }));
   const [rulesProblem, setRulesProblem] = useState<string | null>(null);
   const [rulesSaved, setRulesSaved] = useState<string | null>(null);
-  // Feed-server connection + the shared FOMO/Photon egress proxy (both owned by the server).
+  // Feed-server connection + the shared FOMO egress proxy (both owned by the server).
   // The proxy field/switch initialize from the local mirror so they're populated the instant
   // the screen opens — the probe below then corrects them with the server's real state.
   const [serverBase, setServerBase] = useState(String(settings.serverBase));
@@ -130,7 +130,7 @@ export default function SettingsScreen() {
   const SLIPPAGE_CAP = PAPER_CONFIG.slippageCapPct;
   const NETWORK_FEE_CAP = 5;
 
-  // ── feed server: probe + the shared FOMO/Photon egress proxy ──
+  // ── feed server: probe + the shared FOMO egress proxy ──
   // The server is the authority (its copy survives app restarts on its own). Its URL
   // overwrites the field when it has one; when it has none, whatever is typed stays
   // typed — an unsaved URL must not be wiped by a status refresh.
@@ -193,8 +193,8 @@ export default function SettingsScreen() {
       setProxyUrl(status.url);
       // Mirror into settings: the field and switch come back populated on the next start.
       void updateSettings({ feedProxyUrl: status.url, feedProxyOn: status.enabled });
-      flash('ok', status.enabled ? 'Proxy guardado — FOMO y Photon salen por él.' : 'Proxy removido — ambos van directo.');
-      void refreshStatus(settings.serverBase).catch(() => {}); // pick Photon's transport up
+      flash('ok', status.enabled ? 'Proxy guardado — FOMO sale por él.' : 'Proxy removido — FOMO va directo.');
+      void refreshStatus(settings.serverBase).catch(() => {}); // pick the transport up
     } catch (err) {
       setFeedError(err instanceof Error ? err.message : 'No se pudo guardar el proxy.');
     }
@@ -212,7 +212,7 @@ export default function SettingsScreen() {
       setProxyStatus(status);
       setProxyUrl(status.url);
       void updateSettings({ feedProxyUrl: status.url, feedProxyOn: status.enabled });
-      flash('ok', on ? 'Proxy prendido — FOMO y Photon salen por él.' : 'Proxy apagado — van directo (URL guardada).');
+      flash('ok', on ? 'Proxy prendido — FOMO sale por él.' : 'Proxy apagado — FOMO va directo (URL guardada).');
       void refreshStatus(settings.serverBase).catch(() => {});
     } catch (err) {
       setFeedError(err instanceof Error ? err.message : 'No se pudo cambiar el proxy.');
@@ -437,8 +437,8 @@ export default function SettingsScreen() {
         <Card style={{ padding: 14, gap: 12 }}>
           <Text style={styles.groupTitle}>Servidor de feeds</Text>
           <Text style={styles.fine}>
-            FOMO y Photon los maneja tu server. Ponele la IP de tu PC mientras desarrollÃ¡s (http://192.168.x.x:8787) o la
-            URL de Railway en producciÃ³n. Los precios y el trading siguen en la app.
+            FOMO y el Track los maneja tu server. Ponele la IP de tu PC mientras desarrollÃ¡s (http://192.168.x.x:8787) o
+            la URL de Railway en producciÃ³n. Los precios y el trading siguen en la app.
           </Text>
           <Field label="URL del servidor">
             <Input value={serverBase} onChangeText={setServerBase} placeholder="http://192.168.0.10:8787" autoCapitalize="none" autoCorrect={false} />
@@ -450,13 +450,12 @@ export default function SettingsScreen() {
                 {serverInfo.fomo?.live
                   ? `FOMO live Â· ${serverInfo.fomo.trending} trending`
                   : 'Conectado, feed FOMO arrancandoâ€¦'}
-                {serverInfo.photon && serverInfo.photon.errorCount > 0 ? ' Â· Photon con errores' : ''}
               </Text>
             ) : null}
           </View>
           {feedError ? <Text style={styles.problem}>{feedError}</Text> : null}
 
-          <Field label="Proxy de feeds (FOMO + Photon)">
+          <Field label="Proxy de FOMO">
             <Input value={proxyUrl} onChangeText={setProxyUrl} placeholder={proxyStatus.url || 'vacío = directo'} autoCapitalize="none" autoCorrect={false} />
           </Field>
           <View style={styles.serverActions}>
@@ -473,7 +472,6 @@ export default function SettingsScreen() {
           </View>
           <Text style={styles.fine}>
             {proxyHint} Estado: {!proxyStatus.url ? (proxyUrl.trim() ? 'URL lista — Guardar para aplicarla en el server' : 'directo (sin proxy)') : proxyStatus.enabled ? `activo · FOMO ${proxyStatus.transport}` : 'apagado (URL guardada)'}
-            {serverInfo?.photon?.proxy ? ` · Photon ${serverInfo.photon.proxy.transport}` : ''}
           </Text>
           <Btn label="Notificaciones y alertas" variant="sm" icon="lightning" onPress={() => router.push('/alerts')} />
         </Card>

@@ -1,10 +1,10 @@
 /**
- * Paper Terminal feed server — FOMO + Photon + push notifications.
+ * Paper Terminal feed server — FOMO + Track + push notifications.
  *
  * Runs on your PC (`npm run dev`) and on Railway (same code, volume at /data).
  * The app connects to /ws for live data and to these routes for filters,
  * notification settings and history. Prices/trading stay on the phone — this
- * server exists to keep two feeds alive 24/7 and to fire alerts.
+ * server exists to keep the feeds alive 24/7 and to fire alerts.
  */
 import 'dotenv/config';
 import { createServer } from 'node:http';
@@ -14,7 +14,6 @@ import express from 'express';
 import routes from './routes.js';
 import { initWebSocket } from './ws.js';
 import { startFomoWatcher } from './fomo.js';
-import { startPhotonPoller } from './photon.js';
 import { startTrackPoller } from './track.js';
 
 const PORT = Number(process.env.PORT) || 8787;
@@ -43,11 +42,10 @@ server.listen(PORT, () => {
     );
   }
   startFomoWatcher();
-  startPhotonPoller();
   startTrackPoller();
 });
 
-// Photon's CycleTLS daemon must not keep the process alive on shutdown.
+// CycleTLS daemons must not keep the process alive on shutdown.
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, async () => {
     console.log(`\n[server] ${signal} — shutting down`);

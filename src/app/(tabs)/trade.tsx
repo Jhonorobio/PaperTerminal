@@ -51,7 +51,7 @@ export default function TradeScreen() {
   // The tracker's chip for the selected token, pushed live on its own topic —
   // only when that token is actually being tracked (no series → no chip).
   const trackHealth = useTrackHealth(settings.serverBase);
-  // A link — a tapped alert, a token tapped in FOMO/Photon, or a clipboard copy —
+  // A link — a tapped alert, a token tapped in FOMO/Track, or a clipboard copy —
   // preselects its token. Tabs reuse the mounted screen, so a NEW address arrives as
   // a params change — not a remount — and has to win over the previous selection. The
   // linked asset wins until the user picks one manually (that pick "consumes" the

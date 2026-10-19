@@ -20,7 +20,6 @@ import { useApp } from '@/state/app';
 
 const LABELS: Record<string, string> = {
   fomo_trending: 'FOMO Trending',
-  photon_graduated: 'Photon Graduated',
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
   track_top: 'Track TOP·D',

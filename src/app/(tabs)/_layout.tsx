@@ -6,13 +6,13 @@ import { Palette } from '@/constants/paper';
 const ICONS: Record<string, IconName> = {
   trade: 'lightning',
   fomo: 'trendUp',
-  photon: 'target',
+  track: 'target',
   portfolio: 'wallet',
   history: 'history',
   style: 'chart',
 };
 
-/** The side panel's four views, as a bottom bar — the panel's stacked sections in one thumb reach. */
+/** The app's main views as a bottom bar — one thumb reach. */
 export default function TabsLayout() {
   return (
     <Tabs
@@ -42,10 +42,10 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="photon"
+        name="track"
         options={{
-          title: 'Photon',
-          tabBarIcon: ({ color, size }) => <Icon name={ICONS.photon} size={size ?? 20} color={String(color)} />,
+          title: 'Track',
+          tabBarIcon: ({ color, size }) => <Icon name={ICONS.track} size={size ?? 20} color={String(color)} />,
         }}
       />
       <Tabs.Screen

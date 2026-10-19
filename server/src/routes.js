@@ -6,8 +6,8 @@
  *   GET  /api/fomo/trending                 HTTP fallback of the feed (WS is primary)
  *   GET  /api/fomo/filters                  effective filters
  *   PUT  /api/fomo/filters                  { trending: {...} }
- *   GET  /api/market/memescope              Photon columns (Cold-startable)
- *   GET  /api/market/memescope-filters
+ *   GET  /api/market/memescope              Photon columns (on-demand, diagnostics)
+ *   GET  /api/market/memescope-filters      raw-column filters (legacy, unused by the app)
  *   PUT  /api/market/memescope-filters      { col1: {...}, col3: {...} }
  *   GET  /api/notifications/config          this device's config
  *   PUT  /api/notifications/config          register device + categories
@@ -16,8 +16,8 @@
  *   POST /api/notifications/test            fire a test alert (panel + push)
  *   GET  /api/track                         tracked tokens (summary) + config + status
  *   GET  /api/track/export                  everything WITH snapshots (analysis)
- *   GET  /api/track/config · PUT            the tracker's own filter set
- *   POST /api/track/proxy-test              prove a proxy with one real fetch
+ *   GET  /api/track/config · PUT            the tracker's own proxy + per-source filters
+ *   POST /api/track/proxy-test              prove a proxy with one real fetch per active source
  *   GET  /api/track/:address                one tracked token + its snapshots
  *   DELETE /api/track                       clear every tracked token
  */
@@ -26,7 +26,7 @@ import { Router } from 'express';
 
 import { getFomoProxyStatus, getFomoStatus, getFomoTrending, setFomoProxy } from './fomo.js';
 import { getFomoFilters, setFomoFilters } from './fomo-filter-store.js';
-import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters } from './photon.js';
+import { getMemescope, getPhotonFilters, setPhotonFilters } from './photon.js';
 import { photonLogo } from './logo-proxy.js';
 import { clearTrack, getTrackConfig, getTrackStatus, getTrackToken, listTrackTokens, setTrackConfig, snapshotsWithHealth, summarizeTrackToken, testTrackProxy, TRACK_SNAPSHOT_MAX, TRACK_TOKENS_MAX } from './track.js';
 import { notificationConfig, notificationHistory } from './stores.js';
@@ -68,7 +68,6 @@ router.get('/status', (_req, res) => {
     ok: true,
     ws: { clients: clientCount(), topics: [...getSubscriptions()] },
     fomo: getFomoStatus(),
-    photon: getMemescopeStatus(),
   });
 });
 
@@ -84,7 +83,7 @@ router.get('/fomo/proxy', (_req, res) => {
 
 router.put('/fomo/proxy', (req, res) => {
   try {
-    // Shared egress for FOMO + Photon. Body { url, enabled? }: '' clears the URL;
+    // Shared egress for FOMO (the Track has its own proxy). Body { url, enabled? }: '' clears the URL;
     // `enabled` flips the Settings switch without losing a saved one. Omitting it
     // keeps the historical behavior (a landed URL counts as on).
     res.json(setFomoProxy(req.body?.url ?? '', req.body?.enabled));
@@ -114,6 +113,7 @@ router.get('/fomo/trending', async (req, res) => {
 // ── Photon ───────────────────────────────────────────────────────────────────
 
 // Photon token images (host blocks hotlinking; the server re-serves them).
+// Kept for the Track rows/legacy clients even though the Photon screen is gone.
 router.get('/photon/logo', photonLogo);
 
 router.get('/market/memescope', async (_req, res) => {  try {
@@ -180,10 +180,10 @@ router.put('/notifications/config', (req, res) => {
       }
     }
 
-    // No filters here on purpose: the feed screens own them (FOMO pushes both tabs,
-    // Photon its columns) and notify.js gates the alerts with those — this config only
-    // says which categories the device wants. Any `filters` an older client still sends
-    // are dropped with the entry rewrite below.
+    // No filters here on purpose: the feed screens own them (FOMO pins its tab,
+    // the Track page owns its per-source sets) and notify.js gates the alerts with
+    // those — this config only says which categories the device wants. Any
+    // `filters` an older client still sends are dropped with the entry rewrite below.
     const entry = {
       device_id: id,
       push_token: hasPush ? push_token : null,
@@ -321,7 +321,7 @@ router.put('/track/config', (req, res) => {
 
 // Test a (possibly unsaved) proxy with one real fetch — never throws.
 router.post('/track/proxy-test', async (req, res) => {
-  res.json(await testTrackProxy(req.body?.proxy));
+  res.json(await testTrackProxy(req.body?.proxy, req.body?.filters));
 });
 
 router.get('/track/:address', (req, res) => {

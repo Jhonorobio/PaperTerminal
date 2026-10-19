@@ -5,8 +5,8 @@ import type { TrackBuySignal, TrackHealth } from '@/lib/track';
 
 /**
  * The health chip the tracker computes from a token's snapshot series — the same
- * pill the Track tab shows, now wherever the token shows up (Trade, FOMO,
- * Photon). Renders NOTHING when the token isn't tracked: there is no series to
+ * pill the Track tab shows, now wherever the token shows up (Trade, FOMO).
+ * Renders NOTHING when the token isn't tracked: there is no series to
  * read, and a chip without data would be a guess.
  */
 export const HEALTH_META: Record<Exclude<TrackHealth, null>, { label: string; color: string }> = {

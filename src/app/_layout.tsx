@@ -42,7 +42,7 @@ export default function RootLayout() {
     return () => cleanup?.();
   }, [router]);
 
-  // Copy a token address anywhere (Photon, browser, wallet) while this app is open and
+  // Copy a token address anywhere (browser, wallet) while this app is open and
   // Trade jumps to it on its own — the same deep link a tapped alert uses.
   useEffect(
     () =>

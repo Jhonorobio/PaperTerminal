@@ -203,63 +203,6 @@ export interface ExportedFile {
   filename: string;
 }
 
-// ---------- Photon memescope (via the local APIS server) ----------
-
-export type PhotonColumn = 'col1' | 'col3';
-
-/** One token in a Photon memescope column. */
-export interface PhotonToken {
-  address: string;
-  symbol: string | null;
-  name: string | null;
-  image: string | null;
-  mcap: number | null;
-  /** All-time high FDV from Photon — the anchor for the row's gain/loss %. */
-  ath: number | null;
-  liquidity: number | null;
-  volume24h: number | null;
-  buysCount: number | null;
-  holdersCount: number | null;
-  tpHoldersCount: number | null;
-  freshPct: number | null;
-  bundleHolders: number | null;
-  bundlePct: number | null;
-  topHoldersPct: number | null;
-}
-
-export interface PhotonRange {
-  min?: number;
-  max?: number;
-}
-
-/** Per-column filter set — mirrors the server's FILTER_FIELDS. */
-export interface PhotonFilters {
-  age?: PhotonRange;
-  holders?: PhotonRange;
-  tpHolders?: PhotonRange;
-  mktCap?: PhotonRange;
-  buys?: PhotonRange;
-  freshPct?: PhotonRange;
-  bundleHolders?: PhotonRange;
-  bundlePct?: PhotonRange;
-  /** % of supply held by the top holders — same as every other field: Photon applies it in the query. */
-  topHolders?: PhotonRange;
-}
-
-/** One column of the server's memescope payload. */
-export interface PhotonColumnData {
-  data?: { attributes?: Record<string, unknown> }[];
-}
-
-export interface PhotonSnapshot {
-  columns: Record<PhotonColumn, PhotonColumnData>;
-  titles: Record<string, string>;
-  cached?: boolean;
-  ageMs: number;
-  savedAt?: number;
-  error?: string | null;
-}
-
 // ---------- FOMO feed (fomo.family) ----------
 
 export type FomoFeedId = 'graduated' | 'trending' | 'pump';

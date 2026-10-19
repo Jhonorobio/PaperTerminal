@@ -13,10 +13,9 @@
 /** Server del que cuelga todo (el mismo de la app; en Ajustes se puede cambiar). */
 export const DEFAULT_SERVER = 'https://paperterminal-production.up.railway.app';
 
-/** Taxonomía del server — mismas 9 categorías que la pantalla Notificaciones de la app. */
+/** Taxonomía del server — mismas 8 categorías que la pantalla Notificaciones de la app. */
 export const ALERT_CATEGORIES = [
   'fomo_trending',
-  'photon_graduated',
   'track_cal_chat',
   'track_chat_tesis',
   'track_top',
@@ -44,7 +43,6 @@ export const TRACK_CATEGORIES = [
 
 export const CATEGORY_LABELS = {
   fomo_trending: 'FOMO Trending',
-  photon_graduated: 'Photon Graduated',
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
   track_top: 'Track TOP·D',
@@ -57,7 +55,6 @@ export const CATEGORY_LABELS = {
 /** La regla detrás de cada categoría — va como primera línea del cuerpo del aviso. */
 export const CATEGORY_HINTS = {
   fomo_trending: 'Trending en FOMO',
-  photon_graduated: 'Graduado en Photon',
   track_cal_chat: 'Entrada: CAL [$100-500) + chat',
   track_chat_tesis: 'Entrada: chat + tesis',
   track_top: 'Entrada: TOP·D',
@@ -74,7 +71,6 @@ export const CATEGORY_HINTS = {
  */
 export const DEFAULT_CATEGORIES = {
   fomo_trending: false,
-  photon_graduated: false,
   track_cal_chat: false,
   track_chat_tesis: false,
   track_top: false,
@@ -197,7 +193,7 @@ export async function getDeviceId() {
   return id;
 }
 
-/** 'feeds' (FOMO/Photon/Pump) o 'track' (las del tracker) — agrupa la UI. */
+/** 'feeds' (FOMO/Pump) o 'track' (las del tracker) — agrupa la UI. */
 export function categoryGroup(category) {
   return TRACK_CATEGORIES.includes(category) ? 'track' : 'feeds';
 }
@@ -243,7 +239,7 @@ export function shortAddr(address) {
   return a.length > 12 ? `${a.slice(0, 5)}…${a.slice(-4)}` : a;
 }
 
-/** Edad de un token de FOMO/Photon: createdAt viene en segundos unix. */
+/** Edad de un token de FOMO: createdAt viene en segundos unix. */
 export function ageMinutesOf(createdAt) {
   const secs = Number(createdAt);
   if (!Number.isFinite(secs) || secs <= 0) return null;

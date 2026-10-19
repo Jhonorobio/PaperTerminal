@@ -1,14 +1,19 @@
 /**
- * Token tracker — a SECOND Photon Graduated poller that snapshots the tokens you
- * care about, once a minute, so a migration can be analysed after the fact.
+ * Token tracker — a SECOND Photon poller that snapshots the tokens you care
+ * about, once a minute, so a migration can be analysed after the fact.
+ *
+ * Sources: Photon's New (col1) and Graduated (col3) columns. Each one has its
+ * OWN filter set (filters.new and filters.graduated), independent from the
+ * app's former Photon columns. The tracker rotates one column per 1.3s pull, so
+ * the upstream request rate stays the same with both sources active.
  *
  * Lifecycle:
- *   enter   — a token shows up in the Graduated column after PHOTON filters it
- *             with the track's OWN filter set (track_config; independent from the
- *             app column filters). The filters travel as query params — the exact
- *             mechanism the app's Photon screen uses — so "pasa el filtro"
- *             means the same thing on both screens.
- *   capture — while it stays visible in the column: one snapshot per minute with
+ *   enter   — a token shows up in New or Graduated after Photon filters it with
+ *             that source's own filter set. The filters travel as query params —
+ *             the exact mechanism the old Photon screen used — so "pasa el
+ *             filtro" means the same thing on both sides. `source` remembers the
+ *             lane it entered from (it does not flip if it later graduates).
+ *   capture — while it stays visible in its column: one snapshot per minute with
  *             top holders %, holders, snipers %, snipers, bundle %, bundle count,
  *             buys, sells, market cap, volume and tp holders ("bots"). Además,
  *             cada wallet con callout ≥$100 que APARECE después de la línea base
@@ -26,8 +31,9 @@
  * migrations.
  *
  * Hard gate: the poller idles until the track's OWN proxy (configured in the
- * app, never the shared FOMO/Photon one) is saved, and the track's filter set
- * has at least one field — no proxy, no entries; no filters, no entries.
+ * app, never the shared FOMO one) is saved, and at least one source has a
+ * filter — no proxy, no entries; no filters, no entries. A source with no
+ * filters is never fetched (that would pull the whole column).
  *
  * Own CycleTLS client + own backoff, so the app feed's rate limit and transport
  * never interact with tracking. Egress ONLY rides the track's own proxy — a dead
@@ -84,24 +90,60 @@ const numOrNull = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
+// The two Photon lanes the tracker follows. `source` on a token is the lane it
+// ENTERED from and never flips (a New token that graduates stays labeled New).
+export const TRACK_SOURCES = [
+  { key: 'graduated', column: 'col3', label: 'Graduated' },
+  { key: 'new', column: 'col1', label: 'New' },
+];
+const TRACK_SOURCE_KEYS = TRACK_SOURCES.map((s) => s.key);
+
+const emptyTrackFilters = () => ({ graduated: {}, new: {} });
+
+/**
+ * Normalizes the stored filters to the per-source shape. The old config was a
+ * single flat set and the tracker only pulled Graduated, so a flat object is
+ * treated as the Graduated set (New starts empty). Missing keys are filled with
+ * `{}` so the app can always read both sources.
+ */
+export function normalizeTrackFilters(raw) {
+  const out = emptyTrackFilters();
+  if (!raw || typeof raw !== 'object') return out;
+  const perSource =
+    Object.prototype.hasOwnProperty.call(raw, 'graduated') ||
+    Object.prototype.hasOwnProperty.call(raw, 'new');
+  if (perSource) {
+    out.graduated = sanitizeColumnFilters(raw.graduated);
+    out.new = sanitizeColumnFilters(raw.new);
+  } else {
+    out.graduated = sanitizeColumnFilters(raw);
+  }
+  return out;
+}
+
+const sourceOf = (tracked) => (tracked?.source === 'new' ? 'new' : 'graduated');
+
 // ── config (its own proxy + filters, both independent from the app columns) ──
 
 export function getTrackConfig() {
   const stored = trackConfig.get('global') ?? {};
-  // The tracker's OWN proxy — never the FOMO/Photon one; junk in the store reads as ''.
+  // The tracker's OWN proxy — never the FOMO one; junk in the store reads as ''.
   let proxy = '';
   try {
     proxy = stored.proxy ? normalizeProxy(stored.proxy) : envProxy();
   } catch {
     proxy = '';
   }
-  const storedFilters = sanitizeColumnFilters(stored.filters);
+  const storedFilters = normalizeTrackFilters(stored.filters);
   return {
     enabled: stored.enabled !== false, // default on: it works out of the box
     proxy,
     // A wiped store (Railway restarts have no disk) falls back to the env floor, so a
     // redeploy can't silently lose the setup the user saved from the app.
-    filters: Object.keys(storedFilters).length ? storedFilters : envFilters(),
+    filters: {
+      graduated: Object.keys(storedFilters.graduated).length ? storedFilters.graduated : envFilters('TRACK_FILTERS'),
+      new: Object.keys(storedFilters.new).length ? storedFilters.new : envFilters('TRACK_FILTERS_NEW'),
+    },
   };
 }
 
@@ -114,10 +156,14 @@ function envProxy() {
   }
 }
 
-/** TRACK_FILTERS='{"holders":{"min":"60"}}' — same shape as the store, sanitized. */
-function envFilters() {
+/**
+ * TRACK_FILTERS / TRACK_FILTERS_NEW — restart-safe env fallback, same flat shape
+ * as one source's filters, sanitized. `TRACK_FILTERS` predates the New lane, so
+ * it remains the Graduated fallback.
+ */
+function envFilters(name) {
   try {
-    return sanitizeColumnFilters(JSON.parse(process.env.TRACK_FILTERS ?? '{}'));
+    return sanitizeColumnFilters(JSON.parse(process.env[name] ?? '{}'));
   } catch {
     return {};
   }
@@ -134,10 +180,33 @@ export function setTrackConfig(raw) {
       throw Object.assign(new Error(err.message), { status: 400 }); // the app flashes this
     }
   }
+
+  // Accept both shapes: the app now sends { new, graduated }, while an older
+  // build (or a mirror saved before this change) sends one flat set — that one
+  // belongs to Graduated, the only lane the old tracker knew.
+  const previous = normalizeTrackFilters(stored.filters);
+  let filters = previous;
+  if (raw?.filters !== undefined) {
+    const perSource =
+      raw.filters &&
+      typeof raw.filters === 'object' &&
+      (Object.prototype.hasOwnProperty.call(raw.filters, 'graduated') ||
+        Object.prototype.hasOwnProperty.call(raw.filters, 'new'));
+    filters = perSource
+      ? {
+          graduated:
+            raw.filters.graduated !== undefined
+              ? sanitizeColumnFilters(raw.filters.graduated)
+              : previous.graduated,
+          new: raw.filters.new !== undefined ? sanitizeColumnFilters(raw.filters.new) : previous.new,
+        }
+      : { graduated: sanitizeColumnFilters(raw.filters), new: previous.new };
+  }
+
   trackConfig.set('global', {
     enabled: raw?.enabled != null ? Boolean(raw.enabled) : stored.enabled !== false,
     proxy,
-    filters: sanitizeColumnFilters(raw?.filters ?? stored.filters),
+    filters,
     updated_at: new Date().toISOString(),
   });
   return getTrackConfig();
@@ -994,9 +1063,10 @@ export async function fetchPumpTopTraders(address) {
 }
 
 /**
- * Hard gate: the tracker idles until its OWN proxy is saved (never the
- * FOMO/Photon one — the track doesn't egress without its own) and the filter
- * set has at least one field. No proxy, no entries; no filters, no entries.
+ * Hard gate: the tracker idles until its OWN proxy is saved (never the shared
+ * FOMO one — the track doesn't egress without its own) and at least one source
+ * has a filter. A source with no filters is skipped by the tick, so an empty
+ * New set doesn't force tracking the whole New column.
  */
 export function getTrackGate() {
   const config = getTrackConfig();
@@ -1008,11 +1078,22 @@ export function getTrackGate() {
   } catch {
     proxyOk = false;
   }
-  const filtersOk = Object.keys(config.filters).length > 0;
+  const bySource = {};
+  for (const key of TRACK_SOURCE_KEYS) bySource[key] = Object.keys(config.filters[key] ?? {}).length;
+  const activeSources = TRACK_SOURCE_KEYS.filter((key) => bySource[key] > 0);
+  const filtersOk = activeSources.length > 0;
   return {
     ok: proxyOk && filtersOk,
     proxy: { ok: proxyOk, url: proxyUrl },
-    filters: { ok: filtersOk, count: Object.keys(config.filters).length },
+    filters: {
+      ok: filtersOk,
+      count: activeSources.reduce((total, key) => total + bySource[key], 0),
+      bySource,
+    },
+    sources: Object.fromEntries(
+      TRACK_SOURCE_KEYS.map((key) => [key, { filters: bySource[key], active: bySource[key] > 0 }]),
+    ),
+    activeSources,
   };
 }
 
@@ -1022,6 +1103,9 @@ let cycleTLS = null;
 let transport = 'direct';
 let poller = null;
 let trackInflight = null;
+// Rotates New/Graduated one per 1.3s pull: both refresh every ~2.6s while
+// keeping Photon's single-request cadence (two per tick would risk 429s).
+let sourceCursor = 0;
 const missCount = new Map(); // address → consecutive pulls absent (pause grace, in-memory)
 let backoffUntil = 0;
 let fetchCount = 0;
@@ -1051,20 +1135,16 @@ export async function closeTrack() {
 }
 
 /**
- * Fetches the Graduated column with the track's OWN filters handed to Photon as
- * query params — the exact mechanism the app's Photon screen uses (buildQuery),
- * so "passed the filters" means the same thing on both screens.
+ * One real column fetch with the source's filters handed to Photon as query params
+ * — the exact mechanism the old Photon screen used (buildQuery). Shared by the
+ * tick and the proxy test; the caller owns backoff/transport state.
  */
-async function fetchGraduated() {
-  fetchCount += 1;
+async function requestColumn(source, proxyUrl, filters, timeoutMs) {
   const client = await getCycleTLS();
   // The gate guarantees the track's own proxy is here; it is the ONLY egress —
   // no silent fallback to direct (that IP is exactly what the user is avoiding).
-  const config = getTrackConfig();
-  const proxyUrl = config.proxy;
-  transport = proxyUrl ? 'proxy' : 'direct';
   const request = client(
-    `${SEARCH_URL}?${buildQuery('col3', config.filters)}`,
+    `${SEARCH_URL}?${buildQuery(source.column, filters)}`,
     { client: 'chrome131', headers: HEADERS, ...(proxyUrl ? { proxy: proxyUrl } : {}) },
     'GET',
   );
@@ -1074,7 +1154,7 @@ async function fetchGraduated() {
     resp = await Promise.race([
       request,
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`TIMEOUT_${FETCH_TIMEOUT_MS}MS`)), FETCH_TIMEOUT_MS);
+        timer = setTimeout(() => reject(new Error(`TIMEOUT_${timeoutMs}MS`)), timeoutMs);
       }),
     ]);
   } finally {
@@ -1084,19 +1164,46 @@ async function fetchGraduated() {
 
   const status = Number(resp?.status) || 0;
   if (status === 429) {
-    backoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
-    throw Object.assign(new Error('RATE_LIMITED'), { rateLimited: true });
+    throw Object.assign(new Error('RATE_LIMITED'), { rateLimited: true, status });
   }
   if (status !== 200) {
     // CycleTLS reports an unreachable/broken proxy as a bare 401 — say it plainly.
-    throw new Error(proxyUrl && status === 401 ? 'PROXY_401 (el proxy no respondió o rechazó)' : `HTTP_${status}`);
+    throw Object.assign(
+      new Error(proxyUrl && status === 401 ? 'PROXY_401 (el proxy no respondió o rechazó)' : `HTTP_${status}`),
+      { status },
+    );
   }
 
-  return toItems(resp);
+  return { status, items: toItems(resp, source.column) };
+}
+
+/**
+ * Fetches one source (New or Graduated) with that source's own filters. The
+ * rotating tick calls it once per pull; each active source refreshes every
+ * ~2.6s when both are configured.
+ */
+async function fetchTrackColumn(sourceKey) {
+  const source = TRACK_SOURCES.find((s) => s.key === sourceKey);
+  if (!source) throw new Error(`BAD_SOURCE_${sourceKey}`);
+  fetchCount += 1;
+  const config = getTrackConfig();
+  transport = config.proxy ? 'proxy' : 'direct';
+  try {
+    const { items } = await requestColumn(
+      source,
+      config.proxy,
+      config.filters[sourceKey] ?? {},
+      FETCH_TIMEOUT_MS,
+    );
+    return items;
+  } catch (err) {
+    if (err?.rateLimited) backoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
+    throw err;
+  }
 }
 
 /** CycleTLS hands the body over parsed (object) or as raw bytes — accept both. */
-function toItems(resp) {
+function toItems(resp, column) {
   const raw = resp?.data;
   let json;
   if (raw != null && typeof raw === 'object' && !Buffer.isBuffer(raw)) {
@@ -1110,7 +1217,7 @@ function toItems(resp) {
     }
   }
   if (json.error) throw new Error(String(json.error));
-  const slice = json.columns?.col3 ?? { data: [] };
+  const slice = json.columns?.[column] ?? { data: [] };
   const items = Array.isArray(slice.data) ? slice.data : [];
   return items.map((it) => it?.attributes).filter(Boolean);
 }
@@ -1118,12 +1225,12 @@ function toItems(resp) {
 // ── proxy test (the app's "Probar" button) ───────────────────────────────────
 
 /**
- * One real Graduated fetch through a proxy, timed — the app's way of knowing
- * whether the proxy works BEFORE trusting it with tracking. Accepts an unsaved
- * draft (testing doesn't require saving first) and never throws: every outcome
- * comes back shaped, so the UI can just print it.
+ * One real fetch per ACTIVE source through a proxy, timed — the app's way of
+ * knowing whether the proxy works BEFORE trusting it with tracking. Accepts an
+ * unsaved draft (proxy + filters; testing doesn't require saving first) and
+ * never throws: every outcome comes back shaped, so the UI can just print it.
  */
-export async function testTrackProxy(rawProxy) {
+export async function testTrackProxy(rawProxy, rawFilters) {
   let proxyUrl = '';
   try {
     proxyUrl = normalizeProxy(rawProxy ?? getTrackConfig().proxy);
@@ -1132,46 +1239,42 @@ export async function testTrackProxy(rawProxy) {
   }
   if (!proxyUrl) return { ok: false, stage: 'config', ms: 0, error: 'no hay proxy cargado' };
 
-  const started = Date.now();
-  const request = (await getCycleTLS())(
-    // Same query the tracker will really use (its own filters as Photon params):
-    // testing any other URL would say nothing about the tracking fetch itself.
-    `${SEARCH_URL}?${buildQuery('col3', getTrackConfig().filters)}`,
-    { client: 'chrome131', headers: HEADERS, proxy: proxyUrl },
-    'GET',
-  );
-  let timer;
-  let resp;
-  try {
-    resp = await Promise.race([
-      request,
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`TIMEOUT_${PROXY_TEST_TIMEOUT_MS}MS`)), PROXY_TEST_TIMEOUT_MS);
-      }),
-    ]);
-  } catch (err) {
-    return { ok: false, proxy: proxyUrl, ms: Date.now() - started, error: String(err?.message || err) };
-  } finally {
-    clearTimeout(timer);
-    request.catch(() => {});
-  }
-
-  const ms = Date.now() - started;
-  const status = Number(resp?.status) || 0;
-  if (status !== 200) {
+  // Test the same queries the tracker will really use (each source's own
+  // filters as Photon params): testing anything else says nothing about it.
+  const filters = normalizeTrackFilters(rawFilters ?? getTrackConfig().filters);
+  const active = TRACK_SOURCES.filter((s) => Object.keys(filters[s.key] ?? {}).length > 0);
+  if (!active.length) {
     return {
       ok: false,
-      proxy: proxyUrl,
-      status,
-      ms,
-      error: status === 401 ? 'el proxy no respondió o rechazó (¿es SOCKS? usá socks5://)' : `HTTP_${status}`,
+      stage: 'config',
+      ms: 0,
+      error: 'poné al menos un filtro en Graduated o New',
     };
   }
-  try {
-    return { ok: true, proxy: proxyUrl, status, ms, tokens: toItems(resp).length };
-  } catch (err) {
-    return { ok: false, proxy: proxyUrl, status, ms, error: String(err?.message || err) };
+
+  const started = Date.now();
+  const sources = {};
+  let total = 0;
+  for (const source of active) {
+    try {
+      const { items } = await requestColumn(source, proxyUrl, filters[source.key], PROXY_TEST_TIMEOUT_MS);
+      sources[source.key] = items.length;
+      total += items.length;
+    } catch (err) {
+      return {
+        ok: false,
+        proxy: proxyUrl,
+        status: err?.status,
+        ms: Date.now() - started,
+        error:
+          err?.status === 401
+            ? `${source.label}: el proxy no respondió o rechazó (¿es SOCKS? usá socks5://)`
+            : `${source.label}: ${String(err?.message || err)}`,
+      };
+    }
   }
+  for (const source of TRACK_SOURCES) if (sources[source.key] == null) sources[source.key] = 0;
+  return { ok: true, proxy: proxyUrl, status: 200, ms: Date.now() - started, tokens: total, sources };
 }
 
 // ── the tick ─────────────────────────────────────────────────────────────────
@@ -1199,14 +1302,21 @@ async function trackTick() {
     if (!gate.ok) {
       if (!gateLogged) {
         gateLogged = true;
-        const missing = [!gate.proxy.ok ? 'proxy' : null, !gate.filters.ok ? 'filtro' : null].filter(Boolean).join(' + ');
+        const missing = [!gate.proxy.ok ? 'proxy' : null, !gate.filters.ok ? 'filtro en New o Graduated' : null]
+          .filter(Boolean)
+          .join(' + ');
         console.log(`[track] en espera — falta configurar: ${missing}`);
       }
       return;
     }
     gateLogged = false;
 
-    const attrs = await fetchGraduated();
+    // A source with no filters is skipped: asking Photon for the whole column
+    // would track hundreds of unrelated tokens.
+    const active = TRACK_SOURCES.filter((s) => Object.keys(config.filters[s.key] ?? {}).length > 0);
+    const source = active[sourceCursor % active.length];
+    sourceCursor = (sourceCursor + 1) % active.length;
+    const attrs = await fetchTrackColumn(source.key);
     lastFetchAt = Date.now();
     lastError = null;
 
@@ -1268,13 +1378,15 @@ async function trackTick() {
       let structural = false;
       if (!tracked) {
         // New in the (already Photon-filtered) column — no local re-check: what
-        // Photon returns is what gets tracked, exactly like the Photon screen.
+        // Photon returns is what gets tracked. `source` is the entry lane and
+        // intentionally does NOT flip if the token later graduates.
         tracked = {
           address,
           chain: 'sol',
           symbol: a.symbol ?? null,
           name: a.name ?? null,
           logo: a.imgUrl ?? null,
+          source: source.key,
           status: 'active',
           firstSeenAt: nowIso,
           lastSeenAt: nowIso,
@@ -1354,14 +1466,15 @@ async function trackTick() {
       }
     }
 
-    // Tracked tokens missing from this column: paused after a couple of misses —
-    // at 1.3s pulls a single partial/reshuffled response must not flip the list.
-    // Missing now also covers "stopped passing the track filters": the column is
-    // filtered upstream, so a token that falls out of the range simply isn't
-    // returned anymore. Data is kept; capture resumes on the next appearance. A
-    // token that stays out for 30 continuous minutes is done for good (its run
-    // ended), even if it never hit the snapshot cap — "paused forever" was never
-    // a real state.
+    // Tracked tokens missing from the column fetched this tick: paused after a
+    // couple of misses — at 1.3s pulls a single partial/reshuffled response must
+    // not flip the list. With both lanes active the rotation means a token alive
+    // in the other lane gets ONE miss and resets on its own tick; a token that
+    // really left gets a miss on both lanes and pauses. Missing also covers
+    // "stopped passing the filters": the column is filtered upstream, so a token
+    // out of range simply isn't returned. Data is kept; capture resumes on the
+    // next appearance. A token out for 30 continuous minutes is done for good
+    // (its run ended), even if it never hit the snapshot cap.
     for (const [address, tracked] of Object.entries(trackTokens.getAll())) {
       if (byAddress.has(address)) {
         missCount.delete(address);
@@ -1386,7 +1499,7 @@ async function trackTick() {
     }
 
     evictOverCap();
-    if (changed) console.log(`[track] tick · ${byAddress.size} in column · ${Object.keys(trackTokens.getAll()).length} tracked`);
+    if (changed) console.log(`[track] tick · ${byAddress.size} in ${source.key} · ${Object.keys(trackTokens.getAll()).length} tracked`);
     maybeBroadcast(changed, snapshotted);
   } catch (err) {
     errorCount += 1;
@@ -1418,7 +1531,7 @@ export function startTrackPoller() {
   // A device that opens the Track tab subscribes and gets the current state on
   // the spot; from then on it is pushed, not polled.
   registerTopicProvider(TRACK_TOPIC, () => ({ event: 'track_updated', data: trackSnapshot() }));
-  // Trade/FOMO/Photon subscribe to the chips-only topic — same instant snapshot.
+  // Trade/FOMO subscribe to the chips-only topic — same instant snapshot.
   registerTopicProvider(TRACK_HEALTH_TOPIC, () => ({ event: 'track_health', data: { tokens: healthList() } }));
   if (poller) return;
   // Board global de pump.fun (top 100 daily/weekly) para el aviso TOP 50 de los
@@ -1433,7 +1546,7 @@ export function startTrackPoller() {
   // paralelo, y las filas nuevas se resuelven sin tocar el camino del snapshot.
   call100Timer = setInterval(sweepPnl, CALL100_SWEEP_MS);
   console.log(
-    `[track] poller started (col3 every ${PULL_MS}ms, 1 snap/${SNAPSHOT_MS / 1000}s per token, ≤${TRACK_SNAPSHOT_MAX} snaps/token, ≤${TRACK_TOKENS_MAX} tokens, wallet PnL every ${CALL100_SWEEP_MS / 1000}s)`
+    `[track] poller started (New/Graduated rotating every ${PULL_MS}ms, 1 snap/${SNAPSHOT_MS / 1000}s per token, ≤${TRACK_SNAPSHOT_MAX} snaps/token, ≤${TRACK_TOKENS_MAX} tokens, wallet PnL every ${CALL100_SWEEP_MS / 1000}s)`
   );
 }
 
@@ -1449,7 +1562,7 @@ export function getTrackStatus() {
     // snapshots (the stats series) stay at one per SNAPSHOT_MS per token.
     pullMs: PULL_MS,
     snapshotMs: SNAPSHOT_MS,
-    // 30 continuous minutes out of the column end the run ("Cortado").
+    // 30 continuous minutes out of its column end the run ("Cortado").
     pauseCutMs: TRACK_PAUSE_CUT_MS,
     snapshotMax: TRACK_SNAPSHOT_MAX,
     tokensMax: TRACK_TOKENS_MAX,
@@ -1466,6 +1579,9 @@ export function getTrackStatus() {
       active: all.filter((t) => t.status === 'active').length,
       done: all.filter((t) => t.status === 'done').length,
       visible: all.filter((t) => t.visible).length,
+      bySource: Object.fromEntries(
+        TRACK_SOURCE_KEYS.map((key) => [key, all.filter((t) => t.visible && sourceOf(t) === key).length]),
+      ),
     },
   };
 }
@@ -1481,8 +1597,8 @@ export function trackSnapshot() {
 }
 
 const TRACK_TOPIC = 'track';
-// Trade/FOMO/Photon paint only the health chip, and they stay subscribed while
-// those tabs are open — a ~30-byte-per-token payload is what makes that cheap,
+// Trade/FOMO paint only the health chip, and they stay subscribed while those
+// tabs are open — a ~30-byte-per-token payload is what makes that cheap,
 // instead of riding the full list on every push.
 const TRACK_HEALTH_TOPIC = 'track:health';
 // The tracker mutates every 1.3s (presence) and every 60s (snapshots): pushing
@@ -1724,6 +1840,8 @@ export function summarizeTrackToken(t) {
     symbol: t.symbol ?? null,
     name: t.name ?? null,
     logo: t.logo ?? null,
+    // Lane it entered from (stable): 'new' or 'graduated'.
+    source: sourceOf(t),
     status: t.status,
     firstSeenAt: t.firstSeenAt,
     lastSeenAt: t.lastSeenAt,

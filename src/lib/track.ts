@@ -1,16 +1,19 @@
 /**
- * Track client — reads the server's token tracker (a second Photon Graduated
- * poller that snapshots the tokens passing the track's own filters, once a
- * minute, up to 50 snapshots per token).
+ * Track client — reads the server's token tracker (a second Photon poller that
+ * follows the New and Graduated columns and snapshots the tokens passing EACH
+ * source's own filters, once a minute, up to 50 snapshots per token).
  *
  * The data is global (not per-device): the same server tracks for whoever asks.
  */
 
 const TIMEOUT_MS = 12_000;
+// Two sequential source probes, each with the server's own timeout — the client
+// must outwait the server, not abort between the first and the second.
+const PROXY_TEST_TIMEOUT_MS = 35_000;
 
-async function call<T>(base: string, path: string, init?: RequestInit): Promise<T> {
+async function call<T>(base: string, path: string, init?: RequestInit, timeoutMs = TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${base.replace(/\/+$/, '')}${path}`, {
       ...init,
@@ -47,11 +50,74 @@ export interface TrackFilterPair {
   max?: string;
 }
 
+/** Photon's two lanes, each with its own filter set. */
+export const TRACK_SOURCES = [
+  { key: 'graduated', label: 'Graduated' },
+  { key: 'new', label: 'New' },
+] as const;
+export type TrackSource = (typeof TRACK_SOURCES)[number]['key'];
+
+export type TrackFilters = Record<TrackSource, Partial<Record<TrackFilterKey, TrackFilterPair>>>;
+
 export interface TrackConfig {
   enabled: boolean;
-  /** The track's OWN proxy — never the shared FOMO/Photon one. '' = not configured. */
+  /** The track's OWN proxy — never the shared FOMO one. '' = not configured. */
   proxy: string;
-  filters: Partial<Record<TrackFilterKey, TrackFilterPair>>;
+  /** Per-source filters: filters.graduated and filters.new are independent. */
+  filters: TrackFilters;
+}
+
+const EMPTY_TRACK_FILTERS = (): TrackFilters => ({ graduated: {}, new: {} });
+
+/**
+ * Normalizes a stored/remote config to the per-source shape. The old config was
+ * one flat filter object and the tracker only pulled Graduated, so a flat object
+ * is migrated to `filters.graduated`; `filters.new` starts empty.
+ */
+export function normalizeTrackFilters(raw: unknown): TrackFilters {
+  const out = EMPTY_TRACK_FILTERS();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  const obj = raw as Record<string, unknown>;
+  const perSource =
+    Object.prototype.hasOwnProperty.call(obj, 'graduated') ||
+    Object.prototype.hasOwnProperty.call(obj, 'new');
+  if (perSource) {
+    out.graduated = (obj.graduated && typeof obj.graduated === 'object' ? obj.graduated : {}) as TrackFilters['graduated'];
+    out.new = (obj.new && typeof obj.new === 'object' ? obj.new : {}) as TrackFilters['new'];
+  } else {
+    out.graduated = obj as TrackFilters['graduated'];
+  }
+  return out;
+}
+
+export function normalizeTrackConfig(raw: unknown): TrackConfig {
+  const obj = (raw && typeof raw === 'object' ? raw : {}) as {
+    enabled?: unknown;
+    proxy?: unknown;
+    filters?: unknown;
+  };
+  return {
+    enabled: obj.enabled !== false,
+    proxy: typeof obj.proxy === 'string' ? obj.proxy : '',
+    filters: normalizeTrackFilters(obj.filters),
+  };
+}
+
+/** A field counts only when at least one bound has a value (matches the server). */
+const pairCount = (set: Partial<Record<TrackFilterKey, TrackFilterPair>> | null | undefined) =>
+  Object.values(set ?? {}).filter((range) => Boolean(range?.min || range?.max)).length;
+
+/** Total configured fields across both sources (the "Filtros · N" count). */
+export function trackFilterCount(filters: TrackFilters | null | undefined): number {
+  if (!filters) return 0;
+  return TRACK_SOURCES.reduce((total, source) => total + pairCount(filters[source.key]), 0);
+}
+
+export function sourceFilterCount(
+  filters: TrackFilters | null | undefined,
+  source: TrackSource,
+): number {
+  return pairCount(filters?.[source]);
 }
 
 /** One minute of the token's stats — the exact shape the server snapshots. */
@@ -251,9 +317,11 @@ export interface TrackTokenSummary {
   turnover: number | null;
   /** 'active' = the track is still open (< 50 snapshots); 'done' = cut at 50. */
   status: 'active' | 'done';
+  /** Lane it entered from (stable): Photon New or Graduated. */
+  source: TrackSource;
   firstSeenAt: string;
   lastSeenAt: string;
-  /** Currently visible in Photon's Graduated column (capture running). */
+  /** Currently visible in its Photon column (capture running). */
   visible: boolean;
   snapshotCount: number;
 }
@@ -301,7 +369,15 @@ export interface TrackTokenDetail extends TrackTokenSummary {
 export interface TrackGate {
   ok: boolean;
   proxy: { ok: boolean; url: string };
-  filters: { ok: boolean; count: number };
+  filters: {
+    ok: boolean;
+    /** Total fields across both active sources. */
+    count: number;
+    bySource: Record<TrackSource, number>;
+  };
+  sources: Record<TrackSource, { filters: number; active: boolean }>;
+  /** Sources with at least one filter — only these are pulled. */
+  activeSources: TrackSource[];
 }
 
 export interface TrackStatus {
@@ -322,7 +398,14 @@ export interface TrackStatus {
   lastError: { message: string; at: number } | null;
   transport: 'proxy' | 'direct';
   proxy: { url: string };
-  counts: { total: number; active: number; done: number; visible: number };
+  counts: {
+    total: number;
+    active: number;
+    done: number;
+    visible: number;
+    /** Visible tokens by entry lane. */
+    bySource: Record<TrackSource, number>;
+  };
 }
 
 export interface TrackState {
@@ -333,7 +416,8 @@ export interface TrackState {
 }
 
 export async function fetchTrack(base: string): Promise<TrackState> {
-  return call<TrackState>(base, '/api/track');
+  const state = await call<TrackState>(base, '/api/track');
+  return { ...state, config: normalizeTrackConfig(state.config) };
 }
 
 export async function fetchTrackToken(base: string, address: string): Promise<TrackTokenDetail> {
@@ -341,23 +425,44 @@ export async function fetchTrackToken(base: string, address: string): Promise<Tr
 }
 
 export async function saveTrackConfig(base: string, config: TrackConfig): Promise<TrackConfig> {
-  return call<TrackConfig>(base, '/api/track/config', { method: 'PUT', body: JSON.stringify(config) });
+  const saved = await call<TrackConfig>(base, '/api/track/config', {
+    method: 'PUT',
+    body: JSON.stringify(normalizeTrackConfig(config)),
+  });
+  return normalizeTrackConfig(saved);
 }
 
-/** Result of the "Probar" button — one real fetch through the given proxy. */
+/** Result of the "Probar" button — one real fetch per active source. */
 export interface ProxyTestResult {
   ok: boolean;
   proxy?: string;
   status?: number;
   ms: number;
   tokens?: number;
+  /** Tokens returned per lane (0 for a source with no filters). */
+  sources?: Record<TrackSource, number>;
   stage?: 'config';
   error?: string;
 }
 
-/** Proves a proxy works before saving it; ''/omitted falls back to the saved one. */
-export async function testTrackProxy(base: string, proxy?: string): Promise<ProxyTestResult> {
-  return call<ProxyTestResult>(base, '/api/track/proxy-test', { method: 'POST', body: JSON.stringify({ proxy }) });
+/**
+ * Proves a proxy works before saving it, using the DRAFT filters so the test
+ * matches what will be tracked. Omitted proxy falls back to the saved one.
+ */
+export async function testTrackProxy(
+  base: string,
+  proxy?: string,
+  filters?: TrackFilters,
+): Promise<ProxyTestResult> {
+  return call<ProxyTestResult>(
+    base,
+    '/api/track/proxy-test',
+    {
+      method: 'POST',
+      body: JSON.stringify({ proxy, ...(filters ? { filters: normalizeTrackFilters(filters) } : {}) }),
+    },
+    PROXY_TEST_TIMEOUT_MS,
+  );
 }
 
 /** Wipes every tracked token (the "Borrar" button — the config stays). */

@@ -7,16 +7,16 @@
  * server and not on the phone. One request per column, rotating every 1.3s so
  * upstream traffic stays under the rate limit (429 → 45s backoff).
  *
- * Columns: col1 = New, col3 = Graduated. Each refresh is broadcast to the app's
- * WS topic `memescope`; newly-seen tokens run through notify.js — only Graduated
- * has an alert category (photon_graduated): New se pinta pero no avisa.
+ * Columns: col1 = New, col3 = Graduated. The raw memescope feed has no screen or
+ * alert anymore (the app's Track tab pulls both columns with its own filters);
+ * this module keeps the query helpers for the tracker and the on-demand
+ * `/api/market/memescope` endpoints for diagnostics/backward compatibility.
  */
 
 import initCycleTLS from 'cycletls';
 
 import { photonFilters } from './stores.js';
 import { broadcast, registerTopicProvider } from './ws.js';
-import { emitToken, seedSeen } from './notify.js';
 import { getEffectiveProxy, getProxyStatus, onProxyChange } from './proxy-config.js';
 
 // PHOTON_SEARCH_URL exists for tests (a local mock of the memscope endpoint); production
@@ -66,18 +66,8 @@ const DEFAULT_FILTERS = {
   col3: {},
 };
 
-// `category`: the alert a new token in that column fires — col1 (New) has none.
-const COLS = [
-  { key: 'col1' },
-  { key: 'col3', category: 'photon_graduated' },
-];
+const COLS = [{ key: 'col1' }, { key: 'col3' }];
 const FALLBACK_TITLES = { col1: 'New', col3: 'Graduated' };
-
-const numOrNull = (v) => {
-  if (v == null || v === '') return null;
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
-};
 
 export function sanitizeColumnFilters(raw) {
   const out = {};
@@ -147,7 +137,6 @@ export const HEADERS = {
 
 const colCache = {}; // colKey → { slice, savedAt }
 let titles = null;
-let seeded = {}; // colKey → boolean (first fetch seeds the seen-map silently)
 let poller = null;
 let inflight = null;
 let backoffUntil = 0;
@@ -192,29 +181,6 @@ function toObj(data) {
     return JSON.parse(text);
   } catch {
     return null;
-  }
-}
-
-/** Emits alerts for any token new to this column (columns without a category don't alert). */
-function notifyColumn(colKey, items) {
-  const category = COLS.find((c) => c.key === colKey)?.category;
-  if (!category) return;
-  for (const it of items) {
-    const a = it?.attributes;
-    const address = a?.tokenAddress || a?.address;
-    if (!address) continue;
-    emitToken(category, {
-      address,
-      symbol: a.symbol ?? null,
-      name: a.name ?? null,
-      image: a.imgUrl ?? null,
-      mcap: numOrNull(a.fdv),
-      liquidity: numOrNull(a.cur_liq?.usd),
-      volume: numOrNull(a.volume),
-      holders: numOrNull(a.holders_count),
-      kolCount: null,
-      ageMinutes: null,
-    });
   }
 }
 
@@ -273,18 +239,6 @@ async function fetchOnce(colKey) {
   const slice = json.columns?.[colKey] ?? { data: [] };
   colCache[colKey] = { slice, savedAt: Date.now() };
   if (json.titles) titles = json.titles;
-
-  const items = Array.isArray(slice?.data) ? slice.data : [];
-  if (items.length) {
-    if (!seeded[colKey]) {
-      // First successful fetch: seed silently so booting doesn't fire the whole column.
-      const category = COLS.find((c) => c.key === colKey)?.category;
-      if (category) seedSeen(category, items.map((it) => it?.attributes?.tokenAddress || it?.attributes?.address).filter(Boolean));
-      seeded[colKey] = true;
-    } else {
-      notifyColumn(colKey, items);
-    }
-  }
 
   broadcast('memescope', { event: 'memescope_updated', data: snapshotPayload() });
   return json;

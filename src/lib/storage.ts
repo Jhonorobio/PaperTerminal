@@ -6,7 +6,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { PAPER_CONFIG } from './engine/rules';
 import { DEFAULT_BUY_PRESETS, DEFAULT_SELL_PRESETS, DEFAULT_SERVER_URL } from './config';
-import type { Asset, PhotonFilters, PhotonRange, Session, SessionUser } from './types';
+import type { TrackConfig } from './track';
+import type { Asset, Session, SessionUser } from './types';
 
 export interface Settings {
   serverUrl: string;
@@ -27,11 +28,6 @@ export interface Settings {
   networkFeeUsd: number;
   /** FOMO feed filters (raw text-field values), so they survive app restarts. */
   fomoFilters?: { trending: Record<string, string> };
-  /** Photon filters per column — persisted in settings, so they survive app restarts. */
-  photonFilters?: {
-    col1: Partial<Record<keyof PhotonFilters, PhotonRange>>;
-    col3: Partial<Record<keyof PhotonFilters, PhotonRange>>;
-  };
   /**
    * Mirror of the shared feed proxy as last saved here. The server keeps the real copy
    * (it survives app restarts on its own); this keeps the Settings field populated the
@@ -40,11 +36,11 @@ export interface Settings {
   feedProxyUrl?: string;
   feedProxyOn?: boolean;
   /**
-   * Mirror of the Track config as last saved here — proxy + filters. A restarted
-   * server loses its store; the Track tab re-applies this mirror on load, so the
-   * user's setup survives Railway redeploys without re-saving.
+   * Mirror of the Track config as last saved here — proxy + per-source filters.
+   * A restarted server loses its store; the Track tab re-applies this mirror on
+   * load, so the setup survives Railway redeploys without re-saving.
    */
-  trackConfig?: { enabled: boolean; proxy: string; filters: Record<string, { min?: string; max?: string }> } | null;
+  trackConfig?: TrackConfig | null;
   [key: string]: unknown;
 }
 
@@ -61,7 +57,6 @@ export const DEFAULTS: Settings = {
   slippageSellPct: PAPER_CONFIG.slippageSellPct,
   networkFeeUsd: PAPER_CONFIG.networkFeeUsd,
   fomoFilters: { trending: {} },
-  photonFilters: { col1: {}, col3: {} },
   feedProxyUrl: '',
   feedProxyOn: false,
   trackConfig: null,

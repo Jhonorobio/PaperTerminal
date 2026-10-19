@@ -1,12 +1,13 @@
 /**
- * Shared egress proxy for the feed server — one URL, one switch, two consumers:
- * the FOMO WebSocket (fomo.js) and Photon's CycleTLS polls (photon.js).
+ * Shared egress proxy for the FOMO feed — one URL, one switch. The Track has its
+ * OWN proxy (track_config.proxy, edited on the Track tab), so it never rides this
+ * one.
  *
  * It lives in the same `fomo-config` store this endpoint has always used, so an
  * already-configured proxy keeps working unchanged.
  *
- *   url + switch on   → both feeds leave through the proxy
- *   url + switch off  → URL kept for later, both go direct (the Settings toggle)
+ *   url + switch on   → FOMO leaves through the proxy
+ *   url + switch off  → URL kept for later, FOMO goes direct (the Settings toggle)
  *   no url            → direct, no matter what the switch says
  *
  * Set from the app: PUT /api/fomo/proxy { url, enabled? }. `enabled` omitted

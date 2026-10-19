@@ -1,8 +1,9 @@
 // Notification settings — which categories alert this device, plus the Track entry
 // alerts' thresholds. The alert history moved to the History tab ("Alertas"), where
 // trades and alerts share one timeline.
-// Filters are NOT configured here: the feed screens own them (FOMO pushes both tabs,
-// Photon its columns) and the server notifies on exactly what those screens show.
+// Filters are NOT configured here: the feed screens own them (FOMO pins its tab,
+// the Track page owns its New/Graduated sets) and the server notifies on exactly
+// what those screens show.
 
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
@@ -28,7 +29,6 @@ import { useApp } from '@/state/app';
 
 const CATEGORY_LABELS: Record<AlertCategory, string> = {
   fomo_trending: 'FOMO Trend.',
-  photon_graduated: 'Photon Grad.',
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
   track_top: 'Track TOP·D',
@@ -207,8 +207,9 @@ export default function AlertsScreen() {
           ))}
           {!registered ? <Text style={styles.fine}>Al activar una categoría se registra este dispositivo para push.</Text> : null}
           <Text style={styles.fine}>
-            Los filtros no se configuran acá: son los de las pantallas FOMO y Photon. Se envían al server con cada cambio, y
-            la alerta se dispara con exactamente los mismos — lo que ves en la lista es lo que te avisa.
+            Los filtros no se configuran acá: FOMO usa los de su pestaña y el Track los suyos (Graduated y New, por
+            separado). Se envían al server con cada cambio, y la alerta se dispara con exactamente los mismos — lo que ves
+            en la lista es lo que te avisa.
           </Text>
           <Text style={styles.fine}>El historial de alertas vive ahora en la pestaña History → Alertas.</Text>
         </Card>

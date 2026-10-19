@@ -3,7 +3,7 @@
  *
  * Su único trabajo es el de la app cuando está en background: mantener el WebSocket
  * del server suscrito al topic `alerts:{deviceId}` y convertir cada alerta en una
- * notificación de Chrome. Los tableros (FOMO/Photon/Track/Pump) los pinta el side
+ * notificación de Chrome. Los tableros (FOMO/Track/Pump) los pinta el side
  * panel con su propia conexión — acá solo viajan las alertas.
  *
  * Sobre la vida del worker (Chrome 116+): mandar/recibir sobre un WebSocket resetea el

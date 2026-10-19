@@ -9,9 +9,9 @@
  *
  * Topics:
  *   fomo_trending     — trending tokens (the only FOMO feed)
- *   memescope         — Photon columns { col1, col3 }
- *   track             — token tracker state (History → Track)
- *   track:health      — health chips of the tracked tokens (Trade/FOMO/Photon)
+ *   memescope         — legacy Photon columns (only while an old client asks)
+ *   track             — token tracker state (Track tab)
+ *   track:health      — health chips of the tracked tokens (Trade/FOMO)
  *   alerts:{deviceId} — matched alerts for one device (the in-app panel + push mirror)
  */
 

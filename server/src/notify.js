@@ -11,8 +11,8 @@
  * Filters come from the feed screens, one configuration for the list and the alert:
  *   - FOMO: the stream carries everything, so the stored feed filters (pushed by the
  *     app via PUT /api/fomo/filters) gate the token before any device sees it;
- *   - Photon: no check needed here — photon.js queried the column with those same
- *     filters, so only tokens that pass ever reach emitToken.
+ *   - Track: the server queries New/Graduated with the Track page's per-source
+ *     filters, so only tokens that pass ever enter the tracker (and its alerts).
  * Per-device filters (the old alerts-screen config) are no longer read.
  */
 
@@ -26,7 +26,6 @@ const SEEN_MAX = 5000;
 
 const LABELS = {
   fomo_trending: 'FOMO Trending',
-  photon_graduated: 'Photon Graduated',
   // Alertas del Track (ver TRACK_ENTRY_CATEGORIES): se evalúan en la entrada.
   track_cal_chat: 'Track CAL+CHAT',
   track_chat_tesis: 'Track CHAT+TESIS',
@@ -108,9 +107,9 @@ export function emitToken(category, token) {
   const keys = Object.keys(all);
   if (keys.length > SEEN_MAX) for (const k of keys.slice(0, keys.length - SEEN_MAX)) store.delete(k);
 
-  // FOMO's stream is unfiltered, so the feed's own bounds gate it here (Photon's were
-  // applied by its column query). The token stays seen either way — loosening a filter
-  // later must not re-alert tokens that already passed through.
+  // FOMO's stream is unfiltered, so the feed's own bounds gate it here (the Track
+  // applies its bounds in the column query). The token stays seen either way —
+  // loosening a filter later must not re-alert tokens that already passed through.
   if (category.startsWith('fomo') && !passesFeedFilters(token)) return true;
 
   const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[category]);
@@ -217,7 +216,6 @@ const HOLDER_TOP_MAX_RANK = 50;
  */
 export const ALERT_CATEGORIES = [
   'fomo_trending',
-  'photon_graduated',
   ...TRACK_ENTRY_CATEGORIES,
   TRACK_CAL100_CATEGORY,
   ...TRACK_HOLDER_CATEGORIES,
