@@ -13,18 +13,30 @@ function pushHeaders() {
   return h;
 }
 
+/** Dirección corta (misma forma que la app: 5…4) para el cuerpo del push. */
+function shortAddr(address) {
+  const a = String(address ?? '');
+  return a.length > 12 ? `${a.slice(0, 5)}…${a.slice(-4)}` : a;
+}
+
 /**
  * Sends one push. `data` rides along for the app's deep links.
+ *
+ * Si `data.address` viene, el cuerpo arranca con la dirección del token: en pump.fun
+ * el símbolo se repite entre tokens, así que la dirección es lo que identifica el
+ * aviso en la notificación del sistema (en la app se ve completa en Alertas).
  * @returns {{ ticketId: string|null, result: object }}
  */
 export async function sendPush(token, { title, body, data = {} }) {
+  const addr = typeof data.address === 'string' ? shortAddr(data.address) : '';
+  const finalBody = addr && body && !body.includes(addr) ? `Token ${addr} · ${body}` : body;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10_000);
   try {
     const res = await fetch(PUSH_ENDPOINT, {
       method: 'POST',
       headers: pushHeaders(),
-      body: JSON.stringify({ to: token, title, body, data }),
+      body: JSON.stringify({ to: token, title, body: finalBody, data }),
       signal: controller.signal,
     });
     const result = await res.json();

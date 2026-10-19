@@ -23,6 +23,7 @@ import {
   getSettings,
   sanitizeAlertParams,
   setSettings,
+  shortAddr,
   toWsUrl,
 } from './shared.js';
 
@@ -237,13 +238,16 @@ function alertBody(entry) {
 function showNotification(entry) {
   const label = CATEGORY_LABELS[entry.category] ?? entry.category;
   const symbol = entry.symbol || entry.name || 'Token';
+  // La dirección del token identifica el aviso (el símbolo se repite en pump.fun);
+  // va corta acá y completa en la lista de Alertas del panel.
+  const addr = shortAddr(entry.address);
   chrome.notifications.create(
     `pt-${entry.id}`,
     {
       type: 'basic',
       iconUrl: 'icons/icon128.png',
       title: `${symbol} — ${label}`,
-      message: alertBody(entry),
+      message: `${addr} · ${alertBody(entry)}`,
       priority: 2,
       silent: false,
     },
