@@ -89,7 +89,10 @@ export default function HistoryScreen() {
     const q = alertQuery.trim().toUpperCase();
     if (!q) return alerts;
     return alerts.filter(
-      (e) => (e.symbol ?? '').toUpperCase().includes(q) || (e.name ?? '').toUpperCase().includes(q),
+      (e) =>
+        (e.symbol ?? '').toUpperCase().includes(q) ||
+        (e.name ?? '').toUpperCase().includes(q) ||
+        e.address.toUpperCase().includes(q),
     );
   }, [alerts, alertQuery]);
 
@@ -254,17 +257,17 @@ export default function HistoryScreen() {
               <TextInput
                 value={alertQuery}
                 onChangeText={setAlertQuery}
-                placeholder="Buscar símbolo o nombre…"
+                placeholder="Buscar símbolo, nombre o dirección…"
                 placeholderTextColor={Palette.textTertiary}
                 autoCorrect={false}
                 style={styles.searchInput}
-                accessibilityLabel="Buscar alertas por símbolo o nombre"
+                accessibilityLabel="Buscar alertas por símbolo, nombre o dirección"
               />
             </View>
 
             {!visibleAlerts?.length ? (
               <Card style={{ padding: 16 }}>
-                <Empty title="No hay alertas que coincidan" body="Probá con otro símbolo o nombre." />
+                <Empty title="No hay alertas que coincidan" body="Probá con otro símbolo, nombre o dirección." />
               </Card>
             ) : (
               <View style={{ gap: 6 }}>
@@ -288,6 +291,12 @@ export default function HistoryScreen() {
                           <Text style={styles.rowSub}>
                             {ALERT_LABELS[entry.category] ?? entry.category}
                             {entry.mcap != null ? ` · ${formatCompactUsd(entry.mcap)} MC` : ''}
+                          </Text>
+                          {/* Contrato del token: en pump.fun sobran símbolos repetidos, así que
+                              la dirección es lo único que identifica la alerta. Seleccionable
+                              para copiarla y buscable (ver `visibleAlerts`). */}
+                          <Text style={styles.alertAddr} selectable>
+                            {entry.address}
                           </Text>
                           {/* CAL100+ y las de holder mandan el detalle armado (wallet,
                               montos, PnL/ranks) en `body`: sin esto la fila diría sólo
@@ -343,6 +352,8 @@ const styles = StyleSheet.create({
   rowLead: { flex: 1, gap: 2, minWidth: 0 },
   rowName: { fontSize: 14, fontWeight: '800', color: Palette.textPrimary },
   rowSub: { fontSize: 12, color: Palette.textSecondary, fontVariant: ['tabular-nums'] },
+  // Dirección del token en la alerta (contrato completo, copiable).
+  alertAddr: { fontSize: 10, color: Palette.textTertiary, letterSpacing: 0.2 },
   // Línea del detalle que arma el server (CAL100+ y holder): más chica y terciaria.
   alertNote: { fontSize: 11, color: Palette.textTertiary, fontVariant: ['tabular-nums'] },
   sideVerb: { fontWeight: '800' },

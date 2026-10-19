@@ -359,7 +359,9 @@ function renderAlerts() {
       items.map((alert) =>
         tokenRow({
           symbol: alert.symbol || alert.name || alert.address.slice(0, 6),
-          sub: `${clockOf(alert.notified_at)} · ${categoryGroup(alert.category) === 'track' ? 'Track' : 'Feed'}`,
+          // El contrato completo va en el tooltip (title); en la fila va corto, porque el
+          // símbolo se repite entre tokens y la dirección es lo que identifica la alerta.
+          sub: `${clockOf(alert.notified_at)} · ${shortAddr(alert.address)} · ${categoryGroup(alert.category) === 'track' ? 'Track' : 'Feed'}`,
           chips: [
             chip(CATEGORY_LABELS[alert.category] ?? alert.category, categoryGroup(alert.category) === 'track' ? 'violet' : null),
             alert.mcap ? chip(`MC $${compactUsd(alert.mcap)}`) : null,
@@ -367,7 +369,7 @@ function renderAlerts() {
             alert.holders ? chip(`${alert.holders} holders`) : null,
           ],
           side: [el('span', { class: 'muted', text: timeAgo(alert.notified_at) }), el('span', { class: 'muted', text: '↗' })],
-          title: CATEGORY_HINTS[alert.category] ?? '',
+          title: `${CATEGORY_HINTS[alert.category] ?? ''} · ${alert.address}`,
           // CAL100+ y las de holder mandan el detalle armado (wallet, montos, PnL)
           // en `body`; el resto de las categorías no lo trae.
           note: alert.body ?? '',

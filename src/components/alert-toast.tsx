@@ -12,7 +12,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { Icon } from '@/components/icons';
 import { TokenAvatar } from '@/components/token-avatar';
 import { Palette, Radius } from '@/constants/paper';
-import { formatCompactUsd } from '@/lib/format';
+import { formatCompactUsd, shortAddr } from '@/lib/format';
 import { alertDeepLink, registerDevice, type AlertHistoryEntry } from '@/lib/notifications';
 import { healFeedProxy } from '@/lib/server-base';
 import { serverFeed, ServerFeed } from '@/lib/market/server-feed';
@@ -80,6 +80,9 @@ export function AlertOverlay() {
           <Text style={styles.title}>
             {entry.symbol ?? 'Token'} {entry.mcap != null ? `· ${formatCompactUsd(entry.mcap)} MC` : ''}
           </Text>
+          {/* El símbolo se repite entre tokens; el contrato (corto aquí, completo en la
+              timeline de Alertas) es lo que identifica la alerta. */}
+          <Text style={styles.addr}>{shortAddr(entry.address)}</Text>
           <Text style={styles.sub}>
             {entry.body ??
               ([
@@ -122,6 +125,7 @@ const styles = StyleSheet.create({
   lead: { flex: 1, gap: 1, minWidth: 0 },
   kicker: { fontSize: 9, fontWeight: '800', color: Palette.paper, textTransform: 'uppercase', letterSpacing: 0.8 },
   title: { fontSize: 14, fontWeight: '800', color: Palette.textPrimary },
+  addr: { fontSize: 10, color: Palette.textTertiary, letterSpacing: 0.2 },
   sub: { fontSize: 11, color: Palette.textSecondary },
   hint: { fontSize: 10, color: Palette.textTertiary, textAlign: 'center', marginTop: 4 },
 });
