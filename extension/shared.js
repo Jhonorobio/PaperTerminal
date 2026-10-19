@@ -32,6 +32,9 @@ export const ALERT_CATEGORIES = [
  * del token. `track_cal100_pos` y las 3 de holder no: avisan cuando el barrido
  * resuelve el PnL de una wallet (y, en holder_top, cuando el match contra el board
  * global da top 50 la primera vez que aparece). Ninguna lleva umbral.
+ *
+ * Las 2 de FOMO HOLDER no están en esta lista (su id es fomo_*), pero la UI las
+ * agrupa con el Track porque sólo miran tokens ACTIVOS del Track.
  */
 export const TRACK_CATEGORIES = [
   'track_cal_chat',
@@ -59,8 +62,8 @@ export const CATEGORY_LABELS = {
 /** La regla detrás de cada categoría — va como primera línea del cuerpo del aviso. */
 export const CATEGORY_HINTS = {
   fomo_trending: 'Trending en FOMO',
-  fomo_holder_pos: 'Token con holder ≥$100 y PnL 24h positivo',
-  fomo_holder_top: 'Token con holder ≥$100 en clan top 50 (24h/7d)',
+  fomo_holder_pos: 'Track activo: holder ≥$100 y PnL 24h positivo',
+  fomo_holder_top: 'Track activo: holder ≥$100 en clan top 50 (24h/7d)',
   track_cal_chat: 'Entrada: CAL [$100-500) + chat',
   track_chat_tesis: 'Entrada: chat + tesis',
   track_top: 'Entrada: TOP·D',
@@ -73,8 +76,8 @@ export const CATEGORY_HINTS = {
 /**
  * Defaults del dispositivo. Espejo de la app: CAL100+ y las 3 de holder del Track
  * nacen ON (decisión del usuario, sin piso); las 3 de entrada del Track y las 2
- * de holder de FOMO nacen OFF porque son opt-in (FOMO Trending ya es opt-in y sus
- * holders pueden ser ruidosos).
+ * de holder de FOMO nacen OFF porque son opt-in (miran los holders de los tokens
+ * activos del Track y pueden ser ruidosas).
  */
 export const DEFAULT_CATEGORIES = {
   fomo_trending: false,
@@ -204,6 +207,8 @@ export async function getDeviceId() {
 
 /** 'feeds' (FOMO/Pump) o 'track' (las del tracker) — agrupa la UI. */
 export function categoryGroup(category) {
+  // Las 2 de FOMO HOLDER sólo se disparan con tokens activos del Track.
+  if (category === 'fomo_holder_pos' || category === 'fomo_holder_top') return 'track';
   return TRACK_CATEGORIES.includes(category) ? 'track' : 'feeds';
 }
 

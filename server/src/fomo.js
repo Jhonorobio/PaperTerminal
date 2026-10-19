@@ -10,9 +10,9 @@
  *
  * The app NEVER talks to FOMO: it subscribes to the WS topic `fomo_trending` here
  * and gets everything pushed. Alerts fire from the same stream: every newly-seen
- * token goes through `notify.js` (WS panel + push). The same fresh-token path
- * feeds `onFomoToken` (fomo-holders.js: top holders ≥$100, 24h PnL, clan top 50)
- * without the feed depending on that module.
+ * token goes through `notify.js` (WS panel + push). The FOMO holder intelligence
+ * (fomo-holders.js) is independent: it reads the active tokens from the Track
+ * store, not this feed.
  *
  * The first snapshot after subscribe seeds the seen-map silently, so connecting
  * does not fire 90 pushes.
@@ -25,7 +25,7 @@ import { SocksProxyAgent } from 'socks-proxy-agent';
 
 import { getFomoFilters, sanitizeFeedFilters } from './fomo-filter-store.js';
 import { broadcast, registerTopicProvider } from './ws.js';
-import { emitToken, passesFomoFilters, seedSeen } from './notify.js';
+import { emitToken, seedSeen } from './notify.js';
 import { pulseEnrich } from './pulse.js';
 import { JsonStore } from './json-store.js';
 import { getEffectiveProxy, getProxyStatus, setProxy } from './proxy-config.js';
@@ -348,28 +348,6 @@ function feedOf(topicType) {
 }
 
 /**
- * Listeners for tokens that just entered Trending AND pass the FOMO screen's
- * filters. fomo-holders.js is the only consumer today: it scans the token's top
- * holders once, without coupling the feed to that module (index.js wires them).
- */
-const tokenListeners = new Set();
-
-export function onFomoToken(fn) {
-  tokenListeners.add(fn);
-  return () => tokenListeners.delete(fn);
-}
-
-function notifyTokenListeners(token) {
-  for (const fn of tokenListeners) {
-    try {
-      fn(token);
-    } catch {
-      // a holder-scan failure must never break the feed
-    }
-  }
-}
-
-/**
  * New tokens alert through the feed's own filters (the app's FOMO screen pushes them),
  * so a bound on age or KOLs needs the enriched record first: FOMO's raw frames often
  * lack createdAt/kolCount (trending always lacks createdAt) and Pulse fills them —
@@ -386,12 +364,9 @@ function emitFresh(feed, recs) {
   const emit = () => {
     const nowMs = Date.now();
     for (const rec of list) {
-      const token = alertToken(rec, nowMs);
       // emitToken marks the address seen even when the filter excludes it (so
-      // loosening a bound cannot re-alert an old token). The holder scan only
-      // runs for the tokens actually visible in the feed.
-      emitToken(feed.category, token);
-      if (passesFomoFilters(token)) notifyTokenListeners(token);
+      // loosening a bound cannot re-alert an old token).
+      emitToken(feed.category, alertToken(rec, nowMs));
     }
   };
   if (!age && !kol) return emit();

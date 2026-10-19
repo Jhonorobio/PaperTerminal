@@ -1,8 +1,9 @@
 /**
- * FOMO HOLDER — inteligencia de holders para tokens que entran a Trending.
+ * FOMO HOLDER — inteligencia de holders FOMO para los tokens ACTIVOS del Track.
  *
- * Para cada token nuevo que pasa los filtros de la pantalla FOMO (el listener
- * vive en fomo.js), se hace UNA pasada:
+ * El disparador NO es el feed de Trending: cada 30s se leen los tokens de
+ * `trackTokens` con status === 'active' y se encola el que no se haya barrido
+ * en las últimas 2 h. Para cada token se hace UNA pasada:
  *
  *   1. GET /hodlers/top?tokens=[{address, networkId}]  → top ~100 holders
  *      con `costBasis` (lo que metió cada wallet) y su `user` (id, address,
@@ -19,22 +20,19 @@
  * El aviso sale UNA vez por token+categoría (fomo_holder_seen) y agrega a los
  * holders que cumplen (notify.js muestra los 3 mejores y el total): avisar una
  * vez por wallet son cientos de avisos por minuto. Si una respuesta viene
- * incompleta, la condición no se marca y otra entrada del mismo token puede
- * reintentar. No hay barrido periódico: el token de FOMO es efímero y el aviso
- * es de entrada, igual que fomo_trending.
+ * incompleta, la condición no se marca y un barrido posterior del mismo token
+ * puede reintentar. Mientras el token siga activo en Track se revisa cada 2 h;
+ * si sale del Track (status 'done' o se borra), deja de escanearse.
  */
 
-import {
-  FOMO_API,
-  fomoAuthedGetJson,
-  onFomoToken,
-} from './fomo.js';
+import { FOMO_API, fomoAuthedGetJson } from './fomo.js';
 import {
   FOMO_HOLDER_POS_CATEGORY,
   FOMO_HOLDER_TOP_CATEGORY,
   emitFomoHolder,
   enabledFomoHolderCategories,
 } from './notify.js';
+import { trackTokens } from './stores.js';
 
 const SOLANA_NETWORK_ID = 1399811149;
 const HOLDER_MIN_USD = 100;
@@ -45,7 +43,9 @@ const BOARD_TTL_MS = 15 * 60_000;
 const SCAN_DELAY_MS = 350;
 const SCANNED_TTL_MS = 2 * 60 * 60_000;
 const SEEN_MAX = 5_000;
-/** Bound the backlog: fresh FOMO tokens matter more than a 10-minute-old one. */
+/** Cada cuánto se miran los tokens activos del Track (los nuevos entran acá). */
+const TRACK_SWEEP_MS = 30_000;
+/** Bound the backlog: a just-tracked token matters more than a 10-minute-old one. */
 const QUEUE_MAX = 120;
 
 const num = (value) => {
@@ -110,6 +110,29 @@ export function clanHit(board, user, userId) {
   if (clanId && board.clans.has(clanId)) return board.clans.get(clanId);
   if (userId && board.members.has(userId)) return board.members.get(userId);
   return null;
+}
+
+/** Identidad mínima que notify.js necesita, armada desde un token del Track. */
+export function trackTokenIdentity(tracked) {
+  const snaps = Array.isArray(tracked?.snapshots) ? tracked.snapshots : [];
+  const last = snaps[snaps.length - 1] ?? null;
+  return {
+    address: tracked?.address,
+    symbol: tracked?.symbol ?? null,
+    name: tracked?.name ?? null,
+    image: tracked?.logo ?? null,
+    logo: tracked?.logo ?? null,
+    mcap: last?.mcap ?? null,
+    volume: last?.volume ?? null,
+    holders: last?.holders ?? null,
+  };
+}
+
+/** Tokens que están activos en Track (status 'active'), listos para el scanner. */
+export function trackHolderTargets() {
+  return Object.values(trackTokens.getAll())
+    .filter((tracked) => tracked?.status === 'active' && tracked.address)
+    .map(trackTokenIdentity);
 }
 
 async function fetchTopHolders(address) {
@@ -212,7 +235,9 @@ let scans = 0;
 let alerts = 0;
 let dropped = 0;
 let lastScanAt = 0;
+let lastSweepAt = 0;
 let lastError = null;
+let sweepTimer = null;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -293,7 +318,7 @@ async function pump() {
       lastError = null;
     } catch (err) {
       lastError = String(err?.message ?? err).slice(0, 200);
-      // Transient failure: allow a later fresh event for this token to retry.
+      // Transient failure: a later sweep of the still-active token retries.
       scanned.delete(token.address);
     } finally {
       queued.delete(token.address);
@@ -303,22 +328,48 @@ async function pump() {
   running = false;
 }
 
+/**
+ * Cada 30s: tokens activos del Track que no se hayan barrido en 2 h. `enqueue`
+ * vuelve a chequear categorías/cola/`scanned`, así que esto es barato cuando no
+ * hay nada nuevo o las alertas están apagadas.
+ */
+function sweepActiveTrackTokens() {
+  lastSweepAt = Date.now();
+  if (!enabledFomoHolderCategories().size) return;
+  for (const token of trackHolderTargets()) {
+    const prev = scanned.get(token.address);
+    if (prev != null && Date.now() - prev < SCANNED_TTL_MS) continue;
+    enqueue(token);
+  }
+}
+
 export function startFomoHolders() {
   if (started) return;
   started = true;
-  onFomoToken(enqueue);
-  console.log('[fomo-holders] listener started (top holders ≥$100 · 24h PnL · clan top 50)');
+  sweepActiveTrackTokens();
+  sweepTimer = setInterval(sweepActiveTrackTokens, TRACK_SWEEP_MS);
+  sweepTimer.unref?.();
+  console.log('[fomo-holders] scanning active Track tokens (top holders ≥$100 · 24h PnL · clan top 50)');
+}
+
+export function stopFomoHolders() {
+  if (sweepTimer) clearInterval(sweepTimer);
+  sweepTimer = null;
+  started = false;
 }
 
 export function getFomoHolderStatus() {
   return {
     started,
     running,
+    source: 'track',
+    activeTrackTokens: trackHolderTargets().length,
     queue: queue.length,
     scanned: scanned.size,
     scans,
     alerts,
     dropped,
+    lastSweepAt: lastSweepAt || null,
     lastScanAt: lastScanAt || null,
     lastError,
     boardsAt: boardCache.at || null,

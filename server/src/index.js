@@ -14,7 +14,7 @@ import express from 'express';
 import routes from './routes.js';
 import { initWebSocket } from './ws.js';
 import { closeFomoHttp, startFomoWatcher } from './fomo.js';
-import { startFomoHolders } from './fomo-holders.js';
+import { startFomoHolders, stopFomoHolders } from './fomo-holders.js';
 import { startTrackPoller } from './track.js';
 
 const PORT = Number(process.env.PORT) || 8787;
@@ -42,15 +42,16 @@ server.listen(PORT, () => {
       '[warn] SIN VOLUMEN: Railway borra este disco en cada reinicio/deploy — los tokens, snapshots y configs del track se pierden. Montá un volumen en el servicio con mount path /data y seteá la variable DATA_DIR=/data.'
     );
   }
-  startFomoHolders();
   startFomoWatcher();
   startTrackPoller();
+  startFomoHolders();
 });
 
 // CycleTLS daemons must not keep the process alive on shutdown.
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, async () => {
     console.log(`\n[server] ${signal} — shutting down`);
+    stopFomoHolders();
     void closeFomoHttp();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 1500).unref();

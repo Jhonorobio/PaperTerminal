@@ -52,7 +52,7 @@ const LABELS = {
  * pushed by the app. A bound on data the token doesn't carry excludes it — the
  * same rule readFeed applies to the visible list.
  */
-export function passesFomoFilters(token) {
+function passesFeedFilters(token) {
   const feed = getFomoFilters().trending;
   if (!feed) return true;
   const bounds = [
@@ -119,7 +119,7 @@ export function emitToken(category, token) {
   // FOMO's stream is unfiltered, so the feed's own bounds gate it here (the Track
   // applies its bounds in the column query). The token stays seen either way —
   // loosening a filter later must not re-alert tokens that already passed through.
-  if (category.startsWith('fomo') && !passesFomoFilters(token)) return true;
+  if (category.startsWith('fomo') && !passesFeedFilters(token)) return true;
 
   const devices = Object.values(notificationConfig.getAll()).filter((d) => d?.categories?.[category]);
   for (const device of devices) {
@@ -220,7 +220,7 @@ const HOLDER_TOP_MAX_RANK = 50;
 
 /**
  * FOMO HOLDER — el equivalente de las alertas de holder del Track, pero con los
- * datos de FOMO y sobre tokens que entran al feed Trending:
+ * datos de FOMO y SÓLO sobre los tokens que están activos en el Track:
  *
  *   fomo_holder_pos — holder con ≥$100 comprados (costBasis del endpoint
  *                     /hodlers/top) y PnL de 24h positivo (/v2/users). Sólo 24h:
@@ -229,11 +229,11 @@ const HOLDER_TOP_MAX_RANK = 50;
  *                     leaderboard de clanes de 24h o 7d, o que aparece entre los
  *                     topMembers de uno de esos clanes.
  *
- * El barrido corre al entrar el token al feed (ver fomo-holders.js), no en cada
- * snapshot: el token de FOMO es efímero y el aviso es de entrada. Una vez por
+ * fomo-holders.js recorre `trackTokens` cada 30s y barre los que tienen
+ * status === 'active'; no escucha el feed de Trending. Una vez por
  * token+categoría, con un resumen de los holders que cumplen (no una alerta por
- * wallet: son cientos por minuto). Nacen OFF en app/extensión: FOMO Trending ya
- * es opt-in y estas dos pueden ser ruidosas; se activan en Notificaciones.
+ * wallet: son cientos por minuto). Nacen OFF en app/extensión: son opt-in y
+ * pueden ser ruidosas; se activan en Notificaciones.
  */
 export const FOMO_HOLDER_POS_CATEGORY = 'fomo_holder_pos';
 export const FOMO_HOLDER_TOP_CATEGORY = 'fomo_holder_top';
