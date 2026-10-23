@@ -45,6 +45,7 @@ const LABELS = {
   track_holder_pos: 'Track HOLDER 1D/1W',
   track_holder_both: 'Track HOLDER 1D+1W',
   track_holder_top: 'Track HOLDER TOP50',
+  track_fib: 'Track FIB',
 };
 
 /**
@@ -220,6 +221,14 @@ export const TRACK_HOLDER_CATEGORIES = ['track_holder_pos', 'track_holder_both',
 const HOLDER_TOP_MAX_RANK = 50;
 
 /**
+ * TRACK FIB — un aviso por nivel de Fibonacci tocado en un token visible de
+ * Graduated. La base y el ATH quedan fijos cuando el token entra al watcher
+ * (ver fib.js); no se re-anclan con un ATH futuro. La unidad es token+nivel:
+ * el mismo token avisa una vez por 0.236, 0.382, 0.5, 0.618, 0.786 y 1.0.
+ */
+export const TRACK_FIB_CATEGORY = 'track_fib';
+
+/**
  * FOMO HOLDER — el equivalente de las alertas de holder del Track, pero con los
  * datos de FOMO y SÓLO sobre los tokens que están activos en el Track:
  *
@@ -255,6 +264,7 @@ export const ALERT_CATEGORIES = [
   ...TRACK_ENTRY_CATEGORIES,
   TRACK_CAL100_CATEGORY,
   ...TRACK_HOLDER_CATEGORIES,
+  TRACK_FIB_CATEGORY,
 ];
 
 /** Categorías de holder de FOMO activas en al menos un dispositivo. */
@@ -710,6 +720,79 @@ export function emitFomoHolder(token, events, category) {
         title: `${token.symbol || token.name || 'Token'} — ${LABELS[category]}`,
         body,
         data: { address: token.address, chain: 'sol', symbol: token.symbol ?? null, category },
+      }).catch(() => {});
+    }
+  }
+
+  trimHistory();
+  return true;
+}
+
+/** Texto del aviso FIB: nivel en mcap, anclas fijas y mcap actual. */
+function fibBody(token, level, context) {
+  const supply = context?.supply ?? 1;
+  const levelMcap = level.price * supply;
+  const baseMcap = context.base * supply;
+  const athMcap = context.ath * supply;
+  const nowMcap = token.mcap ?? context.current * supply;
+  const ratio = level.ratio === 1 ? '1.0' : String(level.ratio);
+  return [
+    shortAddr(token.address),
+    `FIB ${ratio} $${compact(levelMcap)}`,
+    `base $${compact(baseMcap)}`,
+    `ATH $${compact(athMcap)}`,
+    `ahora $${compact(nowMcap)}`,
+  ].join(' · ');
+}
+
+/**
+ * Avisa un nivel de Fibonacci tocado. La llamada la hace fib.js, que ya marcó
+ * el nivel como visto en su estado: acá sólo se entrega a los dispositivos que
+ * tienen `track_fib` encendido. Sin dispositivos no hay historia, pero el nivel
+ * queda consumido igual (no se backfillea al activar la categoría después).
+ */
+export function emitTrackFib(token, level, context) {
+  if (!token?.address || !level || !context) return false;
+  const devices = Object.values(notificationConfig.getAll()).filter(
+    (d) => d?.categories?.[TRACK_FIB_CATEGORY],
+  );
+  if (!devices.length) return false;
+
+  const ratio = level.ratio === 1 ? '1.0' : String(level.ratio);
+  const body = fibBody(token, level, context);
+  for (const device of devices) {
+    const entry = notificationHistory.add({
+      device_id: device.device_id,
+      category: TRACK_FIB_CATEGORY,
+      address: token.address,
+      chain: 'sol',
+      symbol: token.symbol ?? null,
+      name: token.name ?? null,
+      logo: token.logo ?? null,
+      mcap: token.mcap ?? null,
+      liq: null,
+      vol24h: token.volume ?? null,
+      holders: token.holders ?? null,
+      kolCount: null,
+      ageMinutes: null,
+      body,
+      notified_at: new Date().toISOString(),
+    });
+
+    // 1. In-app panel: private WS topic, painted by the app wherever it is.
+    sendToDevice(device.device_id, { event: 'alert', data: entry });
+
+    // 2. System push: for when the app is not in the foreground.
+    if (isValidPushToken(device.push_token)) {
+      void sendPush(device.push_token, {
+        title: `${token.symbol || token.name || 'Token'} — Track FIB ${ratio}`,
+        body,
+        data: {
+          address: token.address,
+          chain: 'sol',
+          symbol: token.symbol ?? null,
+          category: TRACK_FIB_CATEGORY,
+        },
       }).catch(() => {});
     }
   }

@@ -17,6 +17,7 @@
  *   POST /api/notifications/test            fire a test alert (panel + push)
  *   GET  /api/track                         tracked tokens (summary) + config + status
  *   GET  /api/track/export                  everything WITH snapshots (analysis)
+ *   GET  /api/track/fib                     Fibonacci watcher state (diagnostics)
  *   GET  /api/track/config · PUT            the tracker's own proxy + Graduated filters
  *   POST /api/track/proxy-test              prove a proxy with one real fetch per active source
  *   GET  /api/track/:address                one tracked token + its snapshots
@@ -31,6 +32,7 @@ import { getFomoFilters, setFomoFilters } from './fomo-filter-store.js';
 import { getMemescope, getPhotonFilters, setPhotonFilters } from './photon.js';
 import { photonLogo } from './logo-proxy.js';
 import { clearTrack, getTrackConfig, getTrackStatus, getTrackToken, listTrackTokens, setTrackConfig, snapshotsWithHealth, summarizeTrackToken, testTrackProxy, TRACK_SNAPSHOT_MAX, TRACK_TOKENS_MAX } from './track.js';
+import { getFibStatus } from './fib.js';
 import { notificationConfig, notificationHistory } from './stores.js';
 import { getPushReceipt, isValidPushToken, sendPush } from './push.js';
 import { ALERT_CATEGORIES, sanitizeTrackParams } from './notify.js';
@@ -300,6 +302,7 @@ router.get('/track/export', (_req, res) => {
     res.json({
       config: getTrackConfig(),
       status: getTrackStatus(),
+      fib: getFibStatus(),
       snapshotMax: TRACK_SNAPSHOT_MAX,
       tokensMax: TRACK_TOKENS_MAX,
       tokens: listTrackTokens().map((s) => ({
@@ -308,6 +311,14 @@ router.get('/track/export', (_req, res) => {
         call100Events: getTrackToken(s.address)?.call100Events ?? [],
       })),
     });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.get('/track/fib', (_req, res) => {
+  try {
+    res.json(getFibStatus());
   } catch (err) {
     fail(res, err);
   }

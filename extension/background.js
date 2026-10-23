@@ -224,7 +224,7 @@ function numOrNull(value) {
 
 /**
  * Cuerpo del aviso: la regla que disparó + los números del token. Si el server ya
- * mandó el texto armado (`entry.body`: CAL100+ y las alertas de holder), ese manda.
+ * mandó el texto armado (`entry.body`: CAL100+, holders y FIB), ese manda.
  */
 function alertBody(entry) {
   const bits = [];

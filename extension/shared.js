@@ -13,7 +13,7 @@
 /** Server del que cuelga todo (el mismo de la app; en Ajustes se puede cambiar). */
 export const DEFAULT_SERVER = 'https://paperterminal-production.up.railway.app';
 
-/** Taxonomía del server — mismas 10 categorías que la pantalla Notificaciones de la app. */
+/** Taxonomía del server — mismas 11 categorías que la pantalla Notificaciones de la app. */
 export const ALERT_CATEGORIES = [
   'fomo_trending',
   'fomo_holder_pos',
@@ -25,14 +25,17 @@ export const ALERT_CATEGORIES = [
   'track_holder_pos',
   'track_holder_both',
   'track_holder_top',
+  'track_fib',
 ];
 
 /**
  * Las del Track (server-side). Las 3 primeras se evalúan en el snapshot de ENTRADA
  * del token. `track_cal100_pos` y las 3 de holder no: avisan cuando el barrido
  * resuelve el PnL de una wallet (y, en holder_top, cuando el match contra el board
- * global da top 50 la primera vez que aparece). Los umbrales de entrada son
- * configurables; CAL100+ y holder pos/both usan además el piso de PnL 1D/1W.
+ * global da top 50 la primera vez que aparece). `track_fib` sale del watcher de
+ * velas 30S: un aviso por nivel tocado en tokens visibles de Graduated. Los
+ * umbrales de entrada son configurables; CAL100+ y holder pos/both usan además
+ * el piso de PnL 1D/1W.
  *
  * Las 2 de FOMO HOLDER no están en esta lista (su id es fomo_*), pero la UI las
  * agrupa con el Track porque sólo miran tokens ACTIVOS del Track.
@@ -45,6 +48,7 @@ export const TRACK_CATEGORIES = [
   'track_holder_pos',
   'track_holder_both',
   'track_holder_top',
+  'track_fib',
 ];
 
 export const CATEGORY_LABELS = {
@@ -58,6 +62,7 @@ export const CATEGORY_LABELS = {
   track_holder_pos: 'Track HOLDER 1D/1W',
   track_holder_both: 'Track HOLDER 1D+1W',
   track_holder_top: 'Track HOLDER TOP50',
+  track_fib: 'Track FIB',
 };
 
 /** La regla detrás de cada categoría — va como primera línea del cuerpo del aviso. */
@@ -72,14 +77,15 @@ export const CATEGORY_HINTS = {
   track_holder_pos: 'Holder ≥$100: 1D o 1W sobre el piso',
   track_holder_both: 'Holder ≥$100: 1D y 1W sobre su piso',
   track_holder_top: 'Holder ≥$100 en top 50 daily/weekly',
+  track_fib: 'Track Graduated: nivel Fibonacci tocado',
 };
 
 /**
- * Defaults del dispositivo. Espejo de la app: CAL100+ y las 3 de holder del Track
- * nacen ON (con piso de PnL configurable en CAL100+ y holder pos/both); las 3 de
- * entrada del Track y las 2 de holder de FOMO nacen OFF porque son opt-in (miran
- * los holders de los tokens activos del Track y pueden ser ruidosas). FOMO 24H
- * tiene además su propio mínimo de PnL configurable.
+ * Defaults del dispositivo. Espejo de la app: CAL100+, las 3 de holder del Track
+ * y FIB nacen ON (con piso de PnL configurable en CAL100+ y holder pos/both); las
+ * 3 de entrada del Track y las 2 de holder de FOMO nacen OFF porque son opt-in
+ * (miran los holders de los tokens activos del Track y pueden ser ruidosas). FOMO
+ * 24H tiene además su propio mínimo de PnL configurable.
  */
 export const DEFAULT_CATEGORIES = {
   fomo_trending: false,
@@ -92,6 +98,7 @@ export const DEFAULT_CATEGORIES = {
   track_holder_pos: true,
   track_holder_both: true,
   track_holder_top: true,
+  track_fib: true,
 };
 
 /** Umbrales por dispositivo en el server. PnL en USD (CAL100+, holder pos/both y FOMO 24H). */

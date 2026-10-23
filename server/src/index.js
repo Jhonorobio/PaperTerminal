@@ -16,6 +16,7 @@ import { initWebSocket } from './ws.js';
 import { closeFomoHttp, startFomoWatcher } from './fomo.js';
 import { startFomoHolders, stopFomoHolders } from './fomo-holders.js';
 import { startTrackPoller } from './track.js';
+import { startFibWatcher, stopFibWatcher } from './fib.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 
@@ -45,6 +46,7 @@ server.listen(PORT, () => {
   startFomoWatcher();
   startTrackPoller();
   startFomoHolders();
+  startFibWatcher();
 });
 
 // CycleTLS daemons must not keep the process alive on shutdown.
@@ -52,6 +54,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, async () => {
     console.log(`\n[server] ${signal} — shutting down`);
     stopFomoHolders();
+    stopFibWatcher();
     void closeFomoHttp();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 1500).unref();

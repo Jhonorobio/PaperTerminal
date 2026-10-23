@@ -7,6 +7,7 @@
  *   fomo_holder_seen: token+categoría ya avisados por FOMO HOLDER
  *   track_entry_seen: tracked addresses already evaluated for the entry alerts
  *   track_config: the tracker's own filter set (independent from the columns')
+ *   track_fib: fixed base/ATH + Fibonacci levels/seen by token (Graduated only)
  *   track_tokens: address → tracked token + its per-minute snapshots (≤50 c/u)
  *     + call100Seen (wallet → minuto en que se vio: línea base del primer
  *       snapshot + dedupe) y call100Events (una fila por wallet con callout
@@ -25,4 +26,5 @@ export const fomoHolderSeen = new JsonStore('fomo_holder_seen');
 export const photonSeen = new JsonStore('photon_seen');
 export const trackEntrySeen = new JsonStore('track_entry_seen');
 export const trackConfig = new JsonStore('track_config');
+export const trackFib = new JsonStore('track_fib');
 export const trackTokens = new JsonStore('track_tokens');

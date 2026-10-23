@@ -29,6 +29,7 @@ const LABELS: Record<string, string> = {
   track_holder_pos: 'Track HOLDER 1D/1W',
   track_holder_both: 'Track HOLDER 1D+1W',
   track_holder_top: 'Track HOLDER TOP50',
+  track_fib: 'Track FIB',
 };
 
 export function AlertOverlay() {

@@ -38,6 +38,7 @@ const CATEGORY_LABELS: Record<AlertCategory, string> = {
   track_holder_pos: 'Track HOLDER 1D/1W',
   track_holder_both: 'Track HOLDER 1D+1W',
   track_holder_top: 'Track HOLDER TOP50',
+  track_fib: 'Track FIB',
 };
 
 /**
@@ -66,6 +67,8 @@ const CATEGORY_SUBS: Partial<Record<AlertCategory, string>> = {
     'Holder ≥$100 con 1D y 1W positivos, y las DOS ventanas llegan a su piso de PnL configurado abajo (1D ≥ su piso Y 1W ≥ su piso). Categoría aparte: si cumple, con OR y AND encendidas llegan las dos notificaciones.',
   track_holder_top:
     'Holder ≥$100 que al aparecer estaba en el top 50 daily o weekly del board global de pump.fun (refresco cada 15 min). Se evalúa una sola vez: si entra al top después, no avisa.',
+  track_fib:
+    'Avisa cada nivel de Fibonacci tocado (0.236, 0.382, 0.5, 0.618, 0.786 y 1.0) en los tokens visibles de Graduated. Base = mínimo del launch y ATH fijo al empezar a trackear; una vez por nivel y token.',
 };
 
 const PARAM_FIELDS: { key: keyof AlertParams; label: string; hint: string }[] = [
@@ -223,9 +226,9 @@ export default function AlertsScreen() {
           ))}
           {!registered ? <Text style={styles.fine}>Al activar una categoría se registra este dispositivo para push.</Text> : null}
           <Text style={styles.fine}>
-            Los filtros no se configuran acá: FOMO usa los de su pestaña y el Track los suyos (Graduated y New, por
-            separado). Se envían al server con cada cambio, y la alerta se dispara con exactamente los mismos — lo que ves
-            en la lista es lo que te avisa.
+            Los filtros no se configuran acá: FOMO usa los de su pestaña y el Track usa el set de Graduated. Se envían
+            al server con cada cambio, y la alerta se dispara con exactamente los mismos — lo que ves en la lista es lo
+            que te avisa.
           </Text>
           <Text style={styles.fine}>El historial de alertas vive ahora en la pestaña History → Alertas.</Text>
         </Card>

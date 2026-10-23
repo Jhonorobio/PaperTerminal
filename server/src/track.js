@@ -46,7 +46,7 @@ import { emitTrackEntry, TRACK_ENTRY_CATEGORIES, emitTrackCal100Pos, emitTrackHo
 import { getLeaderboard, startLeaderboard, stopLeaderboard } from './pump-leaderboard.js';
 import { broadcast, getSubscriptions, registerTopicProvider } from './ws.js';
 import { normalizeProxy } from './proxy-config.js';
-import { trackConfig, trackTokens } from './stores.js';
+import { trackConfig, trackFib, trackTokens } from './stores.js';
 
 // The column is pulled as fast as Photon sustains (same cadence as the FOMO
 // watcher) so a token is caught the second it appears; the per-token snapshot
@@ -1863,5 +1863,8 @@ export function getTrackToken(address) {
 
 export function clearTrack() {
   for (const key of Object.keys(trackTokens.getAll())) trackTokens.delete(key);
+  // The Fibonacci anchors are per tracked token: wiping Track must wipe them too,
+  // or a re-entered address would resume with an old base/ATH and old seen levels.
+  for (const key of Object.keys(trackFib.getAll())) trackFib.delete(key);
   return { cleared: true };
 }

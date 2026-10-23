@@ -7,6 +7,7 @@
  *   track_cal_chat · track_chat_tesis · track_top
  *   track_cal100_pos
  *   track_holder_pos · track_holder_both · track_holder_top
+ *   track_fib
  *
  * fomo_holder_pos/_top son el equivalente FOMO de las alertas de holder del
  * Track, pero SÓLO se evalúan sobre tokens activos en Track (no sobre el feed
@@ -32,6 +33,11 @@
  * one floor, `_both` = both positive AND both floors, `_top` = the wallet was in
  * the global top 50 daily/weekly when first seen. `_top` does not use PnL floors.
  * One alert per token+wallet and category.
+ *
+ * `track_fib` is the Fibonacci watcher: only tokens visible in Track's Graduated
+ * section, base = launch low and ATH fixed when tracking starts, and ONE alert
+ * per level touched (0.236, 0.382, 0.5, 0.618, 0.786, 1.0). It is not tied to
+ * snapshots; the server polls 30S candles from Azura (see server/src/fib.js).
  *
  * There is no filter configuration here anymore: the feed screens own the filters
  * (FOMO pins its tab, the Track page owns its Graduated set) and the server gates
@@ -81,14 +87,15 @@ export const ALERT_CATEGORIES = [
   'track_holder_pos',
   'track_holder_both',
   'track_holder_top',
+  'track_fib',
 ] as const;
 export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
 
 /**
  * Defaults per category — la fuente de verdad de la app (la extensión la espeja
- * en extension/shared.js). CAL100+ y las 3 de holder del Track nacen ON; las 3
- * de entrada del Track y las 2 de holder de FOMO nacen OFF porque son opt-in
- * (miran los holders de los tokens activos del Track y pueden ser ruidosas).
+ * en extension/shared.js). CAL100+, las 3 de holder del Track y FIB nacen ON;
+ * las 3 de entrada del Track y las 2 de holder de FOMO nacen OFF porque son
+ * opt-in (miran los holders de los tokens activos del Track y pueden ser ruidosas).
  *
  * `registerDevice` los mezcla al abrir la app: una categoría nueva que este
  * dispositivo todavía no guardó entra con su default (y se sincroniza al server),
@@ -105,6 +112,7 @@ export const DEFAULT_CATEGORIES: Record<AlertCategory, boolean> = {
   track_holder_pos: true,
   track_holder_both: true,
   track_holder_top: true,
+  track_fib: true,
 };
 
 /**
