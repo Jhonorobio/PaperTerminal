@@ -19,7 +19,7 @@
  * for levels the token already touched before we started watching.
  */
 
-import { trackFib, trackTokens } from './stores.js';
+import { trackConfig, trackFib, trackTokens } from './stores.js';
 import { emitTrackFib } from './notify.js';
 
 const AZURA_BARS_URL = 'https://gateway.azura.xyz/trpc/v2.tokens.getBars';
@@ -294,8 +294,10 @@ let alertCount = 0;
 let lastError = null;
 let backoffUntil = 0;
 
-/** Visible tokens in the Track Graduated section. */
+/** Visible tokens in the Track Graduated section (nothing while Track is off). */
 export function fibTargets() {
+  const config = trackConfig.get('global') ?? {};
+  if (config.enabled === false) return [];
   return Object.values(trackTokens.getAll()).filter((tracked) => tracked?.visible && tracked.address);
 }
 
