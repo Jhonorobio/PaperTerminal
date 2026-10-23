@@ -1231,6 +1231,7 @@ function evictOverCap() {
     }
     if (!oldest) break;
     trackTokens.delete(oldest.address);
+    trackFib.delete(oldest.address);
   }
 }
 
